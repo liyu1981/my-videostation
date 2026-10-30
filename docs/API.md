@@ -10,14 +10,24 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | GET | `/libraries` | Libraries with paths + item counts |
 | POST | `/libraries` | Create `{name,type,language?,paths[]}`; validates absolute, existing dirs |
 | GET | `/libraries/{id}` | One library |
-| PATCH | `/libraries/{id}` | Rename / change language / replace paths |
+| PATCH | `/libraries/{id}` | Rename / change language / replace paths / `autoScanMinutes` |
 | DELETE | `/libraries/{id}` | Remove library and derived data (never touches media files) |
 | POST | `/libraries/{id}/scan` | Enqueue a scan job → `202 {job}` |
 | POST | `/libraries/{id}/enrich` | Enqueue metadata matching for unmatched items → `202 {job}` |
 | GET | `/jobs?limit=` | Recent jobs |
 | GET | `/jobs/{id}` | Job status/progress/message |
 | GET | `/home` | `{continue,recent,shelves[]}` for the landing page |
-| GET | `/browse` | `?kind=&libraryId=&sort=&page=&perPage=&q=&metadataStatus=` → `{items,page,perPage,total,totalPages}` |
+| GET | `/browse` | `?kind=&libraryId=&sort=&page=&perPage=&q=&metadataStatus=&category=&genre=&year=&watched=&folder=` → `{items,page,perPage,total,totalPages}` |
+| GET | `/libraries/{id}/facets?kind=` | Genre/year counts for filters |
+| GET | `/libraries/{id}/folders` | Folder prefixes with file counts |
+| GET | `/collections` | Collections (Favorites, Watchlist, user) with item counts |
+| POST | `/collections` | `{name}` |
+| PATCH | `/collections/{id}` | `{name}` (system collections rejected) |
+| DELETE | `/collections/{id}` | Delete a user collection |
+| GET | `/collections/{id}/items?page=` | Items in a collection |
+| POST | `/collections/{id}/items` | `{itemIds[]}` |
+| DELETE | `/collections/{id}/items/{itemId}` | Remove one item |
+| POST | `/items/batch` | `{action: watched\|unwatched\|add_collection\|remove_collection, itemIds[], collectionId?}` |
 | GET | `/search?q=&limit=` | FTS5 across title, original title, overview, people |
 | GET | `/items/{id}` | Detail: item + genres + people + files + locks + children (seasons/episodes) |
 | GET | `/items/{id}/children?kind=` | Seasons for a show, episodes for a season |

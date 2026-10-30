@@ -18,9 +18,17 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		ParentID:       int64Query(r, "parentId"),
 		Query:          q.Get("q"),
 		Sort:           q.Get("sort"),
+		Category:       q.Get("category"),
+		Genre:          q.Get("genre"),
+		Year:           intQuery(r, "year", 0),
+		Folder:         q.Get("folder"),
 		Page:           intQuery(r, "page", 1),
 		PerPage:        intQuery(r, "perPage", 60),
 		MetadataStatus: q.Get("metadataStatus"),
+	}
+	if v := q.Get("watched"); v == "true" || v == "false" {
+		watched := v == "true"
+		f.Watched = &watched
 	}
 	items, total, err := s.store.ListItems(r.Context(), f)
 	if err != nil {

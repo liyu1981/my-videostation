@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { useAtom } from 'jotai';
-import { ArrowLeft, Check, Lock, Pencil, Play, RefreshCw, SearchCheck } from 'lucide-react';
+import { ArrowLeft, Bookmark, Check, Heart, Lock, Pencil, Play, RefreshCw, SearchCheck } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Item } from '../lib/api';
 import { episodeLabel, formatRuntime } from '../lib/format';
@@ -25,6 +25,7 @@ export function DetailPage() {
   const [seasonId, setSeasonId] = useState<number | null>(null);
 
   const item = useQuery({ queryKey: ['item', id], queryFn: () => api.item(id), enabled: id > 0 });
+  const collections = useQuery({ queryKey: ['collections'], queryFn: api.collections });
   const parentId = item.data?.parentId ?? 0;
   const parent = useQuery({ queryKey: ['item', parentId], queryFn: () => api.item(parentId), enabled: parentId > 0 });
   const grandParentId = parent.data?.parentId ?? 0;
@@ -41,6 +42,24 @@ export function DetailPage() {
     queryKey: ['item', currentSeasonId],
     queryFn: () => api.item(currentSeasonId),
     enabled: isShow && currentSeasonId > 0,
+  });
+
+  const toggleCollection = useMutation({
+    mutationFn: async ({ collectionId, member }: { collectionId: number; member: boolean }) =>
+      member ? api.removeFromCollection(collectionId, id) : api.addToCollection(collectionId, [id]),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['item', id] });
+      void qc.invalidateQueries({ queryKey: ['collections'] });
+      void qc.invalidateQueries({ queryKey: ['home'] });
+    },
+  });
+
+  const addToCollection = useMutation({
+    mutationFn: (collectionId: number) => api.addToCollection(collectionId, [id]),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['item', id] });
+      void qc.invalidateQueries({ queryKey: ['collections'] });
+    },
   });
 
   const markWatched = useMutation({
@@ -70,6 +89,11 @@ export function DetailPage() {
   if (item.isError) return <ErrorState error={item.error} />;
 
   const detail = item.data!;
+  const favoritesId = collections.data?.collections.find((c) => c.systemKey === 'favorites')?.id ?? 0;
+  const watchlistId = collections.data?.collections.find((c) => c.systemKey === 'watchlist')?.id ?? 0;
+  const isFavorite = favoritesId > 0 && detail.collectionIds.includes(favoritesId);
+  const isWatchlisted = watchlistId > 0 && detail.collectionIds.includes(watchlistId);
+  const userCollections = (collections.data?.collections ?? []).filter((c) => !c.systemKey);
   const playable = detail.files.find((f) => !f.missing);
   const episodes: Item[] = isShow ? (seasonDetail.data?.children ?? []) : detail.children;
 
@@ -189,6 +213,47 @@ export function DetailPage() {
                   <Check className="size-4" aria-hidden />
                   {detail.played ? 'Mark unwatched' : 'Mark watched'}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => favoritesId > 0 && toggleCollection.mutate({ collectionId: favoritesId, member: isFavorite })}
+                  disabled={favoritesId === 0}
+                  aria-pressed={isFavorite}
+                  className={[
+                    'inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-[12.5px] transition-colors disabled:opacity-50',
+                    isFavorite ? 'border-active/50 bg-active/10 text-fg' : 'border-hairline text-fg-muted hover:border-hairline-strong hover:text-fg',
+                  ].join(' ')}
+                >
+                  <Heart className={['size-4', isFavorite ? 'fill-active text-active' : ''].join(' ')} aria-hidden />
+                  {isFavorite ? 'Favorited' : 'Favorite'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => watchlistId > 0 && toggleCollection.mutate({ collectionId: watchlistId, member: isWatchlisted })}
+                  disabled={watchlistId === 0}
+                  aria-pressed={isWatchlisted}
+                  className={[
+                    'inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-[12.5px] transition-colors disabled:opacity-50',
+                    isWatchlisted ? 'border-progress/50 bg-progress/10 text-fg' : 'border-hairline text-fg-muted hover:border-hairline-strong hover:text-fg',
+                  ].join(' ')}
+                >
+                  <Bookmark className={['size-4', isWatchlisted ? 'fill-progress text-progress' : ''].join(' ')} aria-hidden />
+                  {isWatchlisted ? 'In watchlist' : 'Watchlist'}
+                </button>
+                {userCollections.length > 0 ? (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) addToCollection.mutate(Number(e.target.value));
+                    }}
+                    aria-label="Add to collection"
+                    className="h-[38px] rounded-lg border border-hairline bg-surface-2 px-2.5 text-[12.5px] text-fg-muted hover:text-fg focus:border-hairline-strong"
+                  >
+                    <option value="">Add to collection…</option>
+                    {userCollections.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setEditing(true)}

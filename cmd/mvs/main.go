@@ -128,6 +128,38 @@ func run() error {
 	})
 	manager.Start(ctx)
 
+	// Auto-scan scheduler: checks every minute for libraries whose interval elapsed.
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				ids, err := st.LibrariesDueForScan(ctx)
+				if err != nil {
+					log.Error("auto-scan lookup", "err", err)
+					continue
+				}
+				for _, id := range ids {
+					active, err := st.HasActiveJob(ctx, "scan", id)
+					if err != nil || active {
+						continue
+					}
+					if _, err := manager.Enqueue(ctx, "scan", map[string]int64{"libraryId": id}); err != nil {
+						log.Error("auto-scan enqueue", "library", id, "err", err)
+						continue
+					}
+					if err := st.MarkAutoScan(ctx, id); err != nil {
+						log.Warn("mark auto-scan", "library", id, "err", err)
+					}
+					log.Info("auto-scan started", "library", id)
+				}
+			}
+		}
+	}()
+
 	cors := splitList(os.Getenv("MVS_CORS_ORIGIN"))
 	if len(cors) == 0 {
 		cors = []string{"http://localhost:5173", "http://127.0.0.1:5173"}

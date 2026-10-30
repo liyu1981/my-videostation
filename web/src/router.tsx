@@ -6,6 +6,9 @@ import { DetailPage } from './routes/DetailPage';
 import { SearchPage } from './routes/SearchPage';
 import { LibrariesPage } from './routes/LibrariesPage';
 import { SettingsPage } from './routes/SettingsPage';
+import { PlaylistsPage } from './routes/PlaylistsPage';
+import { CollectionPage } from './routes/CollectionPage';
+import { TasksPage } from './routes/TasksPage';
 
 const toNum = (v: unknown): number | undefined => {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -64,7 +67,35 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
-const routeTree = rootRoute.addChildren([homeRoute, browseRoute, detailRoute, searchRoute, librariesRoute, settingsRoute]);
+const playlistsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/playlists',
+  component: PlaylistsPage,
+});
+
+const collectionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/collections/$collectionId',
+  component: CollectionPage,
+});
+
+const tasksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tasks',
+  component: TasksPage,
+});
+
+const routeTree = rootRoute.addChildren([
+  homeRoute,
+  browseRoute,
+  detailRoute,
+  searchRoute,
+  librariesRoute,
+  settingsRoute,
+  playlistsRoute,
+  collectionRoute,
+  tasksRoute,
+]);
 
 export const router = createRouter({
   routeTree,

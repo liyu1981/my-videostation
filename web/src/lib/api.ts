@@ -93,6 +93,7 @@ export interface ItemDetail extends Item {
   locks: string[];
   children: Item[];
   extras: Item[];
+  collectionIds: number[];
   libraryName?: string;
 }
 
@@ -111,6 +112,8 @@ export interface Library {
   paths: LibraryPath[];
   itemCount: number;
   unmatchedCount: number;
+  autoScanMinutes: number;
+  lastAutoScanAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -153,6 +156,25 @@ export interface Candidate {
   backdropUrl?: string;
   rating?: number;
   mediaType: 'movie' | 'tv';
+}
+
+export interface Collection {
+  id: number;
+  name: string;
+  systemKey?: 'favorites' | 'watchlist';
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Facets {
+  genres: { value: string; count: number }[];
+  years: { value: string; count: number }[];
+}
+
+export interface FolderEntry {
+  path: string;
+  count: number;
 }
 
 export interface Settings {
@@ -207,7 +229,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-function qs(params: Record<string, string | number | undefined>): string {
+function qs(params: Record<string, string | number | boolean | undefined>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== '') sp.set(k, String(v));
@@ -226,6 +248,11 @@ export const api = {
     perPage?: number;
     q?: string;
     metadataStatus?: string;
+    category?: string;
+    genre?: string;
+    year?: number;
+    watched?: boolean;
+    folder?: string;
   }) =>
     request<BrowseResponse>(`/browse${qs(p)}`),
   search: (q: string, limit = 60) => request<{ items: Item[]; query: string }>(`/search${qs({ q, limit })}`),
@@ -238,7 +265,7 @@ export const api = {
   library: (id: number) => request<Library>(`/libraries/${id}`),
   createLibrary: (body: { name: string; type: LibraryType; language?: string; paths: string[] }) =>
     request<Library>('/libraries', { method: 'POST', body: JSON.stringify(body) }),
-  updateLibrary: (id: number, body: { name?: string; language?: string; paths?: string[] }) =>
+  updateLibrary: (id: number, body: { name?: string; language?: string; paths?: string[]; autoScanMinutes?: number }) =>
     request<Library>(`/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteLibrary: (id: number) => request<void>(`/libraries/${id}`, { method: 'DELETE' }),
   scanLibrary: (id: number) => request<Job>(`/libraries/${id}/scan`, { method: 'POST' }),
@@ -257,4 +284,25 @@ export const api = {
   setArt: (id: number, kind: 'poster' | 'backdrop', url: string) =>
     request<ItemDetail>(`/items/${id}/art`, { method: 'POST', body: JSON.stringify({ kind, url }) }),
   enrichLibrary: (id: number) => request<Job>(`/libraries/${id}/enrich`, { method: 'POST' }),
+
+  // collections
+  collections: () => request<{ collections: Collection[] }>('/collections'),
+  createCollection: (name: string) =>
+    request<Collection>('/collections', { method: 'POST', body: JSON.stringify({ name }) }),
+  renameCollection: (id: number, name: string) =>
+    request<Collection>(`/collections/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteCollection: (id: number) => request<void>(`/collections/${id}`, { method: 'DELETE' }),
+  collectionItems: (id: number, page = 1) =>
+    request<{ items: Item[]; total: number; page: number }>(`/collections/${id}/items${qs({ page, perPage: 60 })}`),
+  addToCollection: (id: number, itemIds: number[]) =>
+    request<Collection>(`/collections/${id}/items`, { method: 'POST', body: JSON.stringify({ itemIds }) }),
+  removeFromCollection: (id: number, itemId: number) =>
+    request<void>(`/collections/${id}/items/${itemId}`, { method: 'DELETE' }),
+
+  // bulk + facets
+  batch: (body: { action: 'watched' | 'unwatched' | 'add_collection' | 'remove_collection'; itemIds: number[]; collectionId?: number }) =>
+    request<{ ok: boolean; applied: number }>('/items/batch', { method: 'POST', body: JSON.stringify(body) }),
+  facets: (libraryId: number, kind: string) =>
+    request<Facets>(`/libraries/${libraryId}/facets${qs({ kind })}`),
+  folders: (libraryId: number) => request<{ folders: FolderEntry[] }>(`/libraries/${libraryId}/folders`),
 };

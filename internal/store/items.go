@@ -155,6 +155,11 @@ type ItemFilter struct {
 	PerPage        int
 	OnlyMissing    bool
 	MetadataStatus string // "" | unmatched | matched | manual
+	Category       string // recent_added|recent_watched|recent_released|all|timeline
+	Genre          string
+	Year           int
+	Watched        *bool
+	Folder         string // rel_path prefix
 }
 
 // ListItems returns a page of items plus the total count.
@@ -188,6 +193,29 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 			where = append(where, "m.kind IN ('movie','show')")
 		}
 	}
+	if f.Genre != "" {
+		where = append(where, `EXISTS (SELECT 1 FROM item_genres ig JOIN genres g ON g.id = ig.genre_id
+			WHERE ig.item_id = m.id AND g.name = ?)`)
+		args = append(args, f.Genre)
+	}
+	if f.Year > 0 {
+		where = append(where, "m.year = ?")
+		args = append(args, f.Year)
+	}
+	if f.Watched != nil {
+		if *f.Watched {
+			where = append(where, "COALESCE(p.played,0) = 1")
+		} else {
+			where = append(where, "COALESCE(p.played,0) = 0")
+		}
+	}
+	if f.Folder != "" {
+		where = append(where, `EXISTS (SELECT 1 FROM media_files mf WHERE mf.item_id = m.id AND mf.rel_path LIKE ?)`)
+		args = append(args, strings.TrimSuffix(f.Folder, "/")+"/%")
+	}
+	if f.Category == "recent_watched" {
+		where = append(where, "p.updated_at IS NOT NULL")
+	}
 	join := fmt.Sprintf(itemJoin, DefaultUserID)
 	if q := strings.TrimSpace(f.Query); q != "" {
 		join += " JOIN media_fts ft ON ft.rowid = m.id"
@@ -196,6 +224,14 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 	}
 
 	order := "m.added_at DESC, m.id DESC"
+	switch f.Category {
+	case "all":
+		order = "m.sort_title ASC, m.id ASC"
+	case "recent_watched":
+		order = "p.updated_at DESC, m.id DESC"
+	case "recent_released":
+		order = "COALESCE(m.year,0) DESC, m.added_at DESC"
+	}
 	switch f.Sort {
 	case "title":
 		order = "m.sort_title ASC, m.id ASC"

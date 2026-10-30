@@ -96,6 +96,10 @@ testdata/           parser corpus and generated sample media
 - **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
   artwork caching under `<data>/cache`, an "Identify" dialog for manual matches, a
   "Needs attention" queue, and refresh that never overwrites locked fields.
+- **Organisation (M3)**: Favorites / Watchlist / custom collections, selection mode with
+  bulk watched + add-to-collection, category presets (added / watched / released / A–Z),
+  genre/year/watched/folder filters from live facets, per-library auto-scan intervals,
+  and a live task monitor.
 
 ## Getting started
 
@@ -160,7 +164,7 @@ Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file 
 | **M0** ✅ | Repo scaffold, tokens/theme, single-binary build, Docker, CI |
 | **M1** ✅ | Libraries, incremental scanner, filename parser, browse UI, search, media info |
 | **M2** ✅ | TMDB matching, art management, identify/correct flows |
-| **M3** | Categories/facets, selection mode with bulk actions, scheduler, job monitor |
+| **M3** ✅ | Collections, selection/bulk actions, categories/facets, scheduler, task monitor |
 | **M4** | Full player: subtitle/audio tracks, resume UI, next episode |
 | **M5** | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |
 | **M6** | Users, permissions, parental controls, share links, i18n |

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -517,5 +518,258 @@ func TestMetadataNotConfigured(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", res.StatusCode)
+	}
+}
+
+// ---- M3: collections, bulk actions, facets, folders, scheduler ----------
+
+func TestCollectionsAndBulkActions(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	mediaDir := filepath.Join(dir, "movies")
+	writeFile(t, filepath.Join(mediaDir, "Alpha (2001)", "Alpha.2001.mkv"))
+	writeFile(t, filepath.Join(mediaDir, "Beta (2002)", "Beta.2002.mkv"))
+	lib, err := st.CreateLibrary(ctx, "Movies", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil))).ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie, Sort: "title"})
+	if err != nil || len(items) != 2 {
+		t.Fatalf("items = %+v err=%v", items, err)
+	}
+	a, b := items[0].ID, items[1].ID
+
+	// system collections exist
+	var cols struct {
+		Collections []struct {
+			ID        int64  `json:"id"`
+			Name      string `json:"name"`
+			SystemKey string `json:"systemKey"`
+		} `json:"collections"`
+	}
+	getJSON(t, srv.URL+"/api/v1/collections", &cols)
+	if len(cols.Collections) != 2 {
+		t.Fatalf("collections = %+v", cols.Collections)
+	}
+
+	// create a user collection
+	body, _ := json.Marshal(map[string]string{"name": "Rewatch"})
+	res, err := http.Post(srv.URL+"/api/v1/collections", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("create collection: %d %s", res.StatusCode, b)
+	}
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+
+	// add items
+	addBody, _ := json.Marshal(map[string]any{"itemIds": []int64{a}})
+	ares, err := http.Post(srv.URL+"/api/v1/collections/"+itoa(created.ID)+"/items", "application/json", bytes.NewReader(addBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ares.Body.Close()
+	if ares.StatusCode != http.StatusOK {
+		t.Fatalf("add items: %d", ares.StatusCode)
+	}
+
+	var colItems struct {
+		Items []struct {
+			ID int64 `json:"id"`
+		} `json:"items"`
+		Total int `json:"total"`
+	}
+	getJSON(t, srv.URL+"/api/v1/collections/"+itoa(created.ID)+"/items", &colItems)
+	if colItems.Total != 1 || colItems.Items[0].ID != a {
+		t.Fatalf("collection items = %+v", colItems)
+	}
+
+	// system collections are immutable
+	renameBody, _ := json.Marshal(map[string]string{"name": "Nope"})
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/collections/"+itoa(cols.Collections[0].ID), bytes.NewReader(renameBody))
+	req.Header.Set("Content-Type", "application/json")
+	rres, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rres.Body.Close()
+	if rres.StatusCode != http.StatusBadRequest {
+		t.Fatalf("rename system collection = %d, want 400", rres.StatusCode)
+	}
+
+	// bulk mark watched
+	batchBody, _ := json.Marshal(map[string]any{"action": "watched", "itemIds": []int64{a, b}})
+	bres, err := http.Post(srv.URL+"/api/v1/items/batch", "application/json", bytes.NewReader(batchBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bres.Body.Close()
+	if bres.StatusCode != http.StatusOK {
+		t.Fatalf("batch watched: %d", bres.StatusCode)
+	}
+	var watched struct {
+		Total int `json:"total"`
+	}
+	getJSON(t, srv.URL+"/api/v1/browse?kind=movie&watched=true", &watched)
+	if watched.Total != 2 {
+		t.Fatalf("watched total = %d, want 2", watched.Total)
+	}
+
+	// bulk unwatched
+	batchBody, _ = json.Marshal(map[string]any{"action": "unwatched", "itemIds": []int64{a}})
+	bres, err = http.Post(srv.URL+"/api/v1/items/batch", "application/json", bytes.NewReader(batchBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bres.Body.Close()
+	var unwatched struct {
+		Total int `json:"total"`
+	}
+	getJSON(t, srv.URL+"/api/v1/browse?kind=movie&watched=true", &unwatched)
+	if unwatched.Total != 1 {
+		t.Fatalf("watched after unwatch = %d, want 1", unwatched.Total)
+	}
+
+	// remove item + delete collection
+	dreq, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/collections/"+itoa(created.ID)+"/items/"+itoa(a), nil)
+	dres, err := http.DefaultClient.Do(dreq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dres.Body.Close()
+	if dres.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove item = %d", dres.StatusCode)
+	}
+	dreq2, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/collections/"+itoa(created.ID), nil)
+	dres2, err := http.DefaultClient.Do(dreq2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dres2.Body.Close()
+	if dres2.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete collection = %d", dres2.StatusCode)
+	}
+}
+
+func TestFacetsFoldersAndCategories(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	mediaDir := filepath.Join(dir, "movies")
+	writeFile(t, filepath.Join(mediaDir, "Alpha (2001)", "Alpha.2001.mkv"))
+	writeFile(t, filepath.Join(mediaDir, "Beta (2002)", "Beta.2002.mkv"))
+	writeFile(t, filepath.Join(mediaDir, "Nested", "Gamma (2003)", "Gamma.2003.mkv"))
+	lib, err := st.CreateLibrary(ctx, "Movies", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil))).ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var folders struct {
+		Folders []struct {
+			Path  string `json:"path"`
+			Count int    `json:"count"`
+		} `json:"folders"`
+	}
+	getJSON(t, srv.URL+"/api/v1/libraries/"+itoa(lib.ID)+"/folders", &folders)
+	if len(folders.Folders) < 2 {
+		t.Fatalf("folders = %+v", folders.Folders)
+	}
+
+	// add a genre to one item so facets have data
+	items, _, _ := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie})
+	if len(items) != 3 {
+		t.Fatalf("items = %d", len(items))
+	}
+	patch, _ := json.Marshal(map[string]any{"genres": []string{"Drama"}})
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/items/"+itoa(items[0].ID), bytes.NewReader(patch))
+	req.Header.Set("Content-Type", "application/json")
+	pres, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pres.Body.Close()
+
+	var facets struct {
+		Genres []struct {
+			Value string `json:"value"`
+			Count int    `json:"count"`
+		} `json:"genres"`
+		Years []struct {
+			Value string `json:"value"`
+		} `json:"years"`
+	}
+	getJSON(t, srv.URL+"/api/v1/libraries/"+itoa(lib.ID)+"/facets?kind=movie", &facets)
+	if len(facets.Genres) != 1 || facets.Genres[0].Value != "Drama" {
+		t.Fatalf("genres = %+v", facets.Genres)
+	}
+	if len(facets.Years) != 3 {
+		t.Fatalf("years = %+v", facets.Years)
+	}
+
+	// genre filter
+	var byGenre struct {
+		Total int `json:"total"`
+	}
+	getJSON(t, srv.URL+"/api/v1/browse?kind=movie&genre=Drama", &byGenre)
+	if byGenre.Total != 1 {
+		t.Fatalf("genre filter total = %d", byGenre.Total)
+	}
+
+	// folder filter
+	var byFolder struct {
+		Total int `json:"total"`
+	}
+	getJSON(t, srv.URL+"/api/v1/browse?kind=movie&folder="+url.QueryEscape("Nested/Gamma (2003)"), &byFolder)
+	if byFolder.Total != 1 {
+		t.Fatalf("folder filter total = %d", byFolder.Total)
+	}
+
+	// category ordering: recently released puts 2003 first
+	var released struct {
+		Items []struct {
+			Year int `json:"year"`
+		} `json:"items"`
+	}
+	getJSON(t, srv.URL+"/api/v1/browse?kind=movie&category=recent_released", &released)
+	if len(released.Items) == 0 || released.Items[0].Year != 2003 {
+		t.Fatalf("recent_released = %+v", released.Items)
+	}
+
+	// auto-scan scheduler bookkeeping
+	mins := 60
+	if err := st.UpdateLibrary(ctx, lib.ID, "", "", nil, &mins); err != nil {
+		t.Fatal(err)
+	}
+	due, err := st.LibrariesDueForScan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 1 || due[0] != lib.ID {
+		t.Fatalf("due = %v", due)
+	}
+	if err := st.MarkAutoScan(ctx, lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	due, err = st.LibrariesDueForScan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("due after mark = %v", due)
 	}
 }

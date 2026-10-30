@@ -76,8 +76,8 @@ export function LibrariesPage() {
   });
 
   const update = useMutation({
-    mutationFn: (input: { id: number; name: string; paths: string[] }) =>
-      api.updateLibrary(input.id, { name: input.name, paths: input.paths }),
+    mutationFn: (input: { id: number; name: string; paths: string[]; autoScanMinutes: number }) =>
+      api.updateLibrary(input.id, { name: input.name, paths: input.paths, autoScanMinutes: input.autoScanMinutes }),
     onSuccess: () => {
       setEditing(null);
       void qc.invalidateQueries({ queryKey: ['libraries'] });
@@ -170,6 +170,11 @@ export function LibrariesPage() {
                   <h2 className="text-[14px] font-semibold">{lib.name}</h2>
                   <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[10.5px] text-fg-muted">{TYPE_LABEL[lib.type]}</span>
                   <span className="text-[11.5px] text-fg-dim">{lib.itemCount} items</span>
+                  {lib.autoScanMinutes > 0 ? (
+                    <span className="rounded-full border border-hairline px-2 py-0.5 text-[10.5px] text-fg-dim">
+                      auto every {lib.autoScanMinutes >= 1440 ? `${lib.autoScanMinutes / 1440}d` : `${lib.autoScanMinutes / 60}h`}
+                    </span>
+                  ) : null}
                   {lib.unmatchedCount > 0 ? (
                     <Link
                       to="/browse"
@@ -233,6 +238,7 @@ export function LibrariesPage() {
                   const form = e.currentTarget;
                   const nameInput = form.elements.namedItem('name') as HTMLInputElement;
                   const pathsInput = form.elements.namedItem('paths') as HTMLTextAreaElement;
+                  const scanSelect = form.elements.namedItem('autoScanMinutes') as HTMLSelectElement;
                   update.mutate({
                     id: lib.id,
                     name: nameInput.value.trim(),
@@ -240,6 +246,7 @@ export function LibrariesPage() {
                       .split('\n')
                       .map((p) => p.trim())
                       .filter(Boolean),
+                    autoScanMinutes: Number(scanSelect.value),
                   });
                 }}
                 className="mt-3 border-t border-hairline pt-3"
@@ -248,6 +255,16 @@ export function LibrariesPage() {
                   <label className="block">
                     <span className="mb-1 block text-[11.5px] text-fg-muted">Name</span>
                     <input name="name" defaultValue={lib.name} className={inputClass} />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11.5px] text-fg-muted">Auto-scan</span>
+                    <select name="autoScanMinutes" defaultValue={String(lib.autoScanMinutes || 0)} className={inputClass}>
+                      <option value="0">Off (manual only)</option>
+                      <option value="60">Every hour</option>
+                      <option value="360">Every 6 hours</option>
+                      <option value="1440">Daily</option>
+                      <option value="10080">Weekly</option>
+                    </select>
                   </label>
                   <label className="block sm:col-span-2">
                     <span className="mb-1 block text-[11.5px] text-fg-muted">Folders</span>

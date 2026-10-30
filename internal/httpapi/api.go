@@ -75,6 +75,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/jobs", s.handleListJobs)
 	mux.HandleFunc("GET /api/v1/jobs/{id}", s.handleGetJob)
 
+	mux.HandleFunc("GET /api/v1/collections", s.handleListCollections)
+	mux.HandleFunc("POST /api/v1/collections", s.handleCreateCollection)
+	mux.HandleFunc("PATCH /api/v1/collections/{id}", s.handleRenameCollection)
+	mux.HandleFunc("DELETE /api/v1/collections/{id}", s.handleDeleteCollection)
+	mux.HandleFunc("GET /api/v1/collections/{id}/items", s.handleCollectionItems)
+	mux.HandleFunc("POST /api/v1/collections/{id}/items", s.handleAddCollectionItems)
+	mux.HandleFunc("DELETE /api/v1/collections/{id}/items/{itemId}", s.handleRemoveCollectionItem)
+	mux.HandleFunc("POST /api/v1/items/batch", s.handleBatch)
+
+	mux.HandleFunc("GET /api/v1/libraries/{id}/facets", s.handleFacets)
+	mux.HandleFunc("GET /api/v1/libraries/{id}/folders", s.handleFolders)
+
 	mux.HandleFunc("GET /api/v1/home", s.handleHome)
 	mux.HandleFunc("GET /api/v1/browse", s.handleBrowse)
 	mux.HandleFunc("GET /api/v1/search", s.handleSearch)
@@ -253,13 +265,14 @@ type fileDTO struct {
 
 type itemDetailDTO struct {
 	itemDTO
-	Genres      []string       `json:"genres"`
-	People      []store.Person `json:"people"`
-	Files       []fileDTO      `json:"files"`
-	Locks       []string       `json:"locks"`
-	Children    []itemDTO      `json:"children"`
-	Extras      []itemDTO      `json:"extras"`
-	LibraryName string         `json:"libraryName,omitempty"`
+	Genres        []string       `json:"genres"`
+	People        []store.Person `json:"people"`
+	Files         []fileDTO      `json:"files"`
+	Locks         []string       `json:"locks"`
+	Children      []itemDTO      `json:"children"`
+	Extras        []itemDTO      `json:"extras"`
+	CollectionIDs []int64        `json:"collectionIds"`
+	LibraryName   string         `json:"libraryName,omitempty"`
 }
 
 func (s *Server) itemDTO(it store.Item) itemDTO {
@@ -282,7 +295,8 @@ func (s *Server) itemDTOs(items []store.Item) []itemDTO {
 }
 
 func (s *Server) itemDetail(ctx context.Context, it *store.Item) (*itemDetailDTO, error) {
-	d := &itemDetailDTO{itemDTO: s.itemDTO(*it), Genres: []string{}, People: []store.Person{}, Files: []fileDTO{}, Locks: []string{}, Children: []itemDTO{}, Extras: []itemDTO{}}
+	d := &itemDetailDTO{itemDTO: s.itemDTO(*it), Genres: []string{}, People: []store.Person{}, Files: []fileDTO{},
+		Locks: []string{}, Children: []itemDTO{}, Extras: []itemDTO{}, CollectionIDs: []int64{}}
 	var err error
 	if d.Genres, err = s.store.ItemGenres(ctx, it.ID); err != nil {
 		return nil, err
@@ -302,6 +316,9 @@ func (s *Server) itemDetail(ctx context.Context, it *store.Item) (*itemDetailDTO
 	}
 	if lib, err := s.store.GetLibrary(ctx, it.LibraryID); err == nil {
 		d.LibraryName = lib.Name
+	}
+	if ids, err := s.store.ItemCollectionIDs(ctx, it.ID); err == nil {
+		d.CollectionIDs = ids
 	}
 	if extras, err := s.store.ListExtras(ctx, it.ID); err == nil && len(extras) > 0 {
 		d.Extras = s.itemDTOs(extras)

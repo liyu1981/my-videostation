@@ -4,8 +4,19 @@ import { densityAtom } from '../atoms/ui';
 import type { ViewMode } from '../atoms/ui';
 import { ListRow, PosterCard, TileCard } from './Poster';
 
-export function ItemViews({ items, view, bare = false }: { items: Item[]; view: ViewMode; bare?: boolean }) {
+export function ItemViews({
+  items,
+  view,
+  bare = false,
+  selection,
+}: {
+  items: Item[];
+  view: ViewMode;
+  bare?: boolean;
+  selection?: { selected: Set<number>; onToggle: (id: number) => void };
+}) {
   const density = useAtomValue(densityAtom);
+  if (selection) view = 'poster';
   const compact = density === 'compact';
   const gridClass = compact
     ? 'grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 2xl:grid-cols-9'
@@ -35,7 +46,12 @@ export function ItemViews({ items, view, bare = false }: { items: Item[]; view: 
     <div className={bare ? 'flex gap-4 overflow-x-auto pb-2 no-scrollbar' : gridClass}>
       {items.map((item) => (
         <div key={item.id} className={bare ? 'w-[150px] shrink-0' : undefined}>
-          <PosterCard item={item} />
+          <PosterCard
+            item={item}
+            selectMode={Boolean(selection)}
+            selected={selection?.selected.has(item.id)}
+            onToggle={selection?.onToggle}
+          />
         </div>
       ))}
     </div>

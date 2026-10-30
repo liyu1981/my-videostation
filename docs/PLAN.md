@@ -537,6 +537,25 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 - Provider calls are synchronous per item inside the job (no rate-limit pacing yet); TMDB's
   40 req/10 s limit is respected only by the sequential job loop.
 
+### M3 — delivered
+
+| Plan item | Status |
+|---|---|
+| Collections | ✅ Favorites + Watchlist system collections, user collections (create/rename/delete, add/remove items), collection pages |
+| Selection mode | ✅ toggle in browse, per-card check state, bulk watched/unwatched and add-to-collection |
+| Categories | ✅ recent added / recently watched / recently released / A–Z, plus the "needs attention" preset |
+| Facets | ✅ genre + year counts per library, watched-state filter, folder filter (rel-path prefix) |
+| Scheduler | ✅ per-library auto-scan interval (hourly…weekly), dedupe against active scans, `last_auto_scan_at` |
+| Task monitor | ✅ `/tasks` page with live progress for scans and enrichment |
+
+### M3 — known limitations
+
+- Selection mode is poster-grid only (view toggles are disabled while selecting).
+- Bulk actions cover watched state and collections; hide/delete-library-item bulk actions are
+  deliberately absent until M6 permissions.
+- Folder filter is a flat prefix list (no tree UI); "Timeline" grouping is not implemented yet.
+- Auto-scan intervals are minute-based and evaluated once per minute; no cron expressions.
+
 ### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
 
 1. **sqlc deferred** — hand-written typed store until the schema settles (post-M2).

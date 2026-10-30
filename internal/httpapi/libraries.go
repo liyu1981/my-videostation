@@ -11,10 +11,11 @@ import (
 )
 
 type libraryInput struct {
-	Name     string   `json:"name"`
-	Type     string   `json:"type"`
-	Language string   `json:"language"`
-	Paths    []string `json:"paths"`
+	Name            string   `json:"name"`
+	Type            string   `json:"type"`
+	Language        string   `json:"language"`
+	Paths           []string `json:"paths"`
+	AutoScanMinutes *int     `json:"autoScanMinutes"`
 }
 
 type libraryDTO struct {
@@ -108,7 +109,7 @@ func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.store.UpdateLibrary(r.Context(), id, in.Name, in.Language, in.Paths); err != nil {
+	if err := s.store.UpdateLibrary(r.Context(), id, in.Name, in.Language, in.Paths, in.AutoScanMinutes); err != nil {
 		s.fail(w, err)
 		return
 	}

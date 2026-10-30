@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { Film, Play } from 'lucide-react';
+import { Check, Film, Play } from 'lucide-react';
 import type { Item } from '../lib/api';
 import { episodeLabel, formatRuntime, posterGradient } from '../lib/format';
 
@@ -40,13 +40,33 @@ export function Artwork({ item, className = '' }: { item: Item; className?: stri
   );
 }
 
-export function PosterCard({ item }: { item: Item }) {
+export function PosterCard({
+  item,
+  selectMode = false,
+  selected = false,
+  onToggle,
+}: {
+  item: Item;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggle?: (id: number) => void;
+}) {
   const progress = progressPercent(item);
   return (
     <Link
       to="/items/$itemId"
       params={{ itemId: String(item.id) }}
-      className="group card-hover block rounded-[var(--radius-card)] focus-visible:outline-none"
+      onClick={(e) => {
+        if (selectMode) {
+          e.preventDefault();
+          onToggle?.(item.id);
+        }
+      }}
+      aria-pressed={selectMode ? selected : undefined}
+      className={[
+        'group card-hover block rounded-[var(--radius-card)] focus-visible:outline-none',
+        selected ? 'ring-2 ring-active ring-offset-2 ring-offset-bg' : '',
+      ].join(' ')}
       title={item.title}
     >
       <div className="relative aspect-[2/3] overflow-hidden rounded-[var(--radius-card)] border border-hairline bg-surface-2">
@@ -76,6 +96,19 @@ export function PosterCard({ item }: { item: Item }) {
             <div className="h-full bg-progress" style={{ width: `${progress}%` }} />
           </div>
         ) : null}
+
+        {selectMode ? (
+          <div className="absolute inset-0 bg-black/20">
+            <span
+              className={[
+                'absolute right-2 top-2 grid size-6 place-items-center rounded-full ring-1',
+                selected ? 'bg-active text-white ring-active' : 'bg-black/60 text-transparent ring-white/40',
+              ].join(' ')}
+            >
+              <Check className="size-3.5" aria-hidden />
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-2 space-y-0.5">
@@ -102,6 +135,7 @@ export function TileCard({ item }: { item: Item }) {
             <div className="h-full bg-progress" style={{ width: `${progress}%` }} />
           </div>
         ) : null}
+
       </div>
       <div className="min-w-0 flex-1 py-0.5">
         <div className="flex items-baseline gap-2">
