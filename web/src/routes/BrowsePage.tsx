@@ -15,6 +15,7 @@ type BrowseSearch = {
   sort: string;
   page: number;
   q: string;
+  status?: string;
 };
 
 const SORTS = [
@@ -40,12 +41,13 @@ export function BrowsePage() {
   const page = search.page || 1;
   const sort = search.sort || 'added';
   const libraryId = search.libraryId;
+  const status = search.status ?? '';
 
   const libs = useQuery({ queryKey: ['libraries'], queryFn: api.libraries });
   const items = useQuery({
-    queryKey: ['browse', kind, libraryId ?? 0, sort, page, search.q],
+    queryKey: ['browse', kind, libraryId ?? 0, sort, page, search.q, status],
     queryFn: () =>
-      api.browse({ kind, libraryId, sort, page, perPage: 48, q: search.q }),
+      api.browse({ kind, libraryId, sort, page, perPage: 48, q: search.q, metadataStatus: status || undefined }),
   });
 
   const kindLibs = (libs.data?.libraries ?? []).filter((l: Library) => {
@@ -62,6 +64,7 @@ export function BrowsePage() {
         sort,
         page: 1,
         q: search.q ?? '',
+        status: status || undefined,
         ...patch,
       } as never,
     });
@@ -71,7 +74,9 @@ export function BrowsePage() {
     <div className="px-6 py-6 lg:px-8">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-[20px] font-semibold tracking-tight text-fg-heading">{kindLabel(kind)}</h1>
+          <h1 className="text-[20px] font-semibold tracking-tight text-fg-heading">
+            {status === 'unmatched' ? 'Needs attention' : kindLabel(kind)}
+          </h1>
           <p className="mt-1 text-[12px] text-fg-dim">
             {items.data ? `${items.data.total} items` : 'Loading…'}
             {kindLibs.length > 1 ? ` · ${kindLibs.length} libraries` : ''}
@@ -144,9 +149,11 @@ export function BrowsePage() {
           icon={<SlidersHorizontal className="size-7" />}
           title="Nothing here yet"
           description={
-            kindLibs.length === 0
-              ? `No ${kindLabel(kind).toLowerCase()} library is configured. Add one and scan it.`
-              : 'This library is empty or the filter excludes everything.'
+            status === 'unmatched'
+              ? 'Everything is matched. New scans will surface items that need a manual match.'
+              : kindLibs.length === 0
+                ? `No ${kindLabel(kind).toLowerCase()} library is configured. Add one and scan it.`
+                : 'This library is empty or the filter excludes everything.'
           }
         />
       ) : null}

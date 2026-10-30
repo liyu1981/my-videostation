@@ -13,8 +13,10 @@ import (
 	"testing"
 
 	"github.com/liyu1981/myvideostation/internal/db"
+	"github.com/liyu1981/myvideostation/internal/enrich"
 	"github.com/liyu1981/myvideostation/internal/httpapi"
 	"github.com/liyu1981/myvideostation/internal/jobs"
+	"github.com/liyu1981/myvideostation/internal/metadata"
 	"github.com/liyu1981/myvideostation/internal/scanner"
 	"github.com/liyu1981/myvideostation/internal/store"
 )
@@ -338,4 +340,182 @@ func itoa(v int64) string {
 		v /= 10
 	}
 	return string(b[i:])
+}
+
+// ---- metadata (M2) -------------------------------------------------------
+
+type fakeProvider struct{}
+
+func (fakeProvider) Name() string { return "fake" }
+
+func (fakeProvider) SearchMovies(_ context.Context, query string, year int) ([]metadata.Candidate, error) {
+	return []metadata.Candidate{{
+		ProviderID: "603", Title: "The King's Speech", OriginalTitle: "The King's Speech",
+		Year: 2010, Overview: "A king finds his voice.", Rating: 7.7, MediaType: "movie",
+	}}, nil
+}
+
+func (fakeProvider) SearchTV(_ context.Context, _ string, _ int) ([]metadata.Candidate, error) {
+	return nil, nil
+}
+
+func (fakeProvider) Movie(_ context.Context, id string) (*metadata.Details, error) {
+	return &metadata.Details{
+		Candidate:     metadata.Candidate{ProviderID: id, Title: "The King's Speech", Year: 2010, Rating: 7.7},
+		Tagline:       "Find your voice.",
+		ContentRating: "R",
+		RuntimeMS:     118 * 60 * 1000,
+		Genres:        []string{"Drama", "History"},
+		Cast:          []metadata.Credit{{Name: "Colin Firth", Character: "King George VI"}},
+		Crew:          []metadata.Credit{{Name: "Tom Hooper", Job: "Director"}},
+	}, nil
+}
+
+func (fakeProvider) TV(_ context.Context, id string) (*metadata.Details, error) {
+	return &metadata.Details{Candidate: metadata.Candidate{ProviderID: id, Title: "For All Mankind", Year: 2019}}, nil
+}
+
+func TestMetadataMatchingFlow(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	d, err := db.Open(ctx, filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(d)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	factory := func(context.Context) (metadata.Provider, error) { return fakeProvider{}, nil }
+	enricher := enrich.New(st, factory, filepath.Join(dir, "cache"), log)
+	manager := jobs.New(st, log)
+	manager.Start(ctx)
+	srv := httptest.NewServer(httpapi.New(httpapi.Options{
+		Store: st, Jobs: manager, Logger: log, Provider: factory, Enricher: enricher,
+	}).Handler())
+	t.Cleanup(srv.Close)
+
+	mediaDir := filepath.Join(dir, "media")
+	writeFile(t, filepath.Join(mediaDir, "The King's Speech (2010)", "The King's Speech (2010) 1080p.mkv"))
+	lib, err := st.CreateLibrary(ctx, "Movies", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := scanner.New(st, nil, log)
+	if _, err := sc.ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items = %v err=%v", items, err)
+	}
+	id := items[0].ID
+	if items[0].MetadataStatus != "unmatched" {
+		t.Fatalf("status = %q, want unmatched", items[0].MetadataStatus)
+	}
+
+	// candidate search
+	var matches struct {
+		Candidates []struct {
+			ProviderID string `json:"providerId"`
+			Title      string `json:"title"`
+		} `json:"candidates"`
+	}
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(id)+"/matches?q=king", &matches)
+	if len(matches.Candidates) != 1 || matches.Candidates[0].ProviderID != "603" {
+		t.Fatalf("candidates = %+v", matches.Candidates)
+	}
+
+	// manual match
+	body, _ := json.Marshal(map[string]string{"providerId": "603"})
+	res, err := http.Post(srv.URL+"/api/v1/items/"+itoa(id)+"/match", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("match: %d %s", res.StatusCode, b)
+	}
+	var matched struct {
+		Title          string   `json:"title"`
+		Tagline        string   `json:"tagline"`
+		ContentRating  string   `json:"contentRating"`
+		Genres         []string `json:"genres"`
+		ProviderID     string   `json:"providerId"`
+		MetadataStatus string   `json:"metadataStatus"`
+		People         []struct {
+			Name string `json:"name"`
+			Role string `json:"role"`
+		} `json:"people"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&matched); err != nil {
+		t.Fatal(err)
+	}
+	if matched.Title != "The King's Speech" || matched.ProviderID != "603" || matched.MetadataStatus != "manual" {
+		t.Fatalf("matched = %+v", matched)
+	}
+	if matched.Tagline != "Find your voice." || matched.ContentRating != "R" || len(matched.Genres) != 2 {
+		t.Fatalf("details not applied: %+v", matched)
+	}
+	if len(matched.People) != 2 { // one cast + one director
+		t.Fatalf("people = %+v", matched.People)
+	}
+
+	// refresh must respect locked fields
+	patch, _ := json.Marshal(map[string]any{"overview": "Manual overview", "locks": []string{"overview"}})
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/items/"+itoa(id), bytes.NewReader(patch))
+	req.Header.Set("Content-Type", "application/json")
+	pres, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pres.Body.Close()
+
+	rres, err := http.Post(srv.URL+"/api/v1/items/"+itoa(id)+"/refresh", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rres.Body.Close()
+	if rres.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(rres.Body)
+		t.Fatalf("refresh: %d %s", rres.StatusCode, b)
+	}
+	var refreshed struct {
+		Overview string `json:"overview"`
+	}
+	if err := json.NewDecoder(rres.Body).Decode(&refreshed); err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.Overview != "Manual overview" {
+		t.Fatalf("locked overview overwritten: %q", refreshed.Overview)
+	}
+}
+
+func TestMetadataNotConfigured(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+	mediaDir := filepath.Join(dir, "m")
+	writeFile(t, filepath.Join(mediaDir, "Some Movie (2020)", "Some.Movie.2020.mkv"))
+	lib, err := st.CreateLibrary(ctx, "M", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil))).ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	items, _, _ := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie})
+	if len(items) != 1 {
+		t.Fatalf("items = %d", len(items))
+	}
+	res, err := http.Get(srv.URL + "/api/v1/items/" + itoa(items[0].ID) + "/matches")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", res.StatusCode)
+	}
 }

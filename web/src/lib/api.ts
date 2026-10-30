@@ -15,6 +15,10 @@ export interface Item {
   runtimeMs?: number;
   rating?: number;
   contentRating?: string;
+  provider?: string;
+  providerId?: string;
+  metadataStatus: 'unmatched' | 'matched' | 'manual' | 'failed' | string;
+  matchConfidence: number;
   seasonNumber?: number;
   episodeNumber?: number;
   episodeEnd?: number;
@@ -106,6 +110,7 @@ export interface Library {
   language: string;
   paths: LibraryPath[];
   itemCount: number;
+  unmatchedCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -136,6 +141,26 @@ export interface BrowseResponse {
   perPage: number;
   total: number;
   totalPages: number;
+}
+
+export interface Candidate {
+  providerId: string;
+  title: string;
+  originalTitle?: string;
+  year?: number;
+  overview?: string;
+  posterUrl?: string;
+  backdropUrl?: string;
+  rating?: number;
+  mediaType: 'movie' | 'tv';
+}
+
+export interface Settings {
+  metadata: {
+    apiKeySet: boolean;
+    language: string;
+    region: string;
+  };
 }
 
 export interface ItemPatch {
@@ -193,7 +218,15 @@ function qs(params: Record<string, string | number | undefined>): string {
 
 export const api = {
   home: () => request<Home>('/home'),
-  browse: (p: { libraryId?: number; kind?: string; sort?: string; page?: number; perPage?: number; q?: string }) =>
+  browse: (p: {
+    libraryId?: number;
+    kind?: string;
+    sort?: string;
+    page?: number;
+    perPage?: number;
+    q?: string;
+    metadataStatus?: string;
+  }) =>
     request<BrowseResponse>(`/browse${qs(p)}`),
   search: (q: string, limit = 60) => request<{ items: Item[]; query: string }>(`/search${qs({ q, limit })}`),
   item: (id: number) => request<ItemDetail>(`/items/${id}`),
@@ -211,4 +244,17 @@ export const api = {
   scanLibrary: (id: number) => request<Job>(`/libraries/${id}/scan`, { method: 'POST' }),
   jobs: (limit = 20) => request<{ jobs: Job[] }>(`/jobs${qs({ limit })}`),
   job: (id: number) => request<Job>(`/jobs/${id}`),
+
+  // metadata
+  settings: () => request<Settings>('/settings'),
+  saveSettings: (body: { tmdbApiKey?: string; language?: string; region?: string }) =>
+    request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  matches: (id: number, q?: string, year?: number) =>
+    request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year })}`),
+  match: (id: number, providerId: string) =>
+    request<ItemDetail>(`/items/${id}/match`, { method: 'POST', body: JSON.stringify({ providerId }) }),
+  refreshMetadata: (id: number) => request<ItemDetail>(`/items/${id}/refresh`, { method: 'POST' }),
+  setArt: (id: number, kind: 'poster' | 'backdrop', url: string) =>
+    request<ItemDetail>(`/items/${id}/art`, { method: 'POST', body: JSON.stringify({ kind, url }) }),
+  enrichLibrary: (id: number) => request<Job>(`/libraries/${id}/enrich`, { method: 'POST' }),
 };

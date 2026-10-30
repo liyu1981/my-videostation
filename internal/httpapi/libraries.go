@@ -17,13 +17,35 @@ type libraryInput struct {
 	Paths    []string `json:"paths"`
 }
 
+type libraryDTO struct {
+	store.Library
+	UnmatchedCount int `json:"unmatchedCount"`
+}
+
+func (s *Server) libraryDTO(r *http.Request, lib store.Library) (libraryDTO, error) {
+	n, err := s.store.CountUnmatched(r.Context(), lib.ID)
+	if err != nil {
+		return libraryDTO{}, err
+	}
+	return libraryDTO{Library: lib, UnmatchedCount: n}, nil
+}
+
 func (s *Server) handleListLibraries(w http.ResponseWriter, r *http.Request) {
 	libs, err := s.store.ListLibraries(r.Context())
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"libraries": libs})
+	out := make([]libraryDTO, 0, len(libs))
+	for _, lib := range libs {
+		dto, err := s.libraryDTO(r, lib)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		out = append(out, dto)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"libraries": out})
 }
 
 func (s *Server) handleGetLibrary(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +59,12 @@ func (s *Server) handleGetLibrary(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, lib)
+	dto, err := s.libraryDTO(r, *lib)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +83,12 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("library created", "id", lib.ID, "name", lib.Name, "type", lib.Type)
-	writeJSON(w, http.StatusCreated, lib)
+	dto, err := s.libraryDTO(r, *lib)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, dto)
 }
 
 func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +117,12 @@ func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, lib)
+	dto, err := s.libraryDTO(r, *lib)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 func (s *Server) handleDeleteLibrary(w http.ResponseWriter, r *http.Request) {

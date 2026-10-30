@@ -5,6 +5,7 @@ import { BrowsePage } from './routes/BrowsePage';
 import { DetailPage } from './routes/DetailPage';
 import { SearchPage } from './routes/SearchPage';
 import { LibrariesPage } from './routes/LibrariesPage';
+import { SettingsPage } from './routes/SettingsPage';
 
 const toNum = (v: unknown): number | undefined => {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -33,6 +34,7 @@ const browseRoute = createRoute({
     sort: toStr(search.sort, 'added'),
     page: toNum(search.page) ?? 1,
     q: toStr(search.q),
+    status: toStr(search.status),
   }),
   component: BrowsePage,
 });
@@ -56,7 +58,13 @@ const librariesRoute = createRoute({
   component: LibrariesPage,
 });
 
-const routeTree = rootRoute.addChildren([homeRoute, browseRoute, detailRoute, searchRoute, librariesRoute]);
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  component: SettingsPage,
+});
+
+const routeTree = rootRoute.addChildren([homeRoute, browseRoute, detailRoute, searchRoute, librariesRoute, settingsRoute]);
 
 export const router = createRouter({
   routeTree,

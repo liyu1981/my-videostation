@@ -7,6 +7,10 @@ import { ItemViews } from '../components/ItemViews';
 
 export function HomePage() {
   const home = useQuery({ queryKey: ['home'], queryFn: api.home });
+  const unmatched = useQuery({
+    queryKey: ['browse', 'unmatched', 'home'],
+    queryFn: () => api.browse({ metadataStatus: 'unmatched', perPage: 12 }),
+  });
 
   if (home.isLoading) return <Loading />;
   if (home.isError) return <ErrorState error={home.error} />;
@@ -47,6 +51,20 @@ export function HomePage() {
         />
       ) : null}
 
+      {unmatched.data && unmatched.data.items.length > 0 ? (
+        <section>
+          <SectionHeader
+            title={`Needs attention (${unmatched.data.total})`}
+            aside={
+              <Link to="/browse" search={{ kind: 'movie', libraryId: undefined, sort: 'added', page: 1, q: '', status: 'unmatched' }} className="text-[11.5px] text-fg-dim hover:text-fg">
+                Review all
+              </Link>
+            }
+          />
+          <ItemViews items={unmatched.data.items} view="poster" bare />
+        </section>
+      ) : null}
+
       {data.continue.length > 0 ? (
         <section>
           <SectionHeader title="Continue watching" />
@@ -74,6 +92,7 @@ export function HomePage() {
                   sort: 'added',
                   page: 1,
                   q: '',
+                  status: '',
                 }}
                 className="text-[11.5px] text-fg-dim hover:text-fg"
               >

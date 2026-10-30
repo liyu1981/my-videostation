@@ -13,13 +13,14 @@ import (
 func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := store.ItemFilter{
-		LibraryID: int64Query(r, "libraryId"),
-		Kind:      q.Get("kind"),
-		ParentID:  int64Query(r, "parentId"),
-		Query:     q.Get("q"),
-		Sort:      q.Get("sort"),
-		Page:      intQuery(r, "page", 1),
-		PerPage:   intQuery(r, "perPage", 60),
+		LibraryID:      int64Query(r, "libraryId"),
+		Kind:           q.Get("kind"),
+		ParentID:       int64Query(r, "parentId"),
+		Query:          q.Get("q"),
+		Sort:           q.Get("sort"),
+		Page:           intQuery(r, "page", 1),
+		PerPage:        intQuery(r, "perPage", 60),
+		MetadataStatus: q.Get("metadataStatus"),
 	}
 	items, total, err := s.store.ListItems(r.Context(), f)
 	if err != nil {

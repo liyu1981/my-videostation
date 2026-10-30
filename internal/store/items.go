@@ -11,28 +11,32 @@ import (
 
 // Item is a media entity: movie, show, season, episode or home video.
 type Item struct {
-	ID            int64     `json:"id"`
-	LibraryID     int64     `json:"libraryId"`
-	ParentID      int64     `json:"parentId"`
-	Kind          string    `json:"kind"`
-	Title         string    `json:"title"`
-	SortTitle     string    `json:"sortTitle"`
-	OriginalTitle string    `json:"originalTitle,omitempty"`
-	Year          int       `json:"year,omitempty"`
-	Overview      string    `json:"overview,omitempty"`
-	Tagline       string    `json:"tagline,omitempty"`
-	RuntimeMS     int64     `json:"runtimeMs,omitempty"`
-	Rating        float64   `json:"rating,omitempty"`
-	ContentRating string    `json:"contentRating,omitempty"`
-	PosterPath    string    `json:"-"`
-	BackdropPath  string    `json:"-"`
-	SeasonNumber  int       `json:"seasonNumber,omitempty"`
-	EpisodeNumber int       `json:"episodeNumber,omitempty"`
-	EpisodeEnd    int       `json:"episodeEnd,omitempty"`
-	AddedAt       time.Time `json:"addedAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	Locked        bool      `json:"locked"`
-	Hidden        bool      `json:"hidden"`
+	ID              int64     `json:"id"`
+	LibraryID       int64     `json:"libraryId"`
+	ParentID        int64     `json:"parentId"`
+	Kind            string    `json:"kind"`
+	Title           string    `json:"title"`
+	SortTitle       string    `json:"sortTitle"`
+	OriginalTitle   string    `json:"originalTitle,omitempty"`
+	Year            int       `json:"year,omitempty"`
+	Overview        string    `json:"overview,omitempty"`
+	Tagline         string    `json:"tagline,omitempty"`
+	RuntimeMS       int64     `json:"runtimeMs,omitempty"`
+	Rating          float64   `json:"rating,omitempty"`
+	ContentRating   string    `json:"contentRating,omitempty"`
+	Provider        string    `json:"provider,omitempty"`
+	ProviderID      string    `json:"providerId,omitempty"`
+	MetadataStatus  string    `json:"metadataStatus"`
+	MatchConfidence float64   `json:"matchConfidence"`
+	PosterPath      string    `json:"-"`
+	BackdropPath    string    `json:"-"`
+	SeasonNumber    int       `json:"seasonNumber,omitempty"`
+	EpisodeNumber   int       `json:"episodeNumber,omitempty"`
+	EpisodeEnd      int       `json:"episodeEnd,omitempty"`
+	AddedAt         time.Time `json:"addedAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	Locked          bool      `json:"locked"`
+	Hidden          bool      `json:"hidden"`
 
 	// user state & counts (computed)
 	PositionMS int64 `json:"positionMs"`
@@ -102,6 +106,7 @@ const itemColumns = `
 	COALESCE(m.original_title,''), COALESCE(m.year,0), COALESCE(m.overview,''),
 	COALESCE(m.tagline,''), COALESCE(m.runtime_ms,0), COALESCE(m.rating,0),
 	COALESCE(m.content_rating,''), COALESCE(m.poster_path,''), COALESCE(m.backdrop_path,''),
+	COALESCE(m.provider,''), COALESCE(m.provider_id,''), m.metadata_status, m.match_confidence,
 	COALESCE(m.season_number,0), COALESCE(m.episode_number,0), COALESCE(m.episode_end,0),
 	m.added_at, m.updated_at, m.locked, m.hidden`
 
@@ -124,6 +129,7 @@ func scanItem(r rowScanner, it *Item) error {
 		&it.ID, &it.LibraryID, &it.ParentID, &it.Kind, &it.Title, &it.SortTitle,
 		&it.OriginalTitle, &it.Year, &it.Overview, &it.Tagline, &it.RuntimeMS, &it.Rating,
 		&it.ContentRating, &it.PosterPath, &it.BackdropPath,
+		&it.Provider, &it.ProviderID, &it.MetadataStatus, &it.MatchConfidence,
 		&it.SeasonNumber, &it.EpisodeNumber, &it.EpisodeEnd, &added, &updated, &locked, &hidden,
 		&state[0], &played, &state[2], &it.FileCount,
 	); err != nil {
@@ -140,14 +146,15 @@ func scanItem(r rowScanner, it *Item) error {
 
 // ItemFilter describes a browse/list request.
 type ItemFilter struct {
-	LibraryID   int64
-	Kind        string // movie|show|season|episode|home_video|extra|"" (any)
-	ParentID    int64  // -1 = any
-	Query       string
-	Sort        string // added|title|year|rating|runtime
-	Page        int
-	PerPage     int
-	OnlyMissing bool
+	LibraryID      int64
+	Kind           string // movie|show|season|episode|home_video|extra|"" (any)
+	ParentID       int64  // -1 = any
+	Query          string
+	Sort           string // added|title|year|rating|runtime
+	Page           int
+	PerPage        int
+	OnlyMissing    bool
+	MetadataStatus string // "" | unmatched | matched | manual
 }
 
 // ListItems returns a page of items plus the total count.
@@ -173,6 +180,13 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 	if f.ParentID > 0 {
 		where = append(where, "m.parent_id = ?")
 		args = append(args, f.ParentID)
+	}
+	if f.MetadataStatus != "" {
+		where = append(where, "m.metadata_status = ?")
+		args = append(args, f.MetadataStatus)
+		if f.Kind == "" || f.Kind == "all" {
+			where = append(where, "m.kind IN ('movie','show')")
+		}
 	}
 	join := fmt.Sprintf(itemJoin, DefaultUserID)
 	if q := strings.TrimSpace(f.Query); q != "" {
@@ -603,6 +617,31 @@ func collectItems(rows *sql.Rows, dst *[]Item) error {
 	return wrap("iterate items", rows.Err())
 }
 
+// UnmatchedItemIDs lists ids of movies/shows with no metadata match.
+func (s *Store) UnmatchedItemIDs(ctx context.Context, libraryID int64) ([]int64, error) {
+	q := `SELECT id FROM media_items WHERE kind IN ('movie','show') AND metadata_status = 'unmatched' AND hidden = 0`
+	args := []any{}
+	if libraryID > 0 {
+		q += ` AND library_id = ?`
+		args = append(args, libraryID)
+	}
+	q += ` ORDER BY added_at DESC`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, wrap("unmatched ids", err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, wrap("scan unmatched id", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, wrap("iterate unmatched", rows.Err())
+}
+
 // Search performs full-text search across titles, overviews and people.
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]Item, error) {
 	query = strings.TrimSpace(query)
@@ -634,6 +673,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Item, er
 			&it.ID, &it.LibraryID, &it.ParentID, &it.Kind, &it.Title, &it.SortTitle,
 			&it.OriginalTitle, &it.Year, &it.Overview, &it.Tagline, &it.RuntimeMS, &it.Rating,
 			&it.ContentRating, &it.PosterPath, &it.BackdropPath,
+			&it.Provider, &it.ProviderID, &it.MetadataStatus, &it.MatchConfidence,
 			&it.SeasonNumber, &it.EpisodeNumber, &it.EpisodeEnd, &added, &updated, &locked, &hidden,
 			&st[0], &played, &st[2], &it.FileCount, &rank); err != nil {
 			return nil, wrap("scan search result", err)

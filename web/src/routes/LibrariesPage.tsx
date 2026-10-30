@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FolderPlus, HardDrive, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { FolderPlus, HardDrive, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { api, type Job, type Library, type LibraryType } from '../lib/api';
 import { formatDateTime } from '../lib/format';
 import { ErrorState, Loading } from '../components/State';
@@ -24,6 +25,7 @@ export function LibrariesPage() {
     },
   });
 
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState('');
   const [type, setType] = useState<LibraryType>('movie');
@@ -47,6 +49,13 @@ export function LibrariesPage() {
       await qc.invalidateQueries({ queryKey: ['libraries'] });
       await api.scanLibrary(lib.id);
       await qc.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
+
+  const enrich = useMutation({
+    mutationFn: (id: number) => api.enrichLibrary(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['jobs'] });
     },
   });
 
@@ -161,6 +170,15 @@ export function LibrariesPage() {
                   <h2 className="text-[14px] font-semibold">{lib.name}</h2>
                   <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[10.5px] text-fg-muted">{TYPE_LABEL[lib.type]}</span>
                   <span className="text-[11.5px] text-fg-dim">{lib.itemCount} items</span>
+                  {lib.unmatchedCount > 0 ? (
+                    <Link
+                      to="/browse"
+                      search={{ kind: lib.type === 'tv' ? 'show' : 'movie', libraryId: lib.id, sort: 'added', page: 1, q: '', status: 'unmatched' }}
+                      className="rounded-full border border-new/40 bg-new/10 px-2 py-0.5 text-[10.5px] text-new hover:bg-new/15"
+                    >
+                      {lib.unmatchedCount} unmatched
+                    </Link>
+                  ) : null}
                 </div>
                 <ul className="mt-1.5 space-y-0.5 font-mono text-[11.5px] text-fg-dim">
                   {lib.paths.map((p) => (
@@ -172,6 +190,15 @@ export function LibrariesPage() {
                 </ul>
               </div>
               <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => enrich.mutate(lib.id)}
+                  disabled={!settings.data?.metadata.apiKeySet}
+                  title={settings.data?.metadata.apiKeySet ? 'Match unmatched items with TMDB' : 'Add a TMDB API key in Settings first'}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Sparkles className="size-3.5" aria-hidden /> Metadata
+                </button>
                 <button
                   type="button"
                   onClick={() => scan.mutate(lib.id)}

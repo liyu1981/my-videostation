@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { useAtom } from 'jotai';
-import { ArrowLeft, Check, Lock, Pencil, Play } from 'lucide-react';
+import { ArrowLeft, Check, Lock, Pencil, Play, RefreshCw, SearchCheck } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Item } from '../lib/api';
 import { episodeLabel, formatRuntime } from '../lib/format';
@@ -12,6 +12,7 @@ import { ItemViews } from '../components/ItemViews';
 import { MediaInfoPanel } from '../components/MediaInfo';
 import { EditDialog } from '../components/EditDialog';
 import { PlayerModal } from '../components/Player';
+import { IdentifyDialog } from '../components/IdentifyDialog';
 import { Artwork } from '../components/Poster';
 
 export function DetailPage() {
@@ -20,6 +21,7 @@ export function DetailPage() {
   const qc = useQueryClient();
   const [, setPlayer] = useAtom(playerAtom);
   const [editing, setEditing] = useState(false);
+  const [identifying, setIdentifying] = useState(false);
   const [seasonId, setSeasonId] = useState<number | null>(null);
 
   const item = useQuery({ queryKey: ['item', id], queryFn: () => api.item(id), enabled: id > 0 });
@@ -52,6 +54,15 @@ export function DetailPage() {
       void qc.invalidateQueries({ queryKey: ['item', id] });
       void qc.invalidateQueries({ queryKey: ['home'] });
       void qc.invalidateQueries({ queryKey: ['browse'] });
+    },
+  });
+
+  const refreshMeta = useMutation({
+    mutationFn: () => api.refreshMetadata(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['item', id] });
+      void qc.invalidateQueries({ queryKey: ['browse'] });
+      void qc.invalidateQueries({ queryKey: ['home'] });
     },
   });
 
@@ -147,6 +158,7 @@ export function DetailPage() {
                   <span className="rounded border border-hairline-strong px-1.5 py-px text-[11px] text-fg-muted">{detail.contentRating}</span>
                 ) : null}
                 {detail.played ? <span className="rounded bg-surface-3 px-2 py-0.5 text-[11px] text-fg-muted">Watched</span> : null}
+                <MetaStatus status={detail.metadataStatus} confidence={detail.matchConfidence} provider={detail.provider} />
               </div>
 
               {detail.genres.length > 0 ? (
@@ -184,6 +196,23 @@ export function DetailPage() {
                 >
                   <Pencil className="size-4" aria-hidden /> Edit metadata
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setIdentifying(true)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-hairline px-3.5 py-2 text-[12.5px] text-fg-muted transition-colors hover:border-hairline-strong hover:text-fg"
+                >
+                  <SearchCheck className="size-4" aria-hidden /> Identify
+                </button>
+                {detail.providerId ? (
+                  <button
+                    type="button"
+                    onClick={() => refreshMeta.mutate()}
+                    disabled={refreshMeta.isPending}
+                    className="inline-flex items-center gap-2 rounded-lg border border-hairline px-3.5 py-2 text-[12.5px] text-fg-muted transition-colors hover:border-hairline-strong hover:text-fg disabled:opacity-60"
+                  >
+                    <RefreshCw className={`size-4 ${refreshMeta.isPending ? 'animate-spin' : ''}`} aria-hidden /> Refresh
+                  </button>
+                ) : null}
               </div>
 
               {detail.overview ? (
@@ -268,8 +297,30 @@ export function DetailPage() {
       ) : null}
 
       {editing ? <EditDialog item={detail} onClose={() => setEditing(false)} /> : null}
+      {identifying ? <IdentifyDialog item={detail} onClose={() => setIdentifying(false)} /> : null}
       <PlayerModal />
     </div>
+  );
+}
+
+function MetaStatus({ status, confidence, provider }: { status: string; confidence: number; provider?: string }) {
+  if (!status || status === 'unmatched') {
+    return <span className="rounded-full border border-new/40 bg-new/10 px-2 py-0.5 text-[11px] text-new">Unmatched</span>;
+  }
+  if (status === 'failed') {
+    return <span className="rounded-full border border-active/40 bg-active/10 px-2 py-0.5 text-[11px] text-active">Match failed</span>;
+  }
+  const label =
+    status === 'manual'
+      ? 'Manual match'
+      : `Matched${confidence > 0 ? ` ${Math.round(confidence * 100)}%` : ''}`;
+  return (
+    <span
+      className="rounded-full border border-hairline px-2 py-0.5 text-[11px] text-fg-dim"
+      title={provider ? `via ${provider}` : undefined}
+    >
+      {label}
+    </span>
   );
 }
 

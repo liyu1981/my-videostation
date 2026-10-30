@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Clapperboard, Film, Home, LibraryBig, Search, Tv, Video } from 'lucide-react';
+import { Clapperboard, Film, Home, LibraryBig, Search, Settings, Tv, Video } from 'lucide-react';
 
 type NavItem = { label: string; to: string; search?: Record<string, string>; icon: typeof Home };
 
@@ -99,6 +99,25 @@ export function Shell() {
               aria-hidden
             />
             Libraries
+          </Link>
+          <Link
+            to="/settings"
+            className={[
+              'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
+              location.pathname === '/settings'
+                ? 'bg-surface-3 text-fg'
+                : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+            ].join(' ')}
+            aria-current={location.pathname === '/settings' ? 'page' : undefined}
+          >
+            <Settings
+              className={[
+                'size-[18px]',
+                location.pathname === '/settings' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted',
+              ].join(' ')}
+              aria-hidden
+            />
+            Settings
           </Link>
         </nav>
 

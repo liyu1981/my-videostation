@@ -72,13 +72,13 @@ remains unaddressed by the plan.
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
-| GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. v1 ships TMDB behind a provider interface; add TVDB for anime ordering and Douban for zh-CN later. |
+| GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. **M2 ships TMDB behind a provider interface** (plugin UX and extra providers still missing). |
 | GAP-011 | Trailer playback (YouTube) | VS fetches and plays trailers | `GAP-LATER` | S3 | M7 | Requires provider trailer keys + an embed/privacy decision (no third-party iframe by default). |
 | GAP-012 | Online subtitle search & download | VS has a "Search for subtitles" flow with Language / File name / Source columns | `GAP-UNDECIDED` | S2 | M6 | **[confirmed]** dialog captured; no provider configured on this instance ("No match found"). OpenSubtitles needs an account/API key + rate limits, and this is copyright-sensitive — decide policy explicitly. |
 | GAP-013 | Metadata language/region per library | VS selects scraper language per library | `PLANNED` | S3 | M1 | Already in the plan (`libraries.language` + provider language param); listed to confirm parity intent rather than claim a gap. |
 | GAP-014 | Rich person pages / filmography | VS shows cast lists only | `ADV` | — | M2 | We store `people` as first-class rows, so filmography pages are cheap and exceed VS. |
 | GAP-064 | Third-party scraper/plugin marketplace | VS exposes a metadata plugin system (install/search plugins, per-type ordering) | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch}` + Settings › Video Info Plugin. We expose a Go provider interface + config instead of a sandboxed plugin runtime. Revisit only if third-party providers become a real demand. |
-| GAP-067 | Per-item poster/backdrop from URL or media folder | Edit dialog offers Original / Enter URL / Select from folders / Select | `PLANNED` | S3 | M2 | Not a gap — already covered by `POST /items/{id}/art` in `PLAN.md` §6; listed so parity is explicit. |
+| GAP-067 | Per-item poster/backdrop from URL or media folder | Edit dialog offers Original / Enter URL / Select from folders / Select | `CLOSED` | S3 | M2 | Implemented: URL download + cache (`POST /items/{id}/art`), and sidecar art discovery on scan. Folder picker UI is still a dropdown-less URL field. |
 
 ## 4. Playback & transcoding
 

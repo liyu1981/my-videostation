@@ -91,8 +91,11 @@ testdata/           parser corpus and generated sample media
   graceful degradation when ffprobe is absent.
 - **Library UI**: home shelves + continue-watching, poster/tile/list views, sort, per-library
   filter, pagination, global FTS5 search, show → season → episode navigation.
-- **Item UI**: poster/backdrop from local sidecars, metadata badges, media-info panel,
+- **Item UI**: poster/backdrop (local sidecars or URL), metadata badges, media-info panel,
   metadata editing with per-field locks, watched state, direct playback with resume progress.
+- **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
+  artwork caching under `<data>/cache`, an "Identify" dialog for manual matches, a
+  "Needs attention" queue, and refresh that never overwrites locked fields.
 
 ## Getting started
 
@@ -156,7 +159,7 @@ Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file 
 |---|---|
 | **M0** ✅ | Repo scaffold, tokens/theme, single-binary build, Docker, CI |
 | **M1** ✅ | Libraries, incremental scanner, filename parser, browse UI, search, media info |
-| **M2** | TMDB matching, art management, identify/correct flows, collections |
+| **M2** ✅ | TMDB matching, art management, identify/correct flows |
 | **M3** | Categories/facets, selection mode with bulk actions, scheduler, job monitor |
 | **M4** | Full player: subtitle/audio tracks, resume UI, next episode |
 | **M5** | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |

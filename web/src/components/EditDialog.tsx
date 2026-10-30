@@ -27,11 +27,18 @@ export function EditDialog({ item, onClose }: { item: ItemDetail; onClose: () =>
   const [rating, setRating] = useState(item.rating ? String(item.rating) : '');
   const [contentRating, setContentRating] = useState(item.contentRating ?? '');
   const [genres, setGenres] = useState(item.genres.join(', '));
+  const [posterUrl, setPosterUrl] = useState('');
+  const [backdropUrl, setBackdropUrl] = useState('');
   const [locks, setLocks] = useState<string[]>(item.locks);
   const [locked, setLocked] = useState(item.locked);
 
   const mutation = useMutation({
-    mutationFn: (patch: ItemPatch) => api.patchItem(item.id, patch),
+    mutationFn: async (patch: ItemPatch) => {
+      const res = await api.patchItem(item.id, patch);
+      if (posterUrl.trim()) await api.setArt(item.id, 'poster', posterUrl.trim());
+      if (backdropUrl.trim()) await api.setArt(item.id, 'backdrop', backdropUrl.trim());
+      return res;
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['item', item.id] });
       void qc.invalidateQueries({ queryKey: ['browse'] });
@@ -110,6 +117,25 @@ export function EditDialog({ item, onClose }: { item: ItemDetail; onClose: () =>
           <label className="block sm:col-span-2">
             <span className="mb-1 block text-[12px] text-fg-muted">Overview</span>
             <textarea value={overview} onChange={(e) => setOverview(e.target.value)} rows={5} className={`${inputClass} resize-y`} />
+          </label>
+
+          <label className="block sm:col-span-2">
+            <span className="mb-1 block text-[12px] text-fg-muted">Poster image URL (optional)</span>
+            <input
+              value={posterUrl}
+              onChange={(e) => setPosterUrl(e.target.value)}
+              placeholder="https://…/poster.jpg"
+              className={inputClass}
+            />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="mb-1 block text-[12px] text-fg-muted">Backdrop image URL (optional)</span>
+            <input
+              value={backdropUrl}
+              onChange={(e) => setBackdropUrl(e.target.value)}
+              placeholder="https://…/backdrop.jpg"
+              className={inputClass}
+            />
           </label>
 
           <fieldset className="sm:col-span-2">

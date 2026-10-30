@@ -516,6 +516,27 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 Extras shipped beyond M1 scope: direct-play streaming with range requests, progress
 reporting, watched toggle, local sidecar artwork, end-to-end API test.
 
+### M2 — delivered
+
+| Plan item | Status |
+|---|---|
+| Metadata provider | ✅ `internal/metadata` interface + TMDB client (v3 key or v4 token), configurable language/region |
+| Matching | ✅ token-overlap + year + popularity score, 55% threshold, manual override wins |
+| Enrichment | ✅ background `enrich` job per library, per-item refresh, `metadata_status`/`match_confidence` |
+| Artwork | ✅ poster/backdrop downloaded to `<data>/cache/images` (content-addressed), URL picker in the edit dialog |
+| Cast/crew/genres/certification | ✅ applied transactionally; crew roles mapped to director/writer |
+| Locks | ✅ automatic enrichment skips locked fields; manual match overrides (explicit user choice) |
+| Identify UI | ✅ search + candidate list + apply; "Needs attention" row on Home and per-library counts |
+| Settings UI | ✅ TMDB key (masked), language, region |
+
+### M2 — known limitations
+
+- Only TMDB is implemented; TVDB/Douban remain pluggable via the provider interface.
+- Episode-level metadata (titles, stills) is not fetched — shows are enriched at show level.
+- No NFO import yet; manual edits are the fallback.
+- Provider calls are synchronous per item inside the job (no rate-limit pacing yet); TMDB's
+  40 req/10 s limit is respected only by the sequential job loop.
+
 ### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
 
 1. **sqlc deferred** — hand-written typed store until the schema settles (post-M2).

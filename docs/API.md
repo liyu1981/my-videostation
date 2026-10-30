@@ -13,16 +13,23 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | PATCH | `/libraries/{id}` | Rename / change language / replace paths |
 | DELETE | `/libraries/{id}` | Remove library and derived data (never touches media files) |
 | POST | `/libraries/{id}/scan` | Enqueue a scan job → `202 {job}` |
+| POST | `/libraries/{id}/enrich` | Enqueue metadata matching for unmatched items → `202 {job}` |
 | GET | `/jobs?limit=` | Recent jobs |
 | GET | `/jobs/{id}` | Job status/progress/message |
 | GET | `/home` | `{continue,recent,shelves[]}` for the landing page |
-| GET | `/browse` | `?kind=&libraryId=&sort=&page=&perPage=&q=` → `{items,page,perPage,total,totalPages}` |
+| GET | `/browse` | `?kind=&libraryId=&sort=&page=&perPage=&q=&metadataStatus=` → `{items,page,perPage,total,totalPages}` |
 | GET | `/search?q=&limit=` | FTS5 across title, original title, overview, people |
 | GET | `/items/{id}` | Detail: item + genres + people + files + locks + children (seasons/episodes) |
 | GET | `/items/{id}/children?kind=` | Seasons for a show, episodes for a season |
 | PATCH | `/items/{id}` | Metadata patch (`title, year, overview, tagline, genres[], locks[], locked, …`) |
 | POST | `/items/{id}/progress` | `{positionMs, durationMs, played}` (upsert) |
-| GET | `/items/{id}/poster` | Sidecar artwork, guarded to library roots |
+| GET | `/settings` | Provider settings (API key is never returned) |
+| PUT | `/settings` | `{tmdbApiKey?, language?, region?}` (empty key clears it) |
+| GET | `/items/{id}/matches?q=&year=` | Provider candidates, best first |
+| POST | `/items/{id}/match` | `{providerId}` — manual match (overrides locks) |
+| POST | `/items/{id}/refresh` | Re-fetch from the stored provider id (respects locks) |
+| POST | `/items/{id}/art` | `{kind:"poster"|"backdrop", url}` — download + cache artwork |
+| GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
 | GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206` |
 

@@ -18,9 +18,11 @@ import (
 	"github.com/liyu1981/myvideostation/internal/buildinfo"
 	"github.com/liyu1981/myvideostation/internal/config"
 	"github.com/liyu1981/myvideostation/internal/db"
+	"github.com/liyu1981/myvideostation/internal/enrich"
 	"github.com/liyu1981/myvideostation/internal/httpapi"
 	"github.com/liyu1981/myvideostation/internal/jobs"
 	"github.com/liyu1981/myvideostation/internal/media"
+	"github.com/liyu1981/myvideostation/internal/metadata"
 	"github.com/liyu1981/myvideostation/internal/scanner"
 	"github.com/liyu1981/myvideostation/internal/store"
 )
@@ -66,6 +68,22 @@ func run() error {
 		return err
 	}
 
+	// Metadata provider is built from settings at call time so a key can be added
+	// without restarting the server.
+	providerFactory := func(ctx context.Context) (metadata.Provider, error) {
+		key, _, err := st.Setting(ctx, metadata.SettingAPIKey)
+		if err != nil {
+			return nil, err
+		}
+		if key == "" {
+			return nil, metadata.ErrNotConfigured
+		}
+		language, _, _ := st.Setting(ctx, metadata.SettingLanguage)
+		region, _, _ := st.Setting(ctx, metadata.SettingRegion)
+		return metadata.NewTMDB(key, language, region), nil
+	}
+	enricher := enrich.New(st, providerFactory, filepath.Join(cfg.DataDir, "cache"), log)
+
 	sc := scanner.New(st, prober, log)
 	manager := jobs.New(st, log)
 	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
@@ -92,6 +110,22 @@ func run() error {
 		report(100, name+": "+stats.String())
 		return nil
 	})
+	manager.Handle("enrich", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
+		var payload struct {
+			LibraryID int64 `json:"libraryId"`
+		}
+		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			return fmt.Errorf("bad job payload: %w", err)
+		}
+		stats, err := enricher.EnrichLibrary(ctx, payload.LibraryID, func(p float64, msg string) {
+			report(p, msg)
+		})
+		if err != nil {
+			return err
+		}
+		report(100, stats.String())
+		return nil
+	})
 	manager.Start(ctx)
 
 	cors := splitList(os.Getenv("MVS_CORS_ORIGIN"))
@@ -105,6 +139,8 @@ func run() error {
 		CORSOrigin: cors,
 		Version:    buildinfo.Version,
 		MediaDir:   cfg.DataDir,
+		Provider:   providerFactory,
+		Enricher:   enricher,
 	})
 
 	srv := &http.Server{

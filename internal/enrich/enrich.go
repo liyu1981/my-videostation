@@ -1,0 +1,403 @@
+// Package enrich matches library items against a metadata provider and caches artwork.
+package enrich
+
+import (
+	"context"
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/liyu1981/myvideostation/internal/metadata"
+	"github.com/liyu1981/myvideostation/internal/store"
+)
+
+// MinConfidence is the score below which a search result is rejected.
+const MinConfidence = 0.55
+
+// Service enriches items and caches artwork under the data dir.
+type Service struct {
+	store    *store.Store
+	factory  metadata.Factory
+	cacheDir string
+	log      *slog.Logger
+	client   *http.Client
+}
+
+// New creates the service. cacheDir is typically <data>/cache.
+func New(st *store.Store, factory metadata.Factory, cacheDir string, log *slog.Logger) *Service {
+	return &Service{
+		store:    st,
+		factory:  factory,
+		cacheDir: cacheDir,
+		log:      log,
+		client:   &http.Client{Timeout: 45 * time.Second},
+	}
+}
+
+// Stats summarises a library enrichment run.
+type Stats struct {
+	Considered int `json:"considered"`
+	Matched    int `json:"matched"`
+	Failed     int `json:"failed"`
+	Skipped    int `json:"skipped"`
+}
+
+func (s Stats) String() string {
+	return fmt.Sprintf("%d items: %d matched, %d failed, %d skipped", s.Considered, s.Matched, s.Failed, s.Skipped)
+}
+
+// EnrichLibrary matches every currently-unmatched item in a library (0 = all libraries).
+func (s *Service) EnrichLibrary(ctx context.Context, libraryID int64, report func(float64, string)) (Stats, error) {
+	var stats Stats
+	if report == nil {
+		report = func(float64, string) {}
+	}
+	provider, err := s.factory(ctx)
+	if err != nil {
+		return stats, err
+	}
+	ids, err := s.store.UnmatchedItemIDs(ctx, libraryID)
+	if err != nil {
+		return stats, err
+	}
+	stats.Considered = len(ids)
+	if len(ids) == 0 {
+		report(100, "nothing to match")
+		return stats, nil
+	}
+
+	for i, id := range ids {
+		if ctx.Err() != nil {
+			return stats, ctx.Err()
+		}
+		if err := s.enrichOne(ctx, provider, id, true); err != nil {
+			if err == metadata.ErrNoMatch {
+				stats.Failed++
+			} else {
+				stats.Failed++
+				s.log.Warn("enrich failed", "item", id, "err", err)
+			}
+		} else {
+			stats.Matched++
+		}
+		report(float64(i+1)/float64(len(ids))*100, fmt.Sprintf("matching %d/%d", i+1, len(ids)))
+	}
+	report(100, stats.String())
+	return stats, nil
+}
+
+// EnrichItem refreshes one item from its stored provider id, or matches it if unmatched.
+func (s *Service) EnrichItem(ctx context.Context, itemID int64) error {
+	provider, err := s.factory(ctx)
+	if err != nil {
+		return err
+	}
+	return s.enrichOne(ctx, provider, itemID, false)
+}
+
+// SetArtFromURL downloads an image and assigns it as the poster or backdrop.
+func (s *Service) SetArtFromURL(ctx context.Context, itemID int64, kind, url string) error {
+	if url == "" {
+		return fmt.Errorf("image url is required")
+	}
+	if _, err := s.store.GetItem(ctx, itemID); err != nil {
+		return err
+	}
+	path, err := s.cacheImage(ctx, url)
+	if err != nil {
+		return err
+	}
+	return s.store.SetArt(ctx, itemID, kind, path)
+}
+
+// Search returns provider candidates for an item, best first.
+func (s *Service) Search(ctx context.Context, itemID int64, query string, year int) ([]metadata.Candidate, error) {
+	provider, err := s.factory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	item, err := s.store.GetItem(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if query == "" {
+		query = item.Title
+	}
+	if year == 0 {
+		year = item.Year
+	}
+	var candidates []metadata.Candidate
+	if item.Kind == store.KindShow {
+		candidates, err = provider.SearchTV(ctx, query, year)
+	} else {
+		candidates, err = provider.SearchMovies(ctx, query, year)
+	}
+	if err != nil {
+		return nil, err
+	}
+	for i := range candidates {
+		candidates[i].MediaType = mediaTypeFor(item.Kind)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return metadata.Score(candidates[i], query, year) > metadata.Score(candidates[j], query, year)
+	})
+	return candidates, nil
+}
+
+// Match applies a user-chosen provider id (manual identification).
+func (s *Service) Match(ctx context.Context, itemID int64, providerID string) error {
+	provider, err := s.factory(ctx)
+	if err != nil {
+		return err
+	}
+	item, err := s.store.GetItem(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	details, err := s.details(ctx, provider, item, providerID)
+	if err != nil {
+		return err
+	}
+	// Explicit user choice overrides locks.
+	return s.apply(ctx, item, provider, details, "manual", 1, nil)
+}
+
+func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, itemID int64, _ bool) error {
+	item, err := s.store.GetItem(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	if item.Kind != store.KindMovie && item.Kind != store.KindShow {
+		return metadata.ErrNoMatch
+	}
+
+	locks, err := s.lockSet(ctx, item)
+	if err != nil {
+		return err
+	}
+
+	// Refresh path: we already know the provider id and the match is trusted.
+	if item.ProviderID != "" && item.Provider != "" && (item.MetadataStatus == "matched" || item.MetadataStatus == "manual") {
+		details, err := s.details(ctx, provider, item, item.ProviderID)
+		if err != nil {
+			return err
+		}
+		return s.apply(ctx, item, provider, details, item.MetadataStatus, item.MatchConfidence, locks)
+	}
+
+	var candidates []metadata.Candidate
+	if item.Kind == store.KindShow {
+		candidates, err = provider.SearchTV(ctx, item.Title, item.Year)
+	} else {
+		candidates, err = provider.SearchMovies(ctx, item.Title, item.Year)
+	}
+	if err != nil {
+		return err
+	}
+	if len(candidates) == 0 {
+		return metadata.ErrNoMatch
+	}
+
+	best := candidates[0]
+	bestScore := metadata.Score(best, item.Title, item.Year)
+	for _, c := range candidates[1:] {
+		if sc := metadata.Score(c, item.Title, item.Year); sc > bestScore {
+			best, bestScore = c, sc
+		}
+	}
+	if bestScore < MinConfidence {
+		return metadata.ErrNoMatch
+	}
+
+	details, err := s.details(ctx, provider, item, best.ProviderID)
+	if err != nil {
+		return err
+	}
+	return s.apply(ctx, item, provider, details, "matched", bestScore, locks)
+}
+
+func (s *Service) details(ctx context.Context, provider metadata.Provider, item *store.Item, providerID string) (*metadata.Details, error) {
+	if item.Kind == store.KindShow {
+		return provider.TV(ctx, providerID)
+	}
+	return provider.Movie(ctx, providerID)
+}
+
+func (s *Service) lockSet(ctx context.Context, item *store.Item) (map[string]bool, error) {
+	locks := map[string]bool{}
+	if item.Locked {
+		for _, f := range []string{"title", "original_title", "year", "overview", "tagline", "rating", "content_rating", "genres", "poster", "backdrop", "cast", "crew"} {
+			locks[f] = true
+		}
+		return locks, nil
+	}
+	fields, err := s.store.ItemLocks(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range fields {
+		locks[f] = true
+	}
+	return locks, nil
+}
+
+// apply turns provider details into an Enrichment, honouring locks.
+func (s *Service) apply(ctx context.Context, item *store.Item, provider metadata.Provider,
+	d *metadata.Details, status string, confidence float64, locks map[string]bool) error {
+
+	e := store.Enrichment{
+		Provider:   provider.Name(),
+		ProviderID: d.ProviderID,
+		Status:     status,
+		Confidence: confidence,
+	}
+	locked := func(field string) bool { return locks != nil && locks[field] }
+
+	if !locked("title") && strings.TrimSpace(d.Title) != "" {
+		e.Title = strPtr(d.Title)
+	}
+	if !locked("original_title") && strings.TrimSpace(d.OriginalTitle) != "" {
+		e.OriginalTitle = strPtr(d.OriginalTitle)
+	}
+	if !locked("year") && d.Year > 0 {
+		e.Year = intPtr(d.Year)
+	}
+	if !locked("overview") && strings.TrimSpace(d.Overview) != "" {
+		e.Overview = strPtr(d.Overview)
+	}
+	if !locked("tagline") && strings.TrimSpace(d.Tagline) != "" {
+		e.Tagline = strPtr(d.Tagline)
+	}
+	if !locked("rating") && d.Rating > 0 {
+		e.Rating = floatPtr(d.Rating)
+	}
+	if !locked("content_rating") && d.ContentRating != "" {
+		e.ContentRating = strPtr(d.ContentRating)
+	}
+	if d.RuntimeMS > 0 {
+		e.RuntimeMS = int64Ptr(d.RuntimeMS)
+	}
+	if !locked("genres") && len(d.Genres) > 0 {
+		e.Genres = d.Genres
+	}
+	if !locked("cast") && d.Cast != nil {
+		e.Cast = make([]store.Person, 0, len(d.Cast))
+		for i, c := range d.Cast {
+			e.Cast = append(e.Cast, store.Person{Name: c.Name, Role: "cast", Character: c.Character, Ordering: i})
+		}
+	}
+	if !locked("crew") && d.Crew != nil {
+		e.Crew = make([]store.Person, 0, len(d.Crew))
+		for i, c := range d.Crew {
+			role := "director"
+			switch strings.ToLower(c.Job) {
+			case "writer", "screenplay", "creator", "story":
+				role = "writer"
+			}
+			e.Crew = append(e.Crew, store.Person{Name: c.Name, Role: role, Ordering: i})
+		}
+	}
+
+	if !locked("poster") && d.PosterURL != "" {
+		if p, err := s.cacheImage(ctx, d.PosterURL); err == nil {
+			e.PosterPath = strPtr(p)
+		} else {
+			s.log.Warn("poster download failed", "item", item.ID, "err", err)
+		}
+	}
+	if !locked("backdrop") && d.BackdropURL != "" {
+		if p, err := s.cacheImage(ctx, d.BackdropURL); err == nil {
+			e.BackdropPath = strPtr(p)
+		} else {
+			s.log.Warn("backdrop download failed", "item", item.ID, "err", err)
+		}
+	}
+
+	if err := s.store.ApplyEnrichment(ctx, item.ID, e); err != nil {
+		return err
+	}
+	s.log.Info("metadata applied", "item", item.ID, "title", d.Title, "provider", provider.Name(), "status", status)
+	return nil
+}
+
+// cacheImage downloads an image into <cache>/images and returns its path.
+func (s *Service) cacheImage(ctx context.Context, url string) (string, error) {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return "", fmt.Errorf("unsupported image url %q", url)
+	}
+	dir := filepath.Join(s.cacheDir, "images")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	sum := sha1.Sum([]byte(url))
+	base := hex.EncodeToString(sum[:])
+
+	// Reuse an existing file with any known extension.
+	for _, ext := range []string{".jpg", ".png", ".webp"} {
+		existing := filepath.Join(dir, base+ext)
+		if st, err := os.Stat(existing); err == nil && st.Size() > 0 {
+			return existing, nil
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("image status %d", res.StatusCode)
+	}
+	ct := res.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "image/") {
+		return "", fmt.Errorf("unexpected content type %q", ct)
+	}
+	ext := ".jpg"
+	switch {
+	case strings.Contains(ct, "png"):
+		ext = ".png"
+	case strings.Contains(ct, "webp"):
+		ext = ".webp"
+	}
+	final := filepath.Join(dir, base+ext)
+	tmp, err := os.CreateTemp(dir, "img-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := io.Copy(tmp, io.LimitReader(res.Body, 20<<20)); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp.Name(), final); err != nil {
+		return "", err
+	}
+	return final, nil
+}
+
+func mediaTypeFor(kind string) string {
+	if kind == store.KindShow {
+		return "tv"
+	}
+	return "movie"
+}
+
+func strPtr(s string) *string     { return &s }
+func intPtr(i int) *int           { return &i }
+func int64Ptr(i int64) *int64     { return &i }
+func floatPtr(f float64) *float64 { return &f }

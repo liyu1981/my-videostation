@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/liyu1981/myvideostation/internal/buildinfo"
+	"github.com/liyu1981/myvideostation/internal/enrich"
 	"github.com/liyu1981/myvideostation/internal/jobs"
+	"github.com/liyu1981/myvideostation/internal/metadata"
 	"github.com/liyu1981/myvideostation/internal/store"
 	"github.com/liyu1981/myvideostation/internal/web"
 )
@@ -25,6 +27,8 @@ type Server struct {
 	cors     []string
 	version  string
 	mediaDir string
+	provider metadata.Factory
+	enricher *enrich.Service
 }
 
 // Options configures the HTTP server.
@@ -35,6 +39,8 @@ type Options struct {
 	CORSOrigin []string
 	Version    string
 	MediaDir   string
+	Provider   metadata.Factory
+	Enricher   *enrich.Service
 }
 
 // New creates the API server.
@@ -45,7 +51,8 @@ func New(o Options) *Server {
 	if o.Version == "" {
 		o.Version = buildinfo.Version
 	}
-	return &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version, mediaDir: o.MediaDir}
+	return &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
+		mediaDir: o.MediaDir, provider: o.Provider, enricher: o.Enricher}
 }
 
 // Handler builds the root HTTP handler (API + UI).
@@ -54,6 +61,8 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/config", s.handleConfig)
+	mux.HandleFunc("GET /api/v1/settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /api/v1/settings", s.handlePutSettings)
 
 	mux.HandleFunc("GET /api/v1/libraries", s.handleListLibraries)
 	mux.HandleFunc("POST /api/v1/libraries", s.handleCreateLibrary)
@@ -61,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/libraries/{id}", s.handleUpdateLibrary)
 	mux.HandleFunc("DELETE /api/v1/libraries/{id}", s.handleDeleteLibrary)
 	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.handleScanLibrary)
+	mux.HandleFunc("POST /api/v1/libraries/{id}/enrich", s.handleEnrichLibrary)
 
 	mux.HandleFunc("GET /api/v1/jobs", s.handleListJobs)
 	mux.HandleFunc("GET /api/v1/jobs/{id}", s.handleGetJob)
@@ -72,6 +82,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/items/{id}", s.handleGetItem)
 	mux.HandleFunc("PATCH /api/v1/items/{id}", s.handlePatchItem)
 	mux.HandleFunc("GET /api/v1/items/{id}/children", s.handleItemChildren)
+	mux.HandleFunc("GET /api/v1/items/{id}/matches", s.handleMatches)
+	mux.HandleFunc("POST /api/v1/items/{id}/match", s.handleMatch)
+	mux.HandleFunc("POST /api/v1/items/{id}/refresh", s.handleRefreshMetadata)
+	mux.HandleFunc("POST /api/v1/items/{id}/art", s.handleSetArt)
 	mux.HandleFunc("POST /api/v1/items/{id}/progress", s.handleProgress)
 	mux.HandleFunc("GET /api/v1/items/{id}/poster", s.handleArt("poster"))
 	mux.HandleFunc("GET /api/v1/items/{id}/backdrop", s.handleArt("backdrop"))
