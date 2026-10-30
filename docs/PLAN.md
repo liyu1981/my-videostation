@@ -1,0 +1,453 @@
+# MyVideoStation — Project Plan
+
+> An open-source, modern re-creation of Synology Video Station.
+> Single Go binary (embedded React SPA) + SQLite. Media-management first.
+
+Status: **draft / awaiting decisions** (see §12)
+
+Companion docs:
+[`GAPS.md`](./GAPS.md) — feature-parity register vs Synology Video Station (40 known gaps,
+6 of them S1), including deliberate non-goals and the advantages we hold.
+
+---
+
+## 1. Vision & positioning
+
+Synology's Video Station was a folder-based media library with metadata scraping,
+a web player, transcoding, cast support and multi-user watch history. It was
+discontinued (codec licensing), leaving users with no like-for-like replacement
+that is self-hosted, simple to deploy, and pleasant to use.
+
+MyVideoStation aims at:
+
+- **Drop-in mental model**: point it at folders → it identifies movies/shows →
+  you browse posters and play. No plugin ecosystem required to get started.
+- **Correct media management** (the hard part): robust scanner, filename parsing,
+  provider matching with manual override, non-destructive storage, fast search.
+- **Modern UX**: dark-first cinematic UI, instant filtering, keyboard-driven,
+  mobile-friendly PWA. Not a 2013 DSM window.
+- **Operational simplicity**: one static binary, one SQLite file, one volume.
+  Runs on Alpine, a NAS, a Raspberry Pi, or a laptop.
+
+Non-goals for v1: live TV/DVR, DLNA/UPnP server, native mobile/TV apps,
+plugin marketplace, cloud sync, distributed multi-node.
+
+---
+
+## 2. Feature map (Video Station core → MyVideoStation)
+
+| Video Station capability | Our equivalent | Phase |
+|---|---|---|
+| Multiple libraries (Movies / TV / Home video / TV recording) | `libraries` with type + multiple paths | M1 |
+| Scheduled folder indexing | Incremental scanner + persisted job queue + scheduler | M1 |
+| Online metadata scrape (posters, fanart, cast, plot) | Provider layer (TMDB primary, TVDB optional) | M2 |
+| TV hierarchy Season/Episode, next-up | `shows → seasons → episodes`, auto-advance | M2/M3 |
+| Home videos / personal videos | `kind=home_video`, minimal metadata, date-sorted | M3 |
+| Web playback (HTML5 + transcode for unsupported codecs) | Direct play + HLS transcode on demand | M4/M5 |
+| Subtitles (external + embedded), online subtitle search | Sidecar/embedded tracks, OpenSubtitles later | M4/M6 |
+| Resume playback / watched state | Central `playback_progress` per user | M4 |
+| Collections, genres, favorites, recently added | Collections + genre/favorite/recent browse | M2/M3 |
+| Search | FTS5 index over titles/overview/cast | M1/M2 |
+| Filters & sorting | Server-side filter/sort + URL state | M3 |
+| Manual "Identify" / edit metadata | Match override + field-level locks | M2 |
+| User accounts, per-library permissions, parental control | Users/roles/permissions, rating ceilings | M6 |
+| Public share links | Signed expiring share links | M6 |
+| Chromecast / AirPlay / DLNA | Web cast (Chrome), AirPlay later; DLNA non-goal | M7 |
+| Hardware transcoding | VA-API / QSV / NVENC opt-in | M5/M7 |
+| Mobile apps | Responsive PWA | M3/M7 |
+
+---
+
+## 3. Architecture
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│  single static binary (CGO_ENABLED=0, linux/amd64+arm64)      │
+│                                                               │
+│  net/http  ── /api/v1/*   JSON REST                           │
+│            ── /          embedded SPA (go:embed web/dist)     │
+│            ── /media/*   byte-range streaming                 │
+│            ── /hls/*     transcoded segments (later)          │
+│                                                               │
+│  services: library · scanner · metadata · playback · auth     │
+│  jobs:     in-process workers + durable `jobs` table          │
+│  data:     SQLite (WAL) + /data/cache for images & transcodes │
+└───────────────────────────────────────────────────────────────┘
+```
+
+Principles:
+
+1. **Media directories are read-only by default.** We never rename/move/delete
+   user files unless explicitly enabled. All derived data lives in `/data`.
+2. **All long work is a job.** Scan, identify, art download, transcode → rows in
+   `jobs`, progress over SSE, resumable after restart.
+3. **Files are dumb, identity is ours.** A file row is identified by path;
+   `media_items` are logical entities that survive file moves (re-link UI later).
+4. **Everything is incremental.** Stat-based change detection (size+mtime+inode),
+   no full re-probe unless requested.
+5. **Deterministic core, pluggable edges.** Parser and matcher are pure Go and
+   unit-tested with a filename corpus; providers/searchers behind interfaces.
+
+### 3.1 Repo layout
+
+```
+my-video-station/
+├── cmd/mvs/                 # main, flag/config wiring
+├── internal/
+│   ├── config/              # env > file > defaults
+│   ├── db/                  # open, pragmas, embedded migrations
+│   ├── store/               # sqlc-generated queries + repositories
+│   ├── media/               # ffprobe wrapper, stream model
+│   ├── naming/              # filename/folder parser (pure, heavily tested)
+│   ├── scanner/             # walker, change detection, job orchestration
+│   ├── metadata/            # tmdb, tvdb, nfo providers + matcher
+│   ├── library/             # domain services (browse, edit, collections)
+│   ├── playback/            # direct play; transcode/HLS later
+│   ├── auth/                # users, sessions, permissions
+│   ├── jobs/                # queue, workers, SSE progress bus
+│   ├── httpapi/             # routes, middleware, DTOs, error mapping
+│   └── web/                 # go:embed dist
+├── web/                     # pnpm workspace (single app)
+│   └── src/{routes,features,components,lib,atoms}
+├── migrations/              # SQL up/down (goose, embedded)
+├── sql/                     # sqlc query files
+├── deployments/             # Dockerfile, docker-compose.yml
+├── docs/                    # ADRs, filename conventions, API notes
+├── testdata/                # media corpus for parser/probe tests
+├── Makefile
+└── PLAN.md
+```
+
+### 3.2 Backend stack decisions (proposed)
+
+| Concern | Choice | Why |
+|---|---|---|
+| HTTP | Go 1.27 `net/http` ServeMux + thin middleware | no framework needed; easy SSE/range |
+| SQLite driver | `modernc.org/sqlite` | CGO-free → true static binary on Alpine |
+| Queries | `sqlc` (typed, compile-checked) | avoids ORM surprises; fast |
+| Migrations | `goose` embedded via `embed.FS` | simple up/down, single binary |
+| Search | SQLite **FTS5** (external-content tables) | zero extra infra |
+| Probing | `ffprobe -print_format json` | only reliable codec/stream source |
+| Transcoding | `ffmpeg` HLS fMP4, on demand | M5 |
+| Jobs | DB-backed queue + worker pool + SSE | durable, no redis |
+| Logging | `log/slog` JSON | stdlib |
+| Tests | stdlib + `httptest`, golden files for parser | |
+
+### 3.3 Frontend stack
+
+- **React 19** + **TypeScript 7** (`tsgo` for typecheck; Vite transpiles only)
+- **Vite 8** (Rolldown), `@tailwindcss/vite` v4 (CSS-first `@theme`)
+- **TanStack**: Router (file-based routes) · Query (server state) · Table (admin/scan lists)
+- **Jotai** for ephemeral UI state (player, filters draft, dialogs)
+- shadcn-style components on **Radix primitives** + `cva` + Tailwind tokens
+- `ky` or `fetch` wrapper + generated types from the Go API (single source: Go structs
+  or a hand-maintained `types.ts` kept honest by contract tests)
+- PWA manifest + service worker (M7)
+
+**Dev loop**: `make dev` → Vite on :5173 proxying `/api` to Go on :8080;
+`make build` → `pnpm build` → `web/dist` → `go build` (embed) → `bin/mvs`.
+
+---
+
+## 4. Data model (first draft)
+
+Logical items use **one table with self-referencing parents** so search,
+collections and watch state work uniformly.
+
+```
+users            (id, username, password_hash, role, rating_ceiling, created_at)
+sessions         (id, user_id, expires_at, user_agent, ip)
+libraries        (id, name, type[movie|tv|home_video], language, scanner_opts_json,
+                  metadata_provider, created_at)
+library_paths    (id, library_id, path, recursive, last_scan_at)
+scan_runs        (id, library_id, started_at, finished_at, status, stats_json)
+
+media_items      (id, library_id, parent_id NULL, kind[movie|show|season|episode|
+                  home_video|extra], title, sort_title, original_title, year,
+                  overview, tagline, runtime_ms, rating, content_rating,
+                  poster_path, backdrop_path, provider, provider_id,
+                  season_number, episode_number, air_date, absolute_number,
+                  added_at, updated_at, metadata_locked, hidden)
+media_files      (id, item_id, path UNIQUE, size, mtime, inode, container,
+                  duration_ms, bitrate, width, height, video_codec, hdr,
+                  audio_streams_json, subtitle_streams_json, probed_at, missing)
+item_people      (item_id, person_id, role[cast|director|writer|producer],
+                  character, ordering)
+people           (id, name, tmdb_id, profile_path)
+genres           (id, name) · item_genres(item_id, genre_id)
+collections      (id, name, sort_name, overview, poster_path)
+item_collections (collection_id, item_id)
+tags             (id, name) · item_tags(item_id, tag_id)
+playback_progress(user_id, item_id, position_ms, duration_ms, played, updated_at)
+favorites        (user_id, item_id)
+library_perms    (user_id, library_id, can_view)
+jobs             (id, type, payload_json, status, progress, message, created_at,
+                  started_at, finished_at, error)
+settings         (key, value_json)      -- app + per-library options
+media_search     (FTS5: title, original_title, overview, people_names)
+```
+
+Notes:
+- `media_items.parent_id` + `kind` gives show/season/episode without joins across
+  three tables; `episodes` are searchable directly.
+- `metadata_locked` (plus optional per-field locks later) means manual edits and
+  manual matches are never overwritten by a re-scan.
+- `media_files.missing` flags orphaned files instead of deleting history/progress.
+- Multi-episode files: one `media_files` row attached to the first episode, with
+  `episode_end_number` on the item (decide in M3).
+- Art is stored content-addressed in `/data/cache/images/<sha>` and referenced by
+  path; originals in media folders are never touched.
+
+---
+
+## 5. Scan & identification pipeline
+
+```
+walk (skip @eaDir, #recycle, .hidden, sample/ extras rules)
+  → classify file (video ext, sample/trailer/extra heuristics)
+  → change detect (size+mtime+inode)
+  → probe (ffprobe) → technical metadata
+  → parse path → candidate {kind, title, year, season, episode, edition}
+  → group into items (show/season/episode or movie)
+  → match provider (only for new/unmatched/locked=false items)
+  → fetch art + details → cache
+  → update FTS index
+```
+
+**Parser** (pure package, golden-file tested):
+- Movie: `Title (Year)/Title (Year).mkv`, `Title.2023.1080p.WEB-DL...`
+- TV: `Show/Season 01/Show - S01E02 - Title.mkv`, `Show (2019)/S01E02`, `1x02`,
+  `Show - 01x02`, anime absolute numbering (later)
+- Extras: `Extras/`, `Featurettes/`, `-trailer`, `-sample`, `behindthescenes`
+- Cleanup of release tags (`1080p, 2160p, x265, HEVC, WEB-DL, DDP5.1, REPACK, PROPER`)
+- Multi-part/multi-episode ranges (`S01E01-E02`)
+
+**Matcher**: normalize + year proximity + popularity tiebreak; confidence score.
+Below threshold → item stays `unmatched` and appears in a "Needs attention" queue
+with a manual Identify dialog (search provider by title/year and pick).
+
+**Providers**: TMDB primary (movies+TV), optional TVDB for anime/absolute ordering,
+local `.nfo` reader (Kodi/Jellyfin compatible). Art from provider, or local
+`poster.jpg`/`fanart.jpg`/`season01-poster.jpg` if present.
+
+---
+
+## 6. API sketch (`/api/v1`)
+
+```
+POST   /auth/login | /auth/logout | GET /auth/me
+GET    /libraries                         POST /libraries
+PATCH  /libraries/{id}                    DELETE /libraries/{id}
+POST   /libraries/{id}/scan               (job)
+GET    /libraries/{id}/items?sort=&filter=&cursor=
+GET    /items/{id}                        PATCH /items/{id}   (edit/lock)
+GET    /items/{id}/children               GET /items/{id}/related
+POST   /items/{id}/identify               POST /items/{id}/refresh
+POST   /items/{id}/art                     (choose art)
+GET    /search?q=                          (FTS)
+GET    /home                               (rows: continue watching, recent, ...)
+GET    /media/{fileId}/stream              (Range, direct play)
+GET    /media/{fileId}/subtitles/{index}
+PUT    /progress/{itemId}                  POST /items/{id}/played
+GET    /jobs  /jobs/{id}  /events (SSE)    GET /settings  PATCH /settings
+```
+
+Conventions: JSON, camelCase, cursor pagination, RFC7807-ish problem objects,
+`ETag`/`If-None-Match` on list endpoints later.
+
+---
+
+## 7. Frontend structure
+
+```
+routes/
+  __root.tsx                 # shell: sidebar/topbar, session guard
+  index.tsx                  # Home: continue watching, recently added, collections
+  movies.tsx  tv.tsx  home-videos.tsx
+  search.tsx
+  item/$id.tsx               # movie/episode detail + play + edit
+  show/$id.tsx               # seasons/episodes
+  collection/$id.tsx
+  settings/{libraries,metadata,transcoding,users}.tsx
+  admin/scan.tsx             # job monitor
+features/  browse/ detail/ player/ identify/ libraries/ scan/
+components/ poster-card, poster-grid, media-row, filters, player, …
+lib/       api client, query keys, formatters, i18n
+atoms/     player, ui preferences (grid density, theme)
+```
+
+UX direction: dark cinematic default, large poster grids, sticky filter bar,
+keyboard shortcuts (`/` search, `f` fullscreen, `space` play), skeleton states,
+optimistic watch-state updates, URL-as-state for filters.
+
+---
+
+## 8. Delivery phases
+
+Each phase closes a defined slice of the gap register in [`GAPS.md`](./GAPS.md);
+`GAP-*` / `ADV-*` IDs are the shared vocabulary between the two documents.
+
+### M0 — Foundation (skeleton that builds & ships)
+- Repo scaffolding, Makefile, `.gitignore`, golangci-lint, eslint/tsgo, CI
+- Single binary serving embedded "hello" SPA; config loader; slog; `/healthz`
+- SQLite open with pragmas (WAL, busy_timeout, foreign_keys); migration runner
+- Dockerfile (multi-stage → alpine + ffmpeg + tini, non-root), compose, volume layout
+- **Done when**: `make build` yields one binary; `docker compose up` serves UI+API.
+
+### M1 — Media management core (the milestone that matters)
+- Libraries CRUD with multiple paths; library types
+- Scanner: walk, ignore rules, change detection, probe, grouping, jobs + progress
+- Filename parser with corpus tests (≥40 real-world patterns)
+- DB schema + migrations + queries + FTS5
+- Browse API + UI: grid/list, sort/filter, item detail with technical info
+- Manual metadata edit (title/year/overview/genres) with locks
+- **Done when**: 100-file library indexes correctly; re-scan is incremental
+  (<1s for unchanged files); titles/seasons/episodes are right; search is instant.
+
+### M2 — Metadata enrichment
+- TMDB provider (movies/TV), art caching, cast/crew, collections, genres
+- Matcher + confidence + "Needs attention" queue + Identify dialog
+- NFO reader + local art detection; unmatched items show cleanly
+- Home page rows (recently added, collections, genres)
+- **Done when**: typical library auto-matches ≥90%; unmatched are obvious and fixable.
+
+### M3 — Organization & library UX
+- Show → season → episode navigation, next-up, specials
+- Collections, favorites, watched/unwatched, tags, home videos by date
+- Bulk edit, identify-many, hidden items, library permissions groundwork
+- Scheduler (interval/daily) + optional fsnotify live watch + job monitor UI
+- **Done when**: library of 5k files is navigable and filterable without lag.
+
+### M4 — Playback (management loop closes)
+- Direct-play streaming with Range; subtitle conversion (srt/ass → vtt)
+- Player: audio/subtitle track pick, resume, mark watched, next episode
+- Per-user progress; "Continue watching" row
+- **Done when**: H.264/AAC/WebM direct-play flawlessly with resume + subtitles.
+
+### M5 — Transcoding
+- ffmpeg HLS fMP4 sessions on demand with quality ladder; remux-first
+- Segment cleanup, session limits, in-process transcode progress
+- Optional HW accel (VA-API/QSV/NVENC) autodetect; subtitle burn-in
+- **Done when**: HEVC/AC3/DTS titles play in browser with seek.
+
+### M6 — Users, sharing, i18n
+- Accounts, roles, per-library permissions, parental rating ceilings
+- Share links with expiry, optional passcode; watch history per user
+- i18n (en + de/zh scaffold), OG metadata for shared links
+
+### M7 — Polish / optional
+- PWA/offline shell, Chromecast, online subtitle search, trailers,
+  duplicate detection, file-move re-link, Prometheus metrics, ARM builds
+
+---
+
+## 9. Deployment
+
+**Image**: `node:24-alpine` (web build) → `golang:1.27-alpine` (CGO off) →
+`alpine:3.23` runtime with `ffmpeg`, `tzdata`, `tini`, `ca-certificates`.
+Non-root `mvs` user, `VOLUME /data`, media mounted read-only, `HEALTHCHECK`.
+
+**Volumes / dirs**
+```
+/config  or /data
+  mvs.db  (+ -wal, -shm)
+  config.yaml (generated; env overrides)
+  cache/images/…   cache/transcodes/…   logs/
+/movies  /tv  /home-videos   (read-only mounts)
+```
+
+**Config precedence**: CLI flags > `MVS_*` env > `/data/config.yaml` > defaults.
+
+**Extras**: docker-compose example, PUID/PGID support, healthcheck, goreleaser for
+linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
+
+---
+
+## 10. Testing & quality
+
+- Go: table-driven tests; golden files for the naming parser; `httptest` API tests
+  against a temp SQLite; fuzz test for the parser (fuzz target with `go test -fuzz`).
+- A tiny synthetic media corpus generated by ffmpeg in CI (not committed binaries).
+- Frontend: Vitest for logic/hooks; Playwright smoke (browse → detail → play) in M4.
+- Contract: OpenAPI (or zod schemas from a single source) checked in CI to prevent
+  frontend/backend drift.
+
+## 11. Risks & mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Filename parsing is the #1 quality driver | large corpus, confidence scoring, always-available manual Identify |
+| Provider rate limits / API key missing | cache aggressively, backoff, degrade to folder names, NFO path |
+| ffprobe absence in dev/host | preflight check with clear error; docker image ships ffmpeg; dev script fetches static build |
+| SQLite write contention with scans | WAL, single writer goroutine/batch transactions, short txns |
+| Inotify limits in Docker | default to scheduled scan; watcher opt-in |
+| Art cache unbounded growth | size cap + LRU eviction (M2+) |
+| Codec licensing (the reason Video Station died) | we ship ffmpeg (LGPL build) as a separate binary; no proprietary codecs bundled |
+| CGO/driver surprises on Alpine | modernc (pure Go) + CGO_ENABLED=0 verified in CI |
+| Scope creep into streaming platform | phases: management is M1–M3 and must be excellent before M4 |
+
+---
+
+## 12. Decisions needed (please answer by number; "defaults" is a valid reply)
+
+**A. Scope**
+1. Phase priority: I assume **M1–M3 (management) before playback**. Agree? Or must
+   direct-play exist in the first usable release?
+2. Users: schema supports multi-user from day 1, but v1 UI is single admin? (default: yes)
+3. Do we ever **write** into media folders (rename, `.nfo`, local art)? Default:
+   **never**; read sidecars, write only to `/data`.
+4. Extras/trailers/samples: index them as `extra`, hide by default? (default: yes)
+5. Anime/absolute-numbering support in v1? (default: M7)
+
+**B. Metadata**
+6. TMDB: do you have an API key? Is TMDB the only provider for v1 (default: yes,
+   TVDB pluggable later)? Key via env var or settings UI (default: both, settings wins)?
+7. Metadata language default? (default: `en-US`, per-library override)
+8. Do you need IMDb/TVDB ratings and Rotten Tomatoes-style scores in v1? (default: no)
+9. Parental/content-rating filtering in v1? (default: M6)
+
+**C. Media & runtime**
+10. ffmpeg/ffprobe is **not installed** on this host. Preferred dev setup:
+    (a) I add a `make deps` that downloads a static ffmpeg into `.tools/`,
+    (b) you install it via apt/brew, (c) develop only through Docker. Default: **(a) + docker**.
+11. SQLite driver: **modernc.org/sqlite** (pure Go, static, slightly slower) vs
+    `mattn/go-sqlite3` (CGO). Default: **modernc** (matches single static binary + alpine).
+12. Search: SQLite **FTS5** enough, or do you want trigram/fuzzy matching too?
+    (default: FTS5 now, fuzzy in M3)
+13. Transcoding target: **HLS fMP4** with remux-first, HW accel optional. Any
+    specific client (Safari/iOS) constraint we must design for now? (default: HLS)
+14. Hardware transcoding: needed in v1? Which GPU/NAS (Intel QSV, AMD VA-API, Nvidia)?
+15. Media locations: local paths only for v1; SMB/NFS assumed pre-mounted by host.
+    Remote backends (S3/WebDAV) later? (default: yes)
+16. Live watcher (fsnotify) default **off**, scheduled scans default every 6h? (default: yes)
+
+**D. Stack & repo**
+17. Go module path + license: `github.com/<you>/myvideostation`, **AGPL-3.0**
+    (like Jellyfin) or **MIT**? Please give me the GitHub org/user name.
+18. Repo layout: monorepo with `web/` (recommended) vs separate frontend repo?
+19. Query layer: **sqlc** (recommended) vs sqlx/gorm? Migrations: **goose** ok?
+20. UI kit: shadcn-style on Radix (recommended) vs Base UI vs hand-rolled?
+21. Router: TanStack Router file-based routing (recommended) vs react-router?
+22. Auth: cookie sessions (HttpOnly, server-side) vs JWT? OIDC/SSO later? (default: cookie sessions)
+23. API docs: OpenAPI generated from Go (e.g. huma) or hand-written spec?
+    (default: hand-written OpenAPI + CI drift check)
+24. TypeScript 7 `tsgo` is very new — okay to pin exactly and use it for typecheck
+    only (Vite handles transpile)? Any fallback preference if it misbehaves?
+25. CI: GitHub Actions + goreleaser? Multi-arch images (amd64/arm64) required?
+
+**E. Product UX**
+26. Primary target screen: desktop browser on NAS/LAN (default) or TV/large screen?
+27. Design direction: dark cinematic (default) with optional light theme; any brand
+    color/name preference besides "MyVideoStation"?
+28. Languages for UI: English only for now, i18n skeleton later? (default: yes)
+29. Any must-have Video Station behavior you personally rely on that I should not
+    drop (e.g. "TV recording", "personal video collections", "share to DS video")?
+
+---
+
+## 13. Proposed immediate next steps (after answers)
+
+1. Record decisions as `docs/adr/0001-stack.md`.
+2. Execute **M0** end-to-end so `make dev`, `make build`, `docker compose up` all work.
+3. Build the **naming parser + corpus tests** first — it de-risks the entire product.
+4. Then M1 scanner → DB → browse UI with one real library mounted read-only.
