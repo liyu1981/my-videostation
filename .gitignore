@@ -78,3 +78,6 @@ Thumbs.db
 
 # generated SPA embed (produced by `make build`)
 internal/web/dist/
+
+# air live-reload tmp
+.air/

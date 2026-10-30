@@ -60,7 +60,14 @@ opt-in via env). Until then: do not expose the port.
 `media_items.id`; `refreshFTS` runs on item insert/update and on scanner batches.
 This keeps the index correct without triggers that would need to join people tables.
 
-## 9. Testing strategy for M1
+## 9. Dev tooling: air + pnpm scripts (no Makefile)
+
+The dev loop is `pnpm dev`: **air** rebuilds/restarts the Go API on `.go`/`.sql` changes
+(binary built without `embedui`; Vite serves the SPA and proxies `/api`), while **Vite**
+hot-reloads the UI. Builds are pnpm scripts (`scripts/build.mjs`) rather than Makefile
+targets, so there is one toolchain entry point (`pnpm`) for both halves of the repo.
+
+## 10. Testing strategy for M1
 
 - `internal/naming`: table-driven corpus (34 cases), including the user's real-world
   CJK/scene filenames.

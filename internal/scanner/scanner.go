@@ -71,7 +71,7 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 	}
 
 	if sc.probe == nil {
-		sc.log.Warn("ffprobe not found: indexing without technical metadata (run `make deps`)")
+		sc.log.Warn("ffprobe not found: indexing without technical metadata (run `pnpm bootstrap`)")
 	}
 
 	known, err := sc.store.FileStats(ctx, libraryID)

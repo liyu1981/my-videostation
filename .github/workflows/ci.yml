@@ -29,9 +29,6 @@ jobs:
   web:
     name: Web (typecheck, build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -41,10 +38,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm build
+      - run: pnpm build:web
 
   binary:
     name: Single binary build
@@ -62,7 +58,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: make build
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
       - name: Smoke test the binary
         run: |
           ./bin/mvs --listen 127.0.0.1:8099 --data /tmp/mvs-ci &

@@ -17,3 +17,5 @@ vs-probe/
 *.db
 *.db-wal
 *.db-shm
+
+.air

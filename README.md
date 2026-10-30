@@ -96,15 +96,30 @@ testdata/           parser corpus and generated sample media
 ## Getting started
 
 ```bash
-# 1. dev tools: static ffprobe/ffmpeg into .tools/ (dev machines only)
-make deps
+pnpm install
 
-# 2. run the API (:8080) and the Vite UI (:5173, proxies /api)
-make dev
+# one-time (idempotent): installs air (Go live reload) + static ffprobe into .tools/
+pnpm bootstrap
 
-# 3. or build the single binary with the UI embedded
-make build && ./bin/mvs --data ./data
+# dev: Go API on :8080 with live reload (air) + Vite on :5173 with HMR
+pnpm dev
+
+# production: web bundle -> embedded dist -> single static binary
+pnpm build && ./bin/mvs --data ./data
 ```
+
+Editing a `.go` file rebuilds and restarts the API; editing a `.tsx/.ts/.css` file hot-reloads
+the browser through Vite. Migrations are embedded, so changing SQL also triggers a rebuild.
+
+| Script | Purpose |
+|---|---|
+| `pnpm dev` | air + vite, both watching |
+| `pnpm build` | embed the SPA and produce `bin/mvs` |
+| `pnpm test` | Go test suite |
+| `pnpm lint` | gofmt check, go vet, `tsc --noEmit` |
+| `pnpm typecheck` | TypeScript only |
+| `pnpm docker` | build the Alpine image with version metadata |
+| `pnpm clean` | remove build artifacts (`pnpm clean -- --data` also drops the DB) |
 
 Open <http://127.0.0.1:8080> (or :5173 in dev), go to **Libraries → Add library**, point it at
 a folder, and it creates + starts a scan.

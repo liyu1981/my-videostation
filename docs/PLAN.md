@@ -117,7 +117,7 @@ my-video-station/
 ├── deployments/             # Dockerfile, docker-compose.yml
 ├── docs/                    # ADRs, filename conventions, API notes
 ├── testdata/                # media corpus for parser/probe tests
-├── Makefile
+├── package.json         # pnpm scripts: dev/build/test/lint/docker
 └── PLAN.md
 ```
 
@@ -147,8 +147,8 @@ my-video-station/
   or a hand-maintained `types.ts` kept honest by contract tests)
 - PWA manifest + service worker (M7)
 
-**Dev loop**: `make dev` → Vite on :5173 proxying `/api` to Go on :8080;
-`make build` → `pnpm build` → `web/dist` → `go build` (embed) → `bin/mvs`.
+**Dev loop**: `pnpm dev` → air (Go rebuild/restart on save) on :8080 + Vite on :5173 proxying
+`/api`; `pnpm build` → Vite bundle → `internal/web/dist` → `go build -tags embedui` → `bin/mvs`.
 
 ---
 
@@ -312,12 +312,12 @@ Each phase closes a defined slice of the gap register in [`GAPS.md`](./GAPS.md);
 `GAP-*` / `ADV-*` IDs are the shared vocabulary between the two documents.
 
 ### M0 — Foundation (skeleton that builds & ships)
-- Repo scaffolding, Makefile, `.gitignore`, golangci-lint, eslint/tsgo, CI
+- Repo scaffolding, pnpm scripts, `.gitignore`, gofmt/vet/tsc checks, CI
 - `theme.css` Tailwind tokens + Lucide icon map derived from `docs/UI-PROBE.md` §7
 - Single binary serving embedded "hello" SPA; config loader; slog; `/healthz`
 - SQLite open with pragmas (WAL, busy_timeout, foreign_keys); migration runner
 - Dockerfile (multi-stage → alpine + ffmpeg + tini, non-root), compose, volume layout
-- **Done when**: `make build` yields one binary; `docker compose up` serves UI+API.
+- **Done when**: `pnpm build` yields one binary; `docker compose up` serves UI+API.
 
 ### M1 — Media management core (the milestone that matters)
 - Libraries CRUD with multiple paths; library types
@@ -438,7 +438,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 
 **C. Media & runtime**
 10. ffmpeg/ffprobe is **not installed** on this host. Preferred dev setup:
-    (a) I add a `make deps` that downloads a static ffmpeg into `.tools/`,
+    (a) `pnpm bootstrap` downloads a static ffmpeg into `.tools/`,
     (b) you install it via apt/brew, (c) develop only through Docker. Default: **(a) + docker**.
 11. SQLite driver: **modernc.org/sqlite** (pure Go, static, slightly slower) vs
     `mattn/go-sqlite3` (CGO). Default: **modernc** (matches single static binary + alpine).
@@ -478,7 +478,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 ## 13. Proposed immediate next steps (after answers)
 
 1. Record decisions as `docs/adr/0001-stack.md`.
-2. Execute **M0** end-to-end so `make dev`, `make build`, `docker compose up` all work.
+2. Execute **M0** end-to-end so `pnpm dev`, `pnpm build`, `docker compose up` all work.
 3. Build the **naming parser + corpus tests** first — it de-risks the entire product.
 4. Then M1 scanner → DB → browse UI with one real library mounted read-only.
 
@@ -493,7 +493,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 - SQLite via `modernc.org/sqlite` (CGO off) with WAL/busy_timeout/foreign keys, plus an
   embedded forward-only migration runner (`internal/db`).
 - Embedded SPA with two build modes: `embedui` (real UI) and a stub for `go test`/`go build`.
-- Makefile (`deps`, `web`, `build`, `dev`, `test`, `lint`, `docker`), dev script,
+- pnpm scripts (`dev`, `build`, `test`, `lint`, `docker`, `bootstrap`), air config,
   multi-stage Alpine Dockerfile (ffmpeg, non-root, healthcheck), compose file, CI workflow.
 
 ### M1 — delivered

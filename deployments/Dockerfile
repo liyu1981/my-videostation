@@ -2,12 +2,13 @@
 
 # ---------- web ----------
 FROM node:24-alpine AS web
-WORKDIR /src/web
-RUN corepack enable && corepack prepare pnpm@12 --activate
-COPY web/package.json web/pnpm-lock.yaml ./
+WORKDIR /src
+RUN corepack enable && corepack prepare pnpm@12.4.2 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY web/package.json ./web/package.json
 RUN pnpm install --frozen-lockfile
-COPY web/ ./
-RUN pnpm build
+COPY web/ ./web/
+RUN pnpm --filter myvideostation-web build
 
 # ---------- go ----------
 FROM golang:1.27-alpine AS build

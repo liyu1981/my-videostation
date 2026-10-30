@@ -61,7 +61,7 @@ func run() error {
 	case err == nil:
 		log.Info("ffprobe found", "path", prober.Path)
 	case errors.Is(err, media.ErrNoProber):
-		log.Warn("ffprobe not found: technical metadata will be skipped", "hint", "run `make deps`")
+		log.Warn("ffprobe not found: technical metadata will be skipped", "hint", "run `pnpm bootstrap`")
 	default:
 		return err
 	}

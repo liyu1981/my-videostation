@@ -26,8 +26,8 @@ func Handler() http.Handler {
 <body><div>
   <h1 style="font-size:20px;margin:0 0 8px">MyVideoStation API is running</h1>
   <p style="color:#a9b1bb;margin:0 0 16px">
-    The web UI was not embedded in this build. Run <code>make build</code>
-    (or <code>make dev</code> for the Vite dev server).
+    The web UI was not embedded in this build. Run <code>pnpm build</code>
+    (or <code>pnpm dev</code> for the Vite dev server).
   </p>
   <p style="color:#737b86;margin:0">API: <a href="/api/v1/health">/api/v1/health</a></p>
 </div></body></html>`))
