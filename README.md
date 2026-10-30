@@ -111,6 +111,9 @@ pnpm build && ./bin/mvs --data ./data
 Editing a `.go` file rebuilds and restarts the API; editing a `.tsx/.ts/.css` file hot-reloads
 the browser through Vite. Migrations are embedded, so changing SQL also triggers a rebuild.
 
+Both dev servers bind `0.0.0.0`, so you can open the UI from another device on the same LAN:
+`http://<your-lan-ip>:5173` (Vite) or `http://<your-lan-ip>:8080` (API / stub UI).
+
 | Script | Purpose |
 |---|---|
 | `pnpm dev` | air + vite, both watching |
@@ -131,8 +134,9 @@ MEDIA_MOVIES=/mnt/media/movies MEDIA_TV=/mnt/media/tv \
   docker compose -f deployments/docker-compose.yml up -d --build
 ```
 
-> **Security:** M1 has no authentication and binds to `127.0.0.1` by default. Do not expose
-> the port until M6 (users/sessions) lands.
+> **Security:** M1 has no authentication. The `mvs` binary defaults to `127.0.0.1`, but the
+> **dev loop binds `0.0.0.0`** so you can test from a TV/phone on your LAN. Run dev only on a
+> trusted network, and do not expose either port to the internet until M6 (users/sessions).
 
 Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file lands later).
 

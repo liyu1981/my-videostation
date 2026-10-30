@@ -7,7 +7,7 @@ tmp_dir = ".air"
 [build]
   cmd = "go build -o .air/mvs ./cmd/mvs"
   bin = ".air/mvs"
-  full_bin = ".air/mvs --listen 127.0.0.1:8080 --data ./data"
+  full_bin = ".air/mvs --listen 0.0.0.0:8080 --data ./data"
   include_ext = ["go", "sql"]
   exclude_dir = [
     "web",
