@@ -61,7 +61,7 @@ func TestScanPipelineAndAPI(t *testing.T) {
 	mediaDir := filepath.Join(dir, "media")
 	writeFile(t, filepath.Join(mediaDir, "Movies", "The King's Speech (2010)", "The King's Speech (2010) (1080p BluRay x265).mkv"))
 	writeFile(t, filepath.Join(mediaDir, "Movies", "Dune Part Two (2024)", "Dune.Part.Two.2024.1080p.WEB-DL.mkv"))
-	writeFile(t, filepath.Join(mediaDir, "Movies", "Trailers", "trailer.mkv")) // must be skipped as extra
+	writeFile(t, filepath.Join(mediaDir, "Movies", "The King's Speech (2010)", "Extras", "trailer.mkv"))
 
 	// library via API (validates path handling + response shape)
 	body, _ := json.Marshal(map[string]any{
@@ -87,8 +87,8 @@ func TestScanPipelineAndAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if stats.Created != 2 {
-		t.Fatalf("created = %d, want 2 (extras excluded): %+v", stats.Created, stats)
+	if stats.Created != 3 {
+		t.Fatalf("created = %d, want 3 (2 movies + 1 extra): %+v", stats.Created, stats)
 	}
 	if stats.Extras != 1 {
 		t.Errorf("extras = %d, want 1", stats.Extras)
@@ -168,6 +168,18 @@ func TestScanPipelineAndAPI(t *testing.T) {
 		t.Fatalf("patch not applied: %+v", patched)
 	}
 
+	// extras are indexed hidden and attached to the movie in the same folder
+	var withExtras struct {
+		Extras []struct {
+			Title  string `json:"title"`
+			Hidden bool   `json:"hidden"`
+		} `json:"extras"`
+	}
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(browse.Items[0].ID), &withExtras)
+	if len(withExtras.Extras) != 1 || withExtras.Extras[0].Title != "Trailer" {
+		t.Fatalf("extras = %+v, want one Trailer", withExtras.Extras)
+	}
+
 	// progress + home continue-watching
 	prog, _ := json.Marshal(map[string]any{"positionMs": 5000, "durationMs": 10000, "played": false})
 	res3, err := http.Post(srv.URL+"/api/v1/items/"+itoa(browse.Items[0].ID)+"/progress", "application/json", bytes.NewReader(prog))
@@ -195,6 +207,64 @@ func TestScanPipelineAndAPI(t *testing.T) {
 	}
 	if stats2.Probed != 0 {
 		t.Errorf("second scan probed %d files, want 0", stats2.Probed)
+	}
+}
+
+func TestMultiEpisodeFiles(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	tvDir := filepath.Join(dir, "tv")
+	writeFile(t, filepath.Join(tvDir, "Show (2020)", "Season 1", "Show.S01E01-E02.1080p.mkv"))
+	writeFile(t, filepath.Join(tvDir, "Show (2020)", "Season 1", "Show.S01E03.1080p.mkv"))
+
+	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{tvDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	stats, err := sc.ScanLibrary(ctx, lib.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Created != 2 {
+		t.Fatalf("created = %d, want 2 (show+season are not counted here): %+v", stats.Created, stats)
+	}
+
+	var seasons struct {
+		Items []struct {
+			ID int64 `json:"id"`
+		} `json:"items"`
+	}
+	getJSON(t, srv.URL+"/api/v1/browse?kind=season&parentId=1", &seasons)
+	if len(seasons.Items) != 1 {
+		t.Fatalf("seasons = %+v", seasons.Items)
+	}
+	var episodes struct {
+		Items []struct {
+			Title      string `json:"title"`
+			Episode    int    `json:"episodeNumber"`
+			EpisodeEnd int    `json:"episodeEnd"`
+		} `json:"items"`
+	}
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(seasons.Items[0].ID)+"/children", &episodes)
+	if len(episodes.Items) != 2 {
+		t.Fatalf("episodes = %+v", episodes.Items)
+	}
+	var found bool
+	for _, e := range episodes.Items {
+		if e.Episode == 1 {
+			found = true
+			if e.EpisodeEnd != 2 {
+				t.Errorf("episodeEnd = %d, want 2", e.EpisodeEnd)
+			}
+			if e.Title != "Episode 1" {
+				t.Errorf("title = %q, want Episode 1", e.Title)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("episode 1 missing: %+v", episodes.Items)
 	}
 }
 

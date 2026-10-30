@@ -32,10 +32,12 @@ export function formatDateTime(iso?: string): string {
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-export function episodeLabel(season?: number, episode?: number): string {
+export function episodeLabel(season?: number, episode?: number, end?: number): string {
   if (!episode) return '';
   const s = season && season > 0 ? `S${String(season).padStart(2, '0')}` : '';
-  return `${s}E${String(episode).padStart(2, '0')}`;
+  const first = `E${String(episode).padStart(2, '0')}`;
+  const last = end && end > episode ? `-E${String(end).padStart(2, '0')}` : '';
+  return `${s}${first}${last}`;
 }
 
 export function resolutionLabel(_width?: number, height?: number): string {

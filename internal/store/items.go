@@ -28,6 +28,7 @@ type Item struct {
 	BackdropPath  string    `json:"-"`
 	SeasonNumber  int       `json:"seasonNumber,omitempty"`
 	EpisodeNumber int       `json:"episodeNumber,omitempty"`
+	EpisodeEnd    int       `json:"episodeEnd,omitempty"`
 	AddedAt       time.Time `json:"addedAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 	Locked        bool      `json:"locked"`
@@ -101,7 +102,7 @@ const itemColumns = `
 	COALESCE(m.original_title,''), COALESCE(m.year,0), COALESCE(m.overview,''),
 	COALESCE(m.tagline,''), COALESCE(m.runtime_ms,0), COALESCE(m.rating,0),
 	COALESCE(m.content_rating,''), COALESCE(m.poster_path,''), COALESCE(m.backdrop_path,''),
-	COALESCE(m.season_number,0), COALESCE(m.episode_number,0),
+	COALESCE(m.season_number,0), COALESCE(m.episode_number,0), COALESCE(m.episode_end,0),
 	m.added_at, m.updated_at, m.locked, m.hidden`
 
 const itemStateColumns = `
@@ -123,7 +124,7 @@ func scanItem(r rowScanner, it *Item) error {
 		&it.ID, &it.LibraryID, &it.ParentID, &it.Kind, &it.Title, &it.SortTitle,
 		&it.OriginalTitle, &it.Year, &it.Overview, &it.Tagline, &it.RuntimeMS, &it.Rating,
 		&it.ContentRating, &it.PosterPath, &it.BackdropPath,
-		&it.SeasonNumber, &it.EpisodeNumber, &added, &updated, &locked, &hidden,
+		&it.SeasonNumber, &it.EpisodeNumber, &it.EpisodeEnd, &added, &updated, &locked, &hidden,
 		&state[0], &played, &state[2], &it.FileCount,
 	); err != nil {
 		return err
@@ -230,6 +231,26 @@ func (s *Store) GetItem(ctx context.Context, id int64) (*Item, error) {
 		return nil, wrap("get item", err)
 	}
 	return &it, nil
+}
+
+// ListExtras returns trailers/featurettes attached to an item (hidden from browse).
+func (s *Store) ListExtras(ctx context.Context, itemID int64) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+itemColumns+`, `+itemStateColumns+`
+		FROM media_items m `+fmt.Sprintf(itemJoin, DefaultUserID)+`
+		WHERE m.parent_id = ? AND m.kind = 'extra'
+		ORDER BY m.title, m.id`, itemID)
+	if err != nil {
+		return nil, wrap("list extras", err)
+	}
+	var out []Item
+	if err := collectItems(rows, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []Item{}
+	}
+	return out, nil
 }
 
 // ItemFiles returns the physical files of an item.
@@ -613,7 +634,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Item, er
 			&it.ID, &it.LibraryID, &it.ParentID, &it.Kind, &it.Title, &it.SortTitle,
 			&it.OriginalTitle, &it.Year, &it.Overview, &it.Tagline, &it.RuntimeMS, &it.Rating,
 			&it.ContentRating, &it.PosterPath, &it.BackdropPath,
-			&it.SeasonNumber, &it.EpisodeNumber, &added, &updated, &locked, &hidden,
+			&it.SeasonNumber, &it.EpisodeNumber, &it.EpisodeEnd, &added, &updated, &locked, &hidden,
 			&st[0], &played, &st[2], &it.FileCount, &rank); err != nil {
 			return nil, wrap("scan search result", err)
 		}

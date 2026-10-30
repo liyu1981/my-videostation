@@ -26,7 +26,12 @@ type ScannedFile struct {
 	ShowTitle     string
 	SeasonNumber  int
 	EpisodeNumber int
+	EpisodeEnd    int
 	EpisodeTitle  string
+
+	// Extras: attached to whichever library item lives in ParentDir ("" = unattached).
+	ParentDir string
+	ExtraType string
 
 	PosterPath   string
 	BackdropPath string
@@ -121,6 +126,9 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 	case KindMovie, KindHomeVideo:
 		return ensureLeafItem(ctx, tx, f.LibraryID, f.Kind, f.Title, f.Year, f)
 
+	case KindExtra:
+		return ensureExtra(ctx, tx, f)
+
 	case KindEpisode:
 		showID, _, err := ensureShow(ctx, tx, f.LibraryID, f.ShowTitle, f.Year, f.PosterPath, f.BackdropPath)
 		if err != nil {
@@ -133,6 +141,39 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 		return ensureEpisode(ctx, tx, f, showID, seasonID)
 	}
 	return 0, false, wrap("ensure item", errInvalid("unsupported kind: "+f.Kind))
+}
+
+// ensureExtra indexes a trailer/featurette, attached to the item in ParentDir when found.
+func ensureExtra(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, error) {
+	parentID := int64(0)
+	if f.ParentDir != "" {
+		prefix := strings.TrimSuffix(f.ParentDir, "/") + "/%"
+		_ = tx.QueryRowContext(ctx, `
+			SELECT m.id FROM media_items m
+			JOIN media_files mf ON mf.item_id = m.id
+			WHERE m.library_id = ? AND mf.path LIKE ? AND m.kind IN ('movie','show')
+			ORDER BY LENGTH(mf.path) LIMIT 1`, f.LibraryID, prefix).Scan(&parentID)
+	}
+	var id int64
+	err := tx.QueryRowContext(ctx, `
+		SELECT id FROM media_items WHERE library_id = ? AND kind = 'extra'
+		  AND parent_id = ? AND title = ?`, f.LibraryID, parentID, f.Title).Scan(&id)
+	if err == nil {
+		return id, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, false, wrap("find extra", err)
+	}
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO media_items
+			(library_id, parent_id, kind, title, sort_title, runtime_ms, hidden, added_at, updated_at)
+		VALUES (?,?,'extra',?,?,?,1,?,?)`,
+		f.LibraryID, parentID, f.Title, sortTitle(f.Title), f.DurationMS, now(), now())
+	if err != nil {
+		return 0, false, wrap("insert extra", err)
+	}
+	id, _ = res.LastInsertId()
+	return id, true, nil
 }
 
 // ensureLeafItem finds or inserts a movie / home video.
@@ -245,10 +286,10 @@ func ensureEpisode(ctx context.Context, tx *sql.Tx, f *ScannedFile, showID, seas
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO media_items
 			(library_id, parent_id, kind, title, sort_title, season_number, episode_number,
-			 runtime_ms, poster_path, added_at, updated_at)
-		VALUES (?,?,'episode',?,?,?,?,?,?,?,?)`,
+			 episode_end, runtime_ms, poster_path, added_at, updated_at)
+		VALUES (?,?,'episode',?,?,?,?,?,?,?,?,?)`,
 		f.LibraryID, seasonID, want, sortTitle(want), f.SeasonNumber, f.EpisodeNumber,
-		f.DurationMS, nullStr(f.PosterPath), now(), now())
+		nullInt(f.EpisodeEnd), f.DurationMS, nullStr(f.PosterPath), now(), now())
 	if err != nil {
 		return 0, false, wrap("insert episode", err)
 	}

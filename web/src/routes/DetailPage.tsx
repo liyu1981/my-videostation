@@ -72,7 +72,7 @@ export function DetailPage() {
   if (grandParent.data) breadcrumb.push({ label: grandParent.data.title, to: `/items/${grandParent.data.id}` as string });
   if (parent.data) breadcrumb.push({ label: parent.data.title, to: `/items/${parent.data.id}` as string });
   if (detail.kind === 'episode' || detail.kind === 'season') {
-    breadcrumb.push({ label: detail.kind === 'episode' ? episodeLabel(detail.seasonNumber, detail.episodeNumber) : detail.title });
+    breadcrumb.push({ label: detail.kind === 'episode' ? episodeLabel(detail.seasonNumber, detail.episodeNumber, detail.episodeEnd) : detail.title });
   }
 
   return (
@@ -139,7 +139,7 @@ export function DetailPage() {
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] text-fg-muted">
                 {detail.year ? <span>{detail.year}</span> : null}
                 {detail.kind === 'episode' ? (
-                  <span>{episodeLabel(detail.seasonNumber, detail.episodeNumber)}</span>
+                  <span>{episodeLabel(detail.seasonNumber, detail.episodeNumber, detail.episodeEnd)}</span>
                 ) : null}
                 {detail.runtimeMs ? <span>{formatRuntime(detail.runtimeMs)}</span> : null}
                 {detail.rating ? <span className="text-rating">★ {detail.rating.toFixed(1)}</span> : null}
@@ -250,6 +250,13 @@ export function DetailPage() {
         <section className="mt-8 px-6 lg:px-8">
           <h2 className="mb-3 text-[15px] font-semibold text-fg-heading">Episodes</h2>
           <ItemViews items={episodes} view="poster" />
+        </section>
+      ) : null}
+
+      {detail.extras?.length > 0 ? (
+        <section className="mt-9 px-6 lg:px-8">
+          <h2 className="mb-3 text-[15px] font-semibold text-fg-heading">Extras</h2>
+          <ItemViews items={detail.extras} view="poster" />
         </section>
       ) : null}
 

@@ -507,6 +507,9 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 | Browse UI (grid/list/tile, sort, filter) | ✅ plus pagination, per-library filter, empty/error states |
 | Item detail + technical info | ✅ poster/backdrop, badges, cast/genres, media-info panel (audio/subtitle tracks) |
 | Manual metadata edit + locks | ✅ inline dialog, per-field lock chips, item-wide lock |
+| Extras indexing | ✅ trailers/featurettes hidden from browse, attached to the folder's item |
+| Multi-episode files | ✅ `episode_end` recorded and shown as `S01E01-E02` |
+| Probe performance | ✅ 4-way parallel ffprobe, sequential batched writes |
 | Home | ✅ continue watching, recently added, per-library shelves |
 | Search | ✅ FTS5 across title/original/overview/people |
 
@@ -527,9 +530,10 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 - Posters/backdrops are not cached or downloaded; the UI renders a deterministic gradient
   placeholder when no artwork exists.
 - TV show year/art is taken from the folder or the first episode; no show-level scraping.
-- Extras are counted and skipped (not indexed); multi-episode files attach to the first
-  episode only.
-- Scanning is single-threaded; probing is sequential (fine for thousands of files, needs a
-  worker pool for very large libraries).
+- Extras are attached by folder heuristic (the nearest directory containing media); extras
+  in an unrelated folder stay unattached (hidden, not shown).
+- Multi-episode files create one episode item with an `episodeEnd` range (no per-episode
+  watch state yet).
+- Probing is 4-way parallel; DB writes remain sequential per batch of 100.
 - Thumbnails/trickplay, collections, categories/timeline, scheduler and bulk selection are
   M3+.

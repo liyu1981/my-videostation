@@ -82,10 +82,11 @@ testdata/           parser corpus and generated sample media
 ## What works today (M1)
 
 - **Libraries**: movie / TV / home-video libraries with multiple read-only folders.
-- **Scanning**: incremental (size+mtime), durable jobs with progress, `@eaDir`/`#recycle`/
-  extras/sample skipping, orphan cleanup.
-- **Parsing**: scene names, `SxxExx`, `1x02`, multi-episode ranges, CJK titles, editions,
-  folders as fallback — 34-case test corpus.
+- **Scanning**: incremental (size+mtime), durable jobs with progress, `@eaDir`/`#recycle`
+  skipping, orphan cleanup, parallel probing (4 workers), extras indexed hidden and attached
+  to their movie/show, samples skipped.
+- **Parsing**: scene names, `SxxExx`, `1x02`, multi-episode ranges (`S01E01-E02`), CJK
+  titles, editions, folders as fallback — 34-case test corpus.
 - **Probing**: ffprobe (container, duration, resolution, codecs, HDR, audio/subtitle tracks);
   graceful degradation when ffprobe is absent.
 - **Library UI**: home shelves + continue-watching, poster/tile/list views, sort, per-library

@@ -10,7 +10,7 @@ export function progressPercent(item: Item): number {
 
 export function itemSubtitle(item: Item): string {
   if (item.kind === 'episode') {
-    return [episodeLabel(item.seasonNumber, item.episodeNumber), formatRuntime(item.durationMs)].filter(Boolean).join(' · ');
+    return [episodeLabel(item.seasonNumber, item.episodeNumber, item.episodeEnd), formatRuntime(item.durationMs)].filter(Boolean).join(' · ');
   }
   if (item.kind === 'season') return `${item.seasonNumber === 0 ? 'Specials' : `Season ${item.seasonNumber}`}`;
   if (item.kind === 'home_video') return new Date(item.addedAt).toLocaleDateString();
@@ -67,7 +67,7 @@ export function PosterCard({ item }: { item: Item }) {
 
         {item.kind === 'episode' && item.episodeNumber ? (
           <span className="absolute right-2 top-2 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-fg backdrop-blur">
-            {episodeLabel(item.seasonNumber, item.episodeNumber)}
+            {episodeLabel(item.seasonNumber, item.episodeNumber, item.episodeEnd)}
           </span>
         ) : null}
 
@@ -88,7 +88,7 @@ export function PosterCard({ item }: { item: Item }) {
 
 export function TileCard({ item }: { item: Item }) {
   const progress = progressPercent(item);
-  const firstFileBadge = item.kind === 'episode' ? episodeLabel(item.seasonNumber, item.episodeNumber) : undefined;
+  const firstFileBadge = item.kind === 'episode' ? episodeLabel(item.seasonNumber, item.episodeNumber, item.episodeEnd) : undefined;
   return (
     <Link
       to="/items/$itemId"
@@ -138,7 +138,7 @@ export function ListRow({ item }: { item: Item }) {
         <div className="flex items-center gap-2">
           <p className="truncate text-[13.5px] font-medium text-fg">{item.title}</p>
           {item.kind === 'episode' && item.episodeNumber ? (
-            <span className="shrink-0 text-[11px] text-fg-dim">{episodeLabel(item.seasonNumber, item.episodeNumber)}</span>
+            <span className="shrink-0 text-[11px] text-fg-dim">{episodeLabel(item.seasonNumber, item.episodeNumber, item.episodeEnd)}</span>
           ) : null}
         </div>
         <p className="truncate text-[11.5px] text-fg-dim">{itemSubtitle(item)}</p>

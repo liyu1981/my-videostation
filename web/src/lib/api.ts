@@ -17,6 +17,7 @@ export interface Item {
   contentRating?: string;
   seasonNumber?: number;
   episodeNumber?: number;
+  episodeEnd?: number;
   addedAt: string;
   updatedAt: string;
   locked: boolean;
@@ -87,6 +88,7 @@ export interface ItemDetail extends Item {
   files: MediaFile[];
   locks: string[];
   children: Item[];
+  extras: Item[];
   libraryName?: string;
 }
 

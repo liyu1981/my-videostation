@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/liyu1981/myvideostation/internal/media"
@@ -18,14 +20,15 @@ import (
 
 // Scanner indexes libraries.
 type Scanner struct {
-	store *store.Store
-	probe *media.Prober
-	log   *slog.Logger
+	store    *store.Store
+	probe    *media.Prober
+	log      *slog.Logger
+	probeers int
 }
 
 // New creates a scanner. probe may be nil (technical metadata is then skipped).
 func New(st *store.Store, probe *media.Prober, log *slog.Logger) *Scanner {
-	return &Scanner{store: st, probe: probe, log: log}
+	return &Scanner{store: st, probe: probe, log: log, probeers: 4}
 }
 
 // Stats summarises one library scan.
@@ -36,18 +39,20 @@ type Stats struct {
 	Probed       int `json:"probed"`
 	Unchanged    int `json:"unchanged"`
 	Extras       int `json:"extras"`
+	Samples      int `json:"samples"`
 	Unidentified int `json:"unidentified"`
 	Errors       int `json:"errors"`
 }
 
 func (s Stats) String() string {
-	return fmt.Sprintf("%d files: %d new, %d probed, %d unchanged, %d extras, %d unidentified, %d errors",
-		s.Discovered, s.Created, s.Probed, s.Unchanged, s.Extras, s.Unidentified, s.Errors)
+	return fmt.Sprintf("%d files: %d new, %d probed, %d unchanged, %d extras, %d samples, %d unidentified, %d errors",
+		s.Discovered, s.Created, s.Probed, s.Unchanged, s.Extras, s.Samples, s.Unidentified, s.Errors)
 }
 
 type foundFile struct {
 	path  string
 	rel   string
+	root  string
 	size  int64
 	mtime int64
 	inode int64
@@ -57,6 +62,12 @@ var skipDirs = map[string]bool{
 	"@eadir": true, "#recycle": true, "#snapshot": true, ".trash": true,
 	".@__thumb": true, "lost+found": true, "node_modules": true,
 	"$recycle.bin": true, "system volume information": true, ".git": true,
+}
+
+// planned pairs a discovered file with the item it will become.
+type planned struct {
+	file foundFile
+	item store.ScannedFile
 }
 
 // ScanLibrary indexes one library, reporting progress 0-100.
@@ -69,7 +80,6 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 	if report == nil {
 		report = func(float64, string) {}
 	}
-
 	if sc.probe == nil {
 		sc.log.Warn("ffprobe not found: indexing without technical metadata (run `pnpm bootstrap`)")
 	}
@@ -82,11 +92,10 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 		return stats, err
 	}
 
-	// Discover everything first so progress is accurate.
+	report(0, "walking folders")
 	var files []foundFile
 	for _, p := range lib.Paths {
-		report(0, "walking "+p.Path)
-		got, err := sc.discover(ctx, lib.Type, p.Path)
+		got, err := sc.discover(ctx, p.Path)
 		if err != nil {
 			sc.log.Warn("walk failed", "path", p.Path, "err", err)
 			stats.Errors++
@@ -95,14 +104,45 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 		files = append(files, got...)
 	}
 	stats.Discovered = len(files)
-	if len(files) == 0 {
-		if err := sc.store.DeleteOrphanItems(ctx, libraryID); err != nil {
-			return stats, err
+	report(3, fmt.Sprintf("%d files found", len(files)))
+
+	plans := sc.classify(lib.Type, files, &stats)
+	for i := range plans {
+		plans[i].item.LibraryID = libraryID
+	}
+	report(8, fmt.Sprintf("%d items to index", len(plans)))
+
+	// Probe changed files in parallel (I/O bound), then write sequentially.
+	results := make([]*media.Technical, len(plans))
+	probeFailed := make([]bool, len(plans))
+	needs := make([]int, 0, len(plans))
+	for i := range plans {
+		prev, seen := known[plans[i].file.path]
+		if !seen || prev.Size != plans[i].file.size || prev.Mtime != plans[i].file.mtime {
+			needs = append(needs, i)
+		} else {
+			stats.Unchanged++
 		}
-		report(100, "no video files found")
-		return stats, nil
+	}
+	if sc.probe != nil && len(needs) > 0 {
+		sc.probeAll(ctx, plans, needs, results, probeFailed, &stats, func(done int) {
+			pct := 8 + float64(done)/float64(len(needs))*67
+			report(pct, fmt.Sprintf("probing %d/%d", done, len(needs)))
+		})
+	}
+	for i := range plans {
+		if tech := results[i]; tech != nil {
+			applyTech(&plans[i].item, tech)
+			stats.Probed++
+		} else if probeFailed[i] {
+			stats.Errors++
+		}
+		if plans[i].item.PosterPath == "" && results[i] != nil {
+			plans[i].item.PosterPath, plans[i].item.BackdropPath = media.FindLocalArt(plans[i].file.path)
+		}
 	}
 
+	// Persist in batches so a huge library does not hold one long write transaction.
 	batch := make([]store.ScannedFile, 0, 128)
 	flush := func() error {
 		if len(batch) == 0 {
@@ -116,52 +156,17 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 		batch = batch[:0]
 		return nil
 	}
-
-	for i, f := range files {
+	for i := range plans {
 		if err := ctx.Err(); err != nil {
 			return stats, err
 		}
-		item, ok := sc.classify(lib.Type, f, &stats)
-		item.LibraryID = libraryID
-		if ok {
-			prev, seen := known[f.path]
-			changed := !seen || prev.Size != f.size || prev.Mtime != f.mtime
-			if changed && sc.probe != nil {
-				tech, err := sc.probe.Probe(ctx, f.path)
-				if err != nil {
-					sc.log.Warn("probe failed", "file", f.path, "err", err)
-					stats.Errors++
-				} else {
-					item.Probed = true
-					item.Container = tech.Container
-					item.DurationMS = tech.DurationMS
-					item.Bitrate = tech.Bitrate
-					item.Width, item.Height = tech.Width, tech.Height
-					item.VideoCodec = tech.VideoCodec
-					item.HDR = tech.HDR
-					for _, a := range tech.Audio {
-						item.Audio = append(item.Audio, store.AudioStream(a))
-					}
-					for _, sub := range tech.Subtitles {
-						item.Subtitle = append(item.Subtitle, store.SubtitleStream(sub))
-					}
-					stats.Probed++
-				}
-			} else if !changed {
-				stats.Unchanged++
-			}
-			if changed && item.PosterPath == "" {
-				item.PosterPath, item.BackdropPath = media.FindLocalArt(f.path)
-			}
-			batch = append(batch, item)
-			stats.Indexed++
-		}
+		batch = append(batch, plans[i].item)
+		stats.Indexed++
 		if len(batch) >= 100 {
 			if err := flush(); err != nil {
 				return stats, err
 			}
-			pct := float64(i+1) / float64(len(files)) * 95
-			report(pct, fmt.Sprintf("indexing %d/%d", i+1, len(files)))
+			report(75+float64(i+1)/float64(len(plans))*23, fmt.Sprintf("indexing %d/%d", i+1, len(plans)))
 		}
 	}
 	if err := flush(); err != nil {
@@ -179,55 +184,171 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 	return stats, nil
 }
 
-func (sc *Scanner) classify(libraryType string, f foundFile, stats *Stats) (store.ScannedFile, bool) {
-	res := naming.Parse(libraryType, f.path)
-	item := store.ScannedFile{
-		Path:    f.path,
-		RelPath: f.rel,
-		Size:    f.size,
-		Mtime:   f.mtime,
-		Inode:   f.inode,
-	}
+func (sc *Scanner) probeAll(ctx context.Context, plans []planned, needs []int,
+	results []*media.Technical, failed []bool, stats *Stats, progress func(done int)) {
+	sem := make(chan struct{}, sc.probeers)
+	var wg sync.WaitGroup
+	var done atomic.Int64
+	for _, idx := range needs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
 
-	switch res.Kind {
-	case naming.KindExtra:
-		stats.Extras++
-		return store.ScannedFile{}, false
-	case naming.KindUnknown, "":
-		stats.Unidentified++
-		sc.log.Debug("unidentified file", "file", f.path)
-		return store.ScannedFile{}, false
-	case naming.KindEpisode:
-		item.Kind = store.KindEpisode
-		item.ShowTitle = res.Title
-		item.Year = res.Year
-		item.SeasonNumber = res.Season
-		item.EpisodeNumber = res.Episode
-		item.EpisodeTitle = res.EpisodeTitle
-		if item.SeasonNumber == 0 {
-			item.SeasonNumber = 1
-		}
-		if item.EpisodeNumber == 0 {
-			stats.Unidentified++
-			return store.ScannedFile{}, false
-		}
-	case naming.KindHomeVideo:
-		item.Kind = store.KindHomeVideo
-		item.Title = res.Title
-		item.Year = res.Year
-	default: // movie
-		item.Kind = store.KindMovie
-		item.Title = res.Title
-		item.Year = res.Year
+			tech, err := sc.probe.Probe(ctx, plans[i].file.path)
+			if err != nil {
+				sc.log.Warn("probe failed", "file", plans[i].file.path, "err", err)
+				failed[i] = true
+			} else {
+				results[i] = tech
+			}
+			progress(int(done.Add(1)))
+		}(idx)
 	}
-	if item.Title == "" && item.ShowTitle == "" {
-		stats.Unidentified++
-		return store.ScannedFile{}, false
-	}
-	return item, true
+	wg.Wait()
 }
 
-func (sc *Scanner) discover(ctx context.Context, libraryType, root string) ([]foundFile, error) {
+func applyTech(item *store.ScannedFile, tech *media.Technical) {
+	item.Probed = true
+	item.Container = tech.Container
+	item.DurationMS = tech.DurationMS
+	item.Bitrate = tech.Bitrate
+	item.Width, item.Height = tech.Width, tech.Height
+	item.VideoCodec = tech.VideoCodec
+	item.HDR = tech.HDR
+	for _, a := range tech.Audio {
+		item.Audio = append(item.Audio, store.AudioStream(a))
+	}
+	for _, sub := range tech.Subtitles {
+		item.Subtitle = append(item.Subtitle, store.SubtitleStream(sub))
+	}
+}
+
+// classify turns discovered files into items, resolving extra parents in a second pass.
+func (sc *Scanner) classify(libraryType string, files []foundFile, stats *Stats) []planned {
+	plans := make([]planned, 0, len(files))
+	dirHasMedia := map[string]int{}
+	type extraCandidate struct {
+		file foundFile
+		res  naming.Result
+	}
+	var extras []extraCandidate
+
+	for _, f := range files {
+		res := naming.Parse(libraryType, f.path)
+		item := store.ScannedFile{
+			Path:    f.path,
+			RelPath: f.rel,
+			Size:    f.size,
+			Mtime:   f.mtime,
+			Inode:   f.inode,
+		}
+		switch res.Kind {
+		case naming.KindExtra:
+			if res.Extra == "sample" {
+				stats.Samples++
+				continue
+			}
+			extras = append(extras, extraCandidate{file: f, res: res})
+			continue
+		case naming.KindUnknown, "":
+			stats.Unidentified++
+			sc.log.Debug("unidentified file", "file", f.path)
+			continue
+		case naming.KindEpisode:
+			item.Kind = store.KindEpisode
+			item.ShowTitle = res.Title
+			item.Year = res.Year
+			item.SeasonNumber = res.Season
+			item.EpisodeNumber = res.Episode
+			item.EpisodeEnd = res.EpisodeEnd
+			item.EpisodeTitle = res.EpisodeTitle
+			if item.SeasonNumber == 0 {
+				item.SeasonNumber = 1
+			}
+			if item.EpisodeNumber == 0 {
+				stats.Unidentified++
+				continue
+			}
+		case naming.KindHomeVideo:
+			item.Kind = store.KindHomeVideo
+			item.Title = res.Title
+			item.Year = res.Year
+		default:
+			item.Kind = store.KindMovie
+			item.Title = res.Title
+			item.Year = res.Year
+		}
+		if item.Title == "" && item.ShowTitle == "" {
+			stats.Unidentified++
+			continue
+		}
+		dirHasMedia[filepath.Dir(f.path)]++
+		plans = append(plans, planned{file: f, item: item})
+	}
+
+	for _, ex := range extras {
+		parent := nearestDirWithMedia(filepath.Dir(ex.file.path), ex.file.root, dirHasMedia)
+		plans = append(plans, planned{file: ex.file, item: store.ScannedFile{
+			Path:      ex.file.path,
+			RelPath:   ex.file.rel,
+			Size:      ex.file.size,
+			Mtime:     ex.file.mtime,
+			Inode:     ex.file.inode,
+			Kind:      store.KindExtra,
+			Title:     extraLabel(ex.res.Extra),
+			ParentDir: parent,
+		}})
+		stats.Extras++
+	}
+	return plans
+}
+
+func extraLabel(kind string) string {
+	switch kind {
+	case "trailer":
+		return "Trailer"
+	case "featurette":
+		return "Featurette"
+	case "deleted_scenes":
+		return "Deleted Scenes"
+	case "behind_the_scenes":
+		return "Behind the Scenes"
+	case "interview":
+		return "Interview"
+	case "bloopers":
+		return "Bloopers"
+	default:
+		return "Extra"
+	}
+}
+
+// nearestDirWithMedia walks up from dir until a directory containing real media is found.
+func nearestDirWithMedia(dir, root string, dirHasMedia map[string]int) string {
+	root = filepath.Clean(root)
+	cur := filepath.Clean(dir)
+	for i := 0; i < 4; i++ {
+		if dirHasMedia[cur] > 0 {
+			return cur
+		}
+		if cur == root || len(cur) <= len(root) {
+			break
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return ""
+}
+
+func (sc *Scanner) discover(ctx context.Context, root string) ([]foundFile, error) {
 	info, err := os.Stat(root)
 	if err != nil {
 		return nil, err
@@ -235,12 +356,13 @@ func (sc *Scanner) discover(ctx context.Context, libraryType, root string) ([]fo
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%s is not a directory", root)
 	}
+	root = filepath.Clean(root)
 
 	var out []foundFile
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			sc.log.Debug("walk error", "path", path, "err", err)
-			return nil // keep going
+			return nil
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -263,12 +385,7 @@ func (sc *Scanner) discover(ctx context.Context, libraryType, root string) ([]fo
 		if err != nil {
 			rel = name
 		}
-		f := foundFile{
-			path:  path,
-			rel:   rel,
-			size:  st.Size(),
-			mtime: st.ModTime().Unix(),
-		}
+		f := foundFile{path: path, rel: rel, root: root, size: st.Size(), mtime: st.ModTime().Unix()}
 		if sys, ok := st.Sys().(*syscall.Stat_t); ok {
 			f.inode = int64(sys.Ino)
 		}
