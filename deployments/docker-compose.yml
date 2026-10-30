@@ -1,0 +1,24 @@
+services:
+  myvideostation:
+    image: myvideostation:latest
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    container_name: myvideostation
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MVS_LISTEN: 0.0.0.0:8080
+      MVS_DATA_DIR: /data
+      MVS_LOG_LEVEL: info
+      MVS_LOG_FORMAT: json
+    volumes:
+      - mvs-data:/data
+      # Media is mounted read-only on purpose: MyVideoStation never writes to it.
+      - ${MEDIA_MOVIES:-/mnt/media/movies}:/media/movies:ro
+      - ${MEDIA_TV:-/mnt/media/tv}:/media/tv:ro
+      - ${MEDIA_HOME:-/mnt/media/home-videos}:/media/home-videos:ro
+
+volumes:
+  mvs-data:

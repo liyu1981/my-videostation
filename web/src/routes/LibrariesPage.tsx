@@ -1,0 +1,296 @@
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { FolderPlus, HardDrive, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { api, type Job, type Library, type LibraryType } from '../lib/api';
+import { formatDateTime } from '../lib/format';
+import { ErrorState, Loading } from '../components/State';
+
+const TYPE_LABEL: Record<LibraryType, string> = {
+  movie: 'Movies',
+  tv: 'TV Shows',
+  home_video: 'Home Videos',
+  tv_recording: 'TV Recordings',
+};
+
+export function LibrariesPage() {
+  const qc = useQueryClient();
+  const libs = useQuery({ queryKey: ['libraries'], queryFn: api.libraries });
+  const jobs = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => api.jobs(15),
+    refetchInterval: (query) => {
+      const list = query.state.data?.jobs ?? [];
+      return list.some((j) => j.status === 'running' || j.status === 'queued') ? 1000 : false;
+    },
+  });
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState('');
+  const [type, setType] = useState<LibraryType>('movie');
+  const [paths, setPaths] = useState('');
+  const [editing, setEditing] = useState<Library | null>(null);
+
+  const create = useMutation({
+    mutationFn: () =>
+      api.createLibrary({
+        name: name.trim(),
+        type,
+        paths: paths
+          .split('\n')
+          .map((p) => p.trim())
+          .filter(Boolean),
+      }),
+    onSuccess: async (lib) => {
+      setShowAdd(false);
+      setName('');
+      setPaths('');
+      await qc.invalidateQueries({ queryKey: ['libraries'] });
+      await api.scanLibrary(lib.id);
+      await qc.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
+
+  const scan = useMutation({
+    mutationFn: (id: number) => api.scanLibrary(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: number) => api.deleteLibrary(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['libraries'] });
+      void qc.invalidateQueries({ queryKey: ['home'] });
+      void qc.invalidateQueries({ queryKey: ['browse'] });
+    },
+  });
+
+  const update = useMutation({
+    mutationFn: (input: { id: number; name: string; paths: string[] }) =>
+      api.updateLibrary(input.id, { name: input.name, paths: input.paths }),
+    onSuccess: () => {
+      setEditing(null);
+      void qc.invalidateQueries({ queryKey: ['libraries'] });
+    },
+  });
+
+  if (libs.isLoading) return <Loading />;
+  if (libs.isError) return <ErrorState error={libs.error} />;
+
+  const activeJob = jobs.data?.jobs.find((j) => j.status === 'running' || j.status === 'queued');
+
+  return (
+    <div className="mx-auto max-w-5xl px-6 py-7 lg:px-8">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[20px] font-semibold tracking-tight text-fg-heading">Libraries</h1>
+          <p className="mt-1 text-[12px] text-fg-dim">
+            Read-only sources. Files are indexed in place and never modified.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowAdd((v) => !v)}
+          className="inline-flex items-center gap-2 rounded-lg bg-progress/90 px-3.5 py-2 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
+        >
+          <Plus className="size-4" aria-hidden /> Add library
+        </button>
+      </header>
+
+      {showAdd ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate();
+          }}
+          className="mb-6 rounded-[var(--radius-panel)] border border-hairline bg-surface p-4"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-[13.5px] font-semibold">New library</h2>
+            <button type="button" onClick={() => setShowAdd(false)} className="rounded p-1 text-fg-dim hover:text-fg" aria-label="Close">
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-[12px] text-fg-muted">Name</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} required className={inputClass} placeholder="Movies" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[12px] text-fg-muted">Type</span>
+              <select value={type} onChange={(e) => setType(e.target.value as LibraryType)} className={inputClass}>
+                {(Object.keys(TYPE_LABEL) as LibraryType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block text-[12px] text-fg-muted">Folders (one absolute path per line)</span>
+              <textarea
+                value={paths}
+                onChange={(e) => setPaths(e.target.value)}
+                rows={3}
+                required
+                className={`${inputClass} font-mono text-[12px]`}
+                placeholder="/mnt/media/movies"
+              />
+            </label>
+          </div>
+          {create.isError ? <p className="mt-2 text-[12px] text-active">{(create.error as Error).message}</p> : null}
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" onClick={() => setShowAdd(false)} className="rounded-lg border border-hairline px-3 py-1.5 text-[12px] text-fg-muted hover:text-fg">
+              Cancel
+            </button>
+            <button type="submit" disabled={create.isPending} className="rounded-lg bg-surface-3 px-3 py-1.5 text-[12px] font-medium hover:bg-surface-3/80 disabled:opacity-60">
+              {create.isPending ? 'Creating…' : 'Create and scan'}
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      <div className="space-y-3">
+        {libs.data!.libraries.map((lib) => (
+          <div key={lib.id} className="rounded-[var(--radius-panel)] border border-hairline bg-surface p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <HardDrive className="size-4 text-fg-dim" aria-hidden />
+                  <h2 className="text-[14px] font-semibold">{lib.name}</h2>
+                  <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[10.5px] text-fg-muted">{TYPE_LABEL[lib.type]}</span>
+                  <span className="text-[11.5px] text-fg-dim">{lib.itemCount} items</span>
+                </div>
+                <ul className="mt-1.5 space-y-0.5 font-mono text-[11.5px] text-fg-dim">
+                  {lib.paths.map((p) => (
+                    <li key={p.id} className="truncate" title={p.path}>
+                      {p.path}
+                      {p.lastScanAt ? <span className="ml-2 font-sans text-[10.5px] text-fg-dim">· scanned {formatDateTime(p.lastScanAt)}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => scan.mutate(lib.id)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+                >
+                  <RefreshCw className="size-3.5" aria-hidden /> Scan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(editing?.id === lib.id ? null : lib)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+                >
+                  <Pencil className="size-3.5" aria-hidden /> Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`Remove library “${lib.name}”? Media files are not deleted.`)) remove.mutate(lib.id);
+                  }}
+                  className="rounded-lg border border-hairline p-1.5 text-fg-dim hover:border-active/50 hover:text-active"
+                  aria-label={`Delete library ${lib.name}`}
+                >
+                  <Trash2 className="size-3.5" aria-hidden />
+                </button>
+              </div>
+            </div>
+
+            {editing?.id === lib.id ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const nameInput = form.elements.namedItem('name') as HTMLInputElement;
+                  const pathsInput = form.elements.namedItem('paths') as HTMLTextAreaElement;
+                  update.mutate({
+                    id: lib.id,
+                    name: nameInput.value.trim(),
+                    paths: pathsInput.value
+                      .split('\n')
+                      .map((p) => p.trim())
+                      .filter(Boolean),
+                  });
+                }}
+                className="mt-3 border-t border-hairline pt-3"
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-[11.5px] text-fg-muted">Name</span>
+                    <input name="name" defaultValue={lib.name} className={inputClass} />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1 block text-[11.5px] text-fg-muted">Folders</span>
+                    <textarea name="paths" defaultValue={lib.paths.map((p) => p.path).join('\n')} rows={3} className={`${inputClass} font-mono text-[12px]`} />
+                  </label>
+                </div>
+                {update.isError ? <p className="mt-2 text-[12px] text-active">{(update.error as Error).message}</p> : null}
+                <div className="mt-2 flex justify-end gap-2">
+                  <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-hairline px-3 py-1.5 text-[12px] text-fg-muted hover:text-fg">
+                    Cancel
+                  </button>
+                  <button type="submit" className="rounded-lg bg-surface-3 px-3 py-1.5 text-[12px] font-medium hover:bg-surface-3/80">
+                    Save
+                  </button>
+                </div>
+              </form>
+            ) : null}
+          </div>
+        ))}
+
+        {libs.data!.libraries.length === 0 && !showAdd ? (
+          <div className="flex flex-col items-center gap-2 rounded-[var(--radius-panel)] border border-dashed border-hairline px-6 py-12 text-center">
+            <FolderPlus className="size-7 text-fg-dim" aria-hidden />
+            <p className="text-[13.5px] font-medium">No libraries yet</p>
+            <p className="text-[12px] text-fg-dim">Add a folder containing movies, TV shows or home videos.</p>
+          </div>
+        ) : null}
+      </div>
+
+      <section className="mt-8">
+        <h2 className="mb-2 text-[13.5px] font-semibold text-fg-heading">Background tasks</h2>
+        {activeJob ? <JobRow job={activeJob} active /> : null}
+        <div className="space-y-1.5">
+          {(jobs.data?.jobs ?? []).filter((j) => j.status !== 'running' && j.status !== 'queued').map((job) => (
+            <JobRow key={job.id} job={job} />
+          ))}
+        </div>
+        {(jobs.data?.jobs ?? []).length === 0 ? <p className="text-[12px] text-fg-dim">No tasks yet.</p> : null}
+      </section>
+    </div>
+  );
+}
+
+function JobRow({ job, active = false }: { job: Job; active?: boolean }) {
+  const statusColor =
+    job.status === 'succeeded'
+      ? 'text-fg-dim'
+      : job.status === 'failed'
+        ? 'text-active'
+        : 'text-progress';
+  return (
+    <div className="rounded-lg border border-hairline bg-surface px-3 py-2">
+      <div className="flex items-center justify-between gap-3 text-[12px]">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className={`shrink-0 font-medium ${statusColor}`}>{job.status}</span>
+          <span className="text-fg-muted">{job.type}</span>
+          <span className="truncate text-fg-dim">{job.error || job.message}</span>
+        </span>
+        <span className="shrink-0 text-[11px] text-fg-dim">
+          {active ? `${Math.round(job.progress)}%` : formatDateTime(job.finishedAt ?? job.createdAt)}
+        </span>
+      </div>
+      {active ? (
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface-3">
+          <div className="h-full bg-progress transition-[width]" style={{ width: `${Math.max(2, job.progress)}%` }} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const inputClass =
+  'w-full rounded-lg border border-hairline bg-surface-2 px-3 py-2 text-[13px] text-fg outline-none placeholder:text-fg-dim focus:border-hairline-strong focus:bg-surface-3';

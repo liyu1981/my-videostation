@@ -4,9 +4,10 @@
 and your existing folders — point it at a library and it identifies, organises, and plays
 your movies and shows.
 
-> **Status: planning / pre-M0.** No application code yet. The architecture, data model,
-> feature-gap register, and a verified UI study of the real Video Station are complete —
-> see [Docs](#docs). Build commands below are the intended target, not yet available.
+> **Status: M0 + M1 implemented.** A single static binary with an embedded React UI can
+> index movie / TV / home-video libraries, probe files with ffprobe, group shows into
+> seasons and episodes, browse (poster/tile/list), search, edit metadata with per-field
+> locks, and direct-play. Metadata providers, users and transcoding are the next milestones.
 
 ---
 
@@ -78,42 +79,72 @@ docs/               PLAN · GAPS · UI-PROBE · ADRs
 testdata/           parser corpus and generated sample media
 ```
 
+## What works today (M1)
+
+- **Libraries**: movie / TV / home-video libraries with multiple read-only folders.
+- **Scanning**: incremental (size+mtime), durable jobs with progress, `@eaDir`/`#recycle`/
+  extras/sample skipping, orphan cleanup.
+- **Parsing**: scene names, `SxxExx`, `1x02`, multi-episode ranges, CJK titles, editions,
+  folders as fallback — 34-case test corpus.
+- **Probing**: ffprobe (container, duration, resolution, codecs, HDR, audio/subtitle tracks);
+  graceful degradation when ffprobe is absent.
+- **Library UI**: home shelves + continue-watching, poster/tile/list views, sort, per-library
+  filter, pagination, global FTS5 search, show → season → episode navigation.
+- **Item UI**: poster/backdrop from local sidecars, metadata badges, media-info panel,
+  metadata editing with per-field locks, watched state, direct playback with resume progress.
+
 ## Getting started
 
-Not runnable yet — the scaffold lands with milestone **M0**. The intended workflow:
-
 ```bash
-make dev      # Go API on :8080 + Vite on :5173 (proxied)
-make build    # pnpm build → go:embed → ./bin/mvs
-make test     # go test ./... + vitest
-make docker   # multi-stage Alpine image
+# 1. dev tools: static ffprobe/ffmpeg into .tools/ (dev machines only)
+make deps
+
+# 2. run the API (:8080) and the Vite UI (:5173, proxies /api)
+make dev
+
+# 3. or build the single binary with the UI embedded
+make build && ./bin/mvs --data ./data
 ```
 
-Runtime shape:
+Open <http://127.0.0.1:8080> (or :5173 in dev), go to **Libraries → Add library**, point it at
+a folder, and it creates + starts a scan.
+
+Docker (media mounts are read-only by design):
 
 ```bash
-docker run -d --name myvideostation \
-  -p 8080:8080 \
-  -v /path/to/data:/data \
-  -v /mnt/media/movies:/media/movies:ro \
-  -v /mnt/media/tv:/media/tv:ro \
-  ghcr.io/<org>/myvideostation:latest
+MEDIA_MOVIES=/mnt/media/movies MEDIA_TV=/mnt/media/tv \
+  docker compose -f deployments/docker-compose.yml up -d --build
 ```
 
-Configuration precedence: CLI flags → `MVS_*` env → `/data/config.yaml` → defaults.
+> **Security:** M1 has no authentication and binds to `127.0.0.1` by default. Do not expose
+> the port until M6 (users/sessions) lands.
+
+Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file lands later).
+
+| Flag | Env | Default |
+|---|---|---|
+| `--listen` | `MVS_LISTEN` | `127.0.0.1:8080` |
+| `--data` | `MVS_DATA_DIR` | `./data` |
+| `--db` | `MVS_DB` | `<data>/mvs.db` |
+| `--ffprobe` | `MVS_FFPROBE` | auto-detected |
+| `--log-level` | `MVS_LOG_LEVEL` | `info` |
+| `--log-format` | `MVS_LOG_FORMAT` | `text` |
 
 ## Roadmap
 
 | Milestone | Scope |
 |---|---|
-| **M0** | Repo scaffold, tokens/theme, single-binary build, Docker, CI |
-| **M1** | Libraries, incremental scanner, filename parser, browse UI, search, media info |
+| **M0** ✅ | Repo scaffold, tokens/theme, single-binary build, Docker, CI |
+| **M1** ✅ | Libraries, incremental scanner, filename parser, browse UI, search, media info |
 | **M2** | TMDB matching, art management, identify/correct flows, collections |
-| **M3** | Show/season/episode UX, categories/facets, selection mode, scheduler, job monitor |
-| **M4** | Direct playback, subtitles, resume, watched state |
+| **M3** | Categories/facets, selection mode with bulk actions, scheduler, job monitor |
+| **M4** | Full player: subtitle/audio tracks, resume UI, next episode |
 | **M5** | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |
 | **M6** | Users, permissions, parental controls, share links, i18n |
 | **M7** | PWA, casting, trailers, offline conversion, metrics |
+
+Some M4 groundwork already ships: byte-range streaming, progress reporting and a minimal
+direct-play modal (see [ADR 0001](docs/adr/0001-m0-m1-decisions.md)).
 
 Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 
@@ -122,6 +153,7 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/PLAN.md`](./docs/PLAN.md) — vision, architecture, data model, API, phases, decisions
 - [`docs/GAPS.md`](./docs/GAPS.md) — feature-parity register vs. Synology Video Station
 - [`docs/UI-PROBE.md`](./docs/UI-PROBE.md) — verified UI measurements from a live 3.0.7 instance
+- [`docs/adr/0001-m0-m1-decisions.md`](./docs/adr/0001-m0-m1-decisions.md) — M0/M1 decisions and deviations
 - [`AGENTS.md`](./AGENTS.md) — working rules for contributors and coding agents
 
 ## Non-goals (v1)

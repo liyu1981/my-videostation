@@ -481,3 +481,55 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 2. Execute **M0** end-to-end so `make dev`, `make build`, `docker compose up` all work.
 3. Build the **naming parser + corpus tests** first — it de-risks the entire product.
 4. Then M1 scanner → DB → browse UI with one real library mounted read-only.
+
+---
+
+## 14. Implementation log
+
+### M0 — delivered
+
+- Go module `github.com/liyu1981/myvideostation`; `cmd/mvs` with flag/env config,
+  `log/slog`, graceful shutdown.
+- SQLite via `modernc.org/sqlite` (CGO off) with WAL/busy_timeout/foreign keys, plus an
+  embedded forward-only migration runner (`internal/db`).
+- Embedded SPA with two build modes: `embedui` (real UI) and a stub for `go test`/`go build`.
+- Makefile (`deps`, `web`, `build`, `dev`, `test`, `lint`, `docker`), dev script,
+  multi-stage Alpine Dockerfile (ffmpeg, non-root, healthcheck), compose file, CI workflow.
+
+### M1 — delivered
+
+| Plan item | Status |
+|---|---|
+| Libraries CRUD, multiple paths | ✅ (API + UI, path validation) |
+| Incremental scanner, ignore rules, jobs | ✅ durable `jobs`, progress polling, missing-file + orphan cleanup |
+| Filename parser + corpus | ✅ 34-case table test (scene, SxxExx, 1x02, multi-ep, CJK, editions) |
+| Schema + FTS5 | ✅ single self-referencing `media_items`, `media_files`, people/genres/locks, `media_fts` |
+| Browse UI (grid/list/tile, sort, filter) | ✅ plus pagination, per-library filter, empty/error states |
+| Item detail + technical info | ✅ poster/backdrop, badges, cast/genres, media-info panel (audio/subtitle tracks) |
+| Manual metadata edit + locks | ✅ inline dialog, per-field lock chips, item-wide lock |
+| Home | ✅ continue watching, recently added, per-library shelves |
+| Search | ✅ FTS5 across title/original/overview/people |
+
+Extras shipped beyond M1 scope: direct-play streaming with range requests, progress
+reporting, watched toggle, local sidecar artwork, end-to-end API test.
+
+### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
+
+1. **sqlc deferred** — hand-written typed store until the schema settles (post-M2).
+2. **goose replaced** by an embedded ~80-line migration runner.
+3. **TanStack Router is code-based** (no plugin/codegen) to keep the build simple.
+4. **No auth**, and the default bind is `127.0.0.1` (M6 adds sessions; Docker opts into
+   `0.0.0.0` via env).
+
+### Known M1 limitations
+
+- No metadata provider yet (titles/years come from filenames; posters from local files).
+- Posters/backdrops are not cached or downloaded; the UI renders a deterministic gradient
+  placeholder when no artwork exists.
+- TV show year/art is taken from the folder or the first episode; no show-level scraping.
+- Extras are counted and skipped (not indexed); multi-episode files attach to the first
+  episode only.
+- Scanning is single-threaded; probing is sequential (fine for thousands of files, needs a
+  worker pool for very large libraries).
+- Thumbnails/trickplay, collections, categories/timeline, scheduler and bulk selection are
+  M3+.

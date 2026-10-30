@@ -75,3 +75,6 @@ Thumbs.db
 !.vscode/settings.json.example
 *.swp
 *~
+
+# generated SPA embed (produced by `make build`)
+internal/web/dist/
