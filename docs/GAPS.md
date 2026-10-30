@@ -31,14 +31,17 @@ MyVideoStation currently does not**, so gaps are deliberate rather than accident
 
 | Area | Open gaps | S1 | S2 | S3 | Notable |
 |---|---|---|---|---|---|
-| Library & indexing | 8 | 1 | 3 | 4 | 1 planned (multi-path) |
-| Metadata | 3 | 0 | 2 | 1 | NFO + field locks (ADV) |
-| Playback & transcoding | 11 | 2 | 5 | 4 | — |
+| Library & indexing | 9 | 1 | 3 | 5 | 1 planned (multi-path) |
+| Metadata | 4 | 0 | 2 | 2 | NFO + field locks (ADV) |
+| Playback & transcoding | 12 | 2 | 5 | 5 | — |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
 | Users, security, permissions | 6 | 0 | 5 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
-| Integrations | 3 | 0 | 0 | 3 | all permanent |
-| **Total** | **40** | **6** | **19** | **15** | 10 advantages, 1 planned |
+| Integrations | 4 | 0 | 0 | 4 | all permanent |
+| **Total** | **44** | **6** | **19** | **19** | 10 advantages, 1 planned |
+
+Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
+[`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
 
 Distribution of the six S1 gaps matters more than the total: **five are client/playback
 side** (codec breadth, casting, mobile apps, TV apps, remote access) and only one is
@@ -55,21 +58,23 @@ remains unaddressed by the plan.
 | GAP-001 | Network/cloud sources configured in-app | VS indexes SMB/NFS shares and cloud folders configured inside DSM | `GAP-LATER` | S2 | post-M7 | v1 requires host-mounted paths (compose `volumes:`). SMB/NFS clients and S3/WebDAV/SFTP backends are a separate storage-abstraction project. |
 | GAP-002 | Real-time index watching on by default | VS has real-time indexing plus scheduled indexing | `GAP-LATER` | S3 | M3 | We ship scheduled scans by default and `fsnotify` as opt-in, because inotify limits inside containers caused most VS-vs-Docker support noise. |
 | GAP-003 | Optical/ISO image playback (`ISO`, `BDMV/`, `VIDEO_TS/`) | VS can play DVD/BD folder structures and ISOs | `GAP-UNDECIDED` | S3 | — | ffmpeg can read these, but stream/seek/subtitle semantics and chapter handling are nontrivial. Decide after M5. |
-| GAP-004 | TV recording library + EPG + scheduled recording | VS records from USB DTV dongles / HDHomeRun, with EPG and series recording | `GAP-NEVER` (v1) | S1 | — | Requires tuner abstraction, EPG ingestion, conflict resolution, post-processing. Live TV is a separate product (see also GAP-045). Revisit only with a dedicated design. |
-| GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `GAP-LATER` | S3 | M3 | We ship sane defaults; user-configurable globs, min-size, and "skip extras" toggles come with bulk edit. |
-| GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails | `GAP-LATER` | S2 | M3 | We need thumbnails (poster grid + trickplay), so controls (on/off, size, regenerate, cache budget) land with the first thumbnail worker. |
-| GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
-| GAP-008 | Import/migration from an existing Video Station library | N/A (VS is the source) | `GAP-UNDECIDED` | S2 | post-M3 | VS stores metadata in PostgreSQL; a one-shot importer (paths + watch state + manual matches) would remove the biggest switching cost. High leverage, low glamour. |
+| GAP-004 | TV recording library + EPG + scheduled recording | VS records from USB DTV dongles / HDHomeRun, with EPG and series recording | `GAP-NEVER` (v1) | S1 | — | **[confirmed]** `SYNO.VideoStation2.DTV.{Tuner,Channel,ChannelScan,Program,Schedule,Statistic,Streaming}`. Requires tuner abstraction, EPG ingestion, conflict resolution, post-processing. Live TV is a separate product. Revisit only with a dedicated design. |
+| GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `GAP-LATER` | S3 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.{Scheduler,IndexFolder}`. We ship sane defaults; user-configurable globs, min-size, and "skip extras" toggles come with bulk edit. |
+| GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails | `GAP-LATER` | S2 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.ThumbnailQuality`. We need thumbnails (poster grid + trickplay), so controls (on/off, size, regenerate, cache budget) land with the first thumbnail worker. |
+| GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
+| GAP-008 | Import/migration from an existing Video Station library | N/A (VS is the source) | `GAP-UNDECIDED` | S2 | post-M3 | **[verify]** storage is believed to be PostgreSQL. A one-shot importer (paths + watch state + manual matches) would remove the biggest switching cost. High leverage, low glamour. |
+| GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; cloud sources need host mounts (GAP-001). |
 
 ## 3. Metadata
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
-| GAP-010 | Multiple scrapers + per-library provider choice | VS offers TheMovieDB and TheTVDB, plus region-specific sources (Douban) **[verify]** | `GAP-LATER` | S2 | M2 / M6 | v1 ships TMDB only behind a provider interface. TVDB matters for anime/absolute ordering; Douban matters for zh-CN libraries. |
+| GAP-010 | Multiple scrapers + per-library provider choice | VS offers TheMovieDB and TheTVDB, plus region-specific sources (Douban) **[verify]** | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** VS has a *plugin* architecture for metadata: `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` (exact provider list still **[verify]**). v1 ships TMDB only behind a provider interface; TVDB matters for anime/absolute ordering, Douban for zh-CN. |
 | GAP-011 | Trailer playback (YouTube) | VS fetches and plays trailers | `GAP-LATER` | S3 | M7 | Requires provider trailer keys + an embed/privacy decision (no third-party iframe by default). |
-| GAP-012 | Online subtitle search & download | VS/DS video can search and download subtitles **[verify]** | `GAP-UNDECIDED` | S2 | M6 | OpenSubtitles requires an account/API key and has rate limits. Also a copyright-sensitive feature; decide policy explicitly. |
+| GAP-012 | Online subtitle search & download | VS/DS video can search and download subtitles **[verify]** | `GAP-UNDECIDED` | S2 | M6 | **[confirmed]** a `search-subtitle-dialog` exists in the app stylesheet (56 rules); provider unknown. OpenSubtitles needs an account/API key + rate limits, and this is copyright-sensitive — decide policy explicitly. |
 | GAP-013 | Metadata language/region per library | VS selects scraper language per library | `PLANNED` | S3 | M1 | Already in the plan (`libraries.language` + provider language param); listed to confirm parity intent rather than claim a gap. |
 | GAP-014 | Rich person pages / filmography | VS shows cast lists only | `ADV` | — | M2 | We store `people` as first-class rows, so filmography pages are cheap and exceed VS. |
+| GAP-064 | Third-party scraper/plugin marketplace | VS exposes a metadata plugin system (install/search plugins) | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch}` + `SYNO.VideoStation.Metadata`. We expose a Go provider interface + config instead of a sandboxed plugin runtime. Revisit only if third-party providers become a real demand. |
 
 ## 4. Playback & transcoding
 
@@ -79,13 +84,14 @@ remains unaddressed by the plan.
 | GAP-017 | Subtitle charset detection, `SMI`, sync offset, styling | VS guesses Big5/GBK/Shift-JIS, reads SMI, offers per-playback delay and font/size/color | `GAP-LATER` | S2 | M4 (sync/styling) · M6 (charset/SMI) | Charset guessing is a real-world requirement for CJK libraries. `golang.org/x/text/encoding` + heuristics. |
 | GAP-018 | Image-based subtitles (PGS/VobSub) | VS renders or burns them in | `GAP-LATER` | S2 | M5 | Cannot be sent as WebVTT. Options: burn-in (re-encode) or client-side canvas rendering with extracted bitmaps. |
 | GAP-019 | Continuous play, "play all", shuffle | VS plays a season/collection continuously and supports play-all | `GAP-LATER` | S2 | M4 | Next-episode autoplay is planned; shuffle/queue semantics need a small player state machine. |
-| GAP-020 | Batch/offline conversion ("convert video") | VS converts files to MP4 with target device profiles, as a background job | `GAP-LATER` | S3 | M7 | Our job queue makes this straightforward, but it writes new files — needs an explicit output policy that respects the read-only rule. |
+| GAP-020 | Batch/offline conversion ("convert video") | VS converts files to MP4 with target device profiles, as a background job | `GAP-LATER` | S3 | M7 | **[confirmed]** `SYNO.VideoStation2.{OfflineConversion,Setting.PreAnalysis}`. Our job queue makes this straightforward, but it writes new files — needs an explicit output policy that respects the read-only rule. |
 | GAP-021 | ISO/3D/MVC playback | VS supported 3D MVC and disc images | `GAP-NEVER` (v1) | S3 | — | 3D is effectively dead; disc images fold into GAP-003. |
-| GAP-022 | Casting: Chromecast, AirPlay, DLNA renderers | VS casts from web and mobile to TVs/speakers | `GAP-LATER` | S1 | M7 | Cast SDK needs HTTPS + a public-ish origin; AirPlay needs an audio/video sender or HLS. Browser-only "cast" is increasingly limited. |
+| GAP-022 | Casting: Chromecast, AirPlay, DLNA renderers | VS casts from web and mobile to TVs/speakers | `GAP-LATER` | S1 | M7 | **[confirmed]** `SYNO.VideoStation2.Controller.{Device,Password,Playback,Volume}` — cast targets are paired devices with their own volume/transport control. Cast SDK needs HTTPS + a public-ish origin; AirPlay needs a sender or HLS. |
 | GAP-023 | DLNA/UPnP media server | VS exposes libraries to TVs/consoles over DLNA | `GAP-NEVER` (v1) | S2 | — | Large, cursed spec; Jellyfin/minidlna can front our files if needed. Revisit only on demand. |
 | GAP-024 | Multi-audio-track switching during transcode | VS switches tracks and keeps position | `GAP-LATER` | S2 | M5 | Requires restarting the HLS session at the current offset; design it in from the start of the transcode session model. |
 | GAP-025 | Per-user bandwidth / concurrent stream limits | VS has bandwidth control and device/stream limits | `GAP-LATER` | S3 | M6 | Needed before exposing to a family/Internet; cheap token-bucket + per-user session cap. |
 | GAP-026 | Resume playback across devices | VS syncs position per DSM user | `GAP-LATER` | S3 | M4 | `playback_progress` is already in the schema; listed to confirm the cross-device expectation. |
+| GAP-065 | Capture a frame/screenshot during playback | VS can save a still from the player | `GAP-LATER` | S3 | M7 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Trivial once we have an ffmpeg worker; needs a storage policy (write to `/data`, never the media folder). |
 
 ## 5. Clients & remote access
 
@@ -101,7 +107,7 @@ remains unaddressed by the plan.
 |---|---|---|---|---|---|---|
 | GAP-040 | DSM/LDAP/AD identity integration | VS uses DSM accounts, so NAS permissions and VS permissions are one system | `GAP-LATER` | S2 | M6 | We own accounts. OIDC (and optionally LDAP) is the modern equivalent; must not become a blocker for family installs. |
 | GAP-041 | 2FA, password policy, lockout, session management | Handled by DSM for VS | `GAP-LATER` | S2 | M6 | TOTP + lockout + active-session revocation. Also mandatory before any Internet exposure. |
-| GAP-042 | Parental controls (content-rating ceiling, PIN) | VS restricts libraries/items by age rating per user | `GAP-LATER` | S2 | M6 | `users.rating_ceiling` is reserved in the schema; needs per-library override + PIN for profile switching. |
+| GAP-042 | Parental controls (content-rating ceiling, PIN) | VS restricts libraries/items by age rating per user | `GAP-LATER` | S2 | M6 | **[confirmed]** `SYNO.VideoStation2.ParentalControl`. `users.rating_ceiling` is reserved in the schema; needs per-library override + PIN for profile switching. |
 | GAP-043 | Per-library view permissions | VS supports allow/deny per library per user | `GAP-LATER` | S2 | M6 | `library_perms` table reserved; must be enforced in queries, not just in the UI. |
 | GAP-044 | Audit/activity log (logins, playback, admin actions) | VS surfaces DSM logs and per-user history | `GAP-LATER` | S3 | M6 | We have `slog`; a queryable `events` table is the parity item. |
 | GAP-045 | Public share links with expiry | VS shares videos/collections via link | `GAP-LATER` | S2 | M6 | Already planned (signed, expiring tokens). Must be rate-limited and revocable. |
@@ -124,6 +130,7 @@ remains unaddressed by the plan.
 | GAP-060 | Download Station / File Station / Photos integration | VS links into DSM apps (open folder, download management) | `GAP-NEVER` | S3 | — | No DSM. Equivalent: documented "completed downloads" watch folder + optional file browser later. |
 | GAP-061 | Cloud sync (Synology C2, Google Drive, OneDrive) | VS indexes cloud-mounted folders | `GAP-NEVER` (v1) | S3 | — | Folded into GAP-001's storage abstraction if ever needed. |
 | GAP-062 | DSM single sign-on / QuickConnect identity | One login for DSM + VS | `GAP-NEVER` | S3 | — | Covered by GAP-032/GAP-040 alternatives. |
+| GAP-066 | Voice assistant integration (Alexa/Google) | VS can be controlled by voice assistants | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{VoiceAssistant,Setting.VoiceAssistant}`. Requires cloud account linking + an intent model; out of scope permanently for a self-hosted, account-free product. |
 
 ---
 
@@ -146,13 +153,36 @@ remains unaddressed by the plan.
 
 ## 10. Verification backlog (things to confirm before committing work)
 
-1. **[verify]** Does VS support NFO sidecars? (If yes, ADV-02 weakens; if no, strengthen it.)
-2. **[verify]** Online subtitle search/download — which provider, still functional post-EOL?
-3. **[verify]** Exact scraper set by region (TMDB/TVDB/Douban/others) and whether VS supports per-library selection.
-4. **[verify]** Which client apps actually shipped (Apple TV/Android TV/Fire TV/Roku) and what they support.
-5. **[verify]** Parental control semantics: rating source, per-library override, PIN behavior.
-6. **[verify]** Whether VS keeps watch state across re-indexing/file moves (informs our re-link UX).
-7. Confirm DS video/VS offline-download semantics (container limits, DRM).
+Status after the live probe (`UI-PROBE.md`) — the probe confirmed 9 behaviours via the
+public stylesheet and the unauth API inventory; deeper items still need a DSM session.
+
+1. **[open]** Does VS support NFO sidecars? No NFO strings/APIs appeared in the probe, so
+   ADV-02 likely holds. Needs one logged-in check.
+2. **[confirmed capability / provider open]** Online subtitle search exists
+   (`search-subtitle-dialog`); provider and post-EOL functionality unverified.
+3. **[confirmed] plugin architecture** for scrapers; **[open]** exact provider list per region.
+4. **[open]** Which client apps actually shipped (Apple TV/Android TV/Fire TV/Roku).
+5. **[confirmed API / open semantics]** `ParentalControl` exists; rating source, per-library
+   override and PIN behaviour still need UI capture.
+6. **[open]** Whether VS keeps watch state across re-indexing/file moves (informs re-link UX).
+7. **[open]** DS video/VS offline-download semantics (container limits, DRM).
+
+## 10b. Probe evidence pointers
+
+| Claim | Evidence |
+|---|---|
+| Version 3.0.7-2512 | `@import "controller/ui/style.css?v=3.0.7-2512"` |
+| Casting with paired devices | `SYNO.VideoStation2.Controller.{Device,Password,Playback,Volume}` |
+| Trickplay / screenshots | `SYNO.VideoStation2.Screenshot` |
+| DVR/live TV | `SYNO.VideoStation2.DTV.*` (10 APIs) |
+| Offline conversion + pre-analysis | `SYNO.VideoStation2.{OfflineConversion,Setting.PreAnalysis}` |
+| Parental control | `SYNO.VideoStation2.ParentalControl` |
+| Scraper plugins | `SYNO.VideoStation2.{Plugin,PluginSearch}` |
+| Watch state | `SYNO.VideoStation.WatchStatus` (v1) + `VideoStation2.Info` |
+| Sharing links | `SYNO.VideoStation2.Sharing` + `vc-sharing-*` CSS |
+| Subtitle search UI | `.search-subtitle-dialog` (56 rule groups) |
+| Thumbnail quality settings | `SYNO.Core.MediaIndexing.ThumbnailQuality` |
+| Voice assistants | `SYNO.VideoStation2.VoiceAssistant`, `Setting.VoiceAssistant` |
 
 ## 11. Gap policy (proposed)
 

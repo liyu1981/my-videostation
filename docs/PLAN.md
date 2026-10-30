@@ -6,8 +6,10 @@
 Status: **draft / awaiting decisions** (see §12)
 
 Companion docs:
-[`GAPS.md`](./GAPS.md) — feature-parity register vs Synology Video Station (40 known gaps,
+[`GAPS.md`](./GAPS.md) — feature-parity register vs Synology Video Station (44 known gaps,
 6 of them S1), including deliberate non-goals and the advantages we hold.
+[`UI-PROBE.md`](./UI-PROBE.md) — measurements from a live Video Station 3.0.7 instance:
+color/type/layout tokens, card behaviour, icon inventory, and a proposed modern token set.
 
 ---
 
@@ -280,6 +282,18 @@ UX direction: dark cinematic default, large poster grids, sticky filter bar,
 keyboard shortcuts (`/` search, `f` fullscreen, `space` play), skeleton states,
 optimistic watch-state updates, URL-as-state for filters.
 
+**Design parity rules** (from `UI-PROBE.md`):
+- Keep Video Station's *information architecture and vocabulary* (Home → category →
+  library → item; Movies / TV Shows / Home Videos / Recordings; Watchlist, Collection,
+  "Change video info"), so migrating users recognise it immediately.
+- Keep the watch-state language: 3 px progress line, amber "new", teal "in progress",
+  red "active/selected/recording" — but red never means hover.
+- Keep selection mode with a swapped toolbar (bulk edit is a real VS workflow).
+- Replace ExtJS chrome and PNG sprites with Tailwind tokens + Lucide SVG; add focus rings,
+  ≥13 px secondary text, and a comfortable/compact density toggle.
+- Icons: 24 px grid, 1 px strokes, `currentColor`; media-type glyphs may be two-tone.
+- Never copy Synology CSS, sprites, fonts or the logo.
+
 ---
 
 ## 8. Delivery phases
@@ -289,6 +303,7 @@ Each phase closes a defined slice of the gap register in [`GAPS.md`](./GAPS.md);
 
 ### M0 — Foundation (skeleton that builds & ships)
 - Repo scaffolding, Makefile, `.gitignore`, golangci-lint, eslint/tsgo, CI
+- `theme.css` Tailwind tokens + Lucide icon map derived from `docs/UI-PROBE.md` §7
 - Single binary serving embedded "hello" SPA; config loader; slog; `/healthz`
 - SQLite open with pragmas (WAL, busy_timeout, foreign_keys); migration runner
 - Dockerfile (multi-stage → alpine + ffmpeg + tini, non-root), compose, volume layout
