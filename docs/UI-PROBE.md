@@ -1,421 +1,332 @@
-# Video Station UI Probe — Findings & Re-creation Notes
+# Video Station UI Probe — Verified Findings & Re-creation Notes
 
-Probe of the user's live instance, to extract look-and-feel that we can
-re-create **without copying Synology assets**.
+Live probe of the user's Synology Video Station, done **read-only** (no metadata
+edits, no saves, no scans, no playback). This supersedes the earlier CSS-only pass:
+everything below was measured from a rendered, authenticated session unless marked
+otherwise.
 
----
-
-## 0. TL;DR
-
-| Question | Answer |
+| Item | Value |
 |---|---|
-| Can we see the app UI without a DSM session? | **No.** All `.html` routes return DSM's 404 (even `/webman/index.html`). |
-| What *is* publicly served? | The app CSS (~1.25 MB total), fonts, and all icon/illustration PNGs. |
-| Did we get enough for a design system? | **Yes** — exact colors, type scale, layout metrics, card behaviour, icon inventory. |
-| What's still missing? | Rendered screenshots, exact navigation labels, and per-screen DOM. Needs a DSM login (see §9). |
-| Video Station build probed | **3.0.7-2512** on DSM **7.1.1-42962** (DS218+, `apollolake`, enu) |
-
-Nothing Synology-copyrighted is committed to this repo. Raw assets were inspected in
-`/home/yli/vs-probe/` (local only, not in git). This document contains only
-measurements and distilled design intent.
+| Device | DS218+ (`apollolake`, Celeron J3355, 10 GB), DSM **7.1.1-42962 Update 9** |
+| Video Station | **3.0.7-2512** (ExtJS 3.4 + Vue 2 islands, `syno-vs2-*` / `syno-vc-*`) |
+| Viewport probed | 1920×1080 (app maximized) and 1280×800 |
+| Raw artifacts | `/home/yli/vs-probe/screens/` (42 PNGs + DOM dumps) — **outside git**, local reference only |
+| Writes performed | None to media/metadata. Only login sessions, in-session view toggles and read-only metadata searches. |
 
 ---
 
-## 1. Probe method & evidence
-
-Unauthenticated probes that succeeded:
+## 1. Shell geometry (measured)
 
 ```
-GET /webman/3rdparty/VideoStation/style.css                 200  1,027,330 B
-GET /webman/3rdparty/VideoStation/controller/ui/style.css   200    219,302 B
-GET /webman/3rdparty/VideoStation/font/Roboto-Regular.ttf   200    145,348 B
-GET /webman/3rdparty/VideoStation/images/2x/**              200    155/191 assets
-GET /webapi/query.cgi?api=SYNO.API.Info&method=query&query=all  200  (1,195 APIs)
-GET .../SYNO.Core.Desktop.UIString&method=getjs             200  1,480,233 B
+1920×1080 maximized
+┌──────────────────────────────────────────────────────────────────────────┐
+│ top toolbar 48px   logo 170×32 · home 28 · search field 214×48 · user/help/queue/settings (28px icons) │
+├───────────────┬──────────────────────────────────────────────────────────┤
+│ sidebar       │ navbar 48px: category dropdown 136×26 at x=256 · right:   │
+│ 200px         │ selection(28) view-mode(28) sort(28) at x=1788/1834/1880    │
+│               ├──────────────────────────────────────────────────────────┤
+│ "Library" 32  │ content canvas starts y=96, left gutter 56 (home) /      │
+│ item 32px     │ 68 (detail); cards 120×180 + 20/14 gutter                │
+│ icon 24 @x14  │                                                          │
+│ text 14 @x38  │                                                          │
+└───────────────┴──────────────────────────────────────────────────────────┘
 ```
 
-Failed / blocked:
-
-```
-/index.html, /webman/index.html, /controller/ui/index.html  → 404 (all HTML gated)
-/webapi/entry.cgi?api=SYNO.Core.System&method=info          → {"error":{"code":119}} (needs SID)
-/video/, /video/index.html                                  → 404
-```
-
-Signals used:
-
-- `@import "controller/ui/style.css?v=3.0.7-2512"` → **app version**.
-- Class prefixes `syno-vs2-*` (app) and `syno-vc-*` (video controller/player).
-- `title`/`description`/`summary` rules and poster geometry → grid spec.
-- 1,195 API names → capability inventory (cross-checked in `GAPS.md`).
-- Icon asset names + a rendered contact sheet (155 assets) → iconography audit.
-
-So: **the CSS is effectively the app's design source of truth**, because Video Station is
-an ExtJS 3.4 app with a large hand-written stylesheet — almost all visual decisions are
-in there.
-
----
-
-## 2. Design tokens (measured, not guessed)
-
-### 2.1 Color
-
-| Role | Value | Where it's used (verified in CSS) |
+| Element | 1920 (large mode) | 1280 (regular mode) |
 |---|---|---|
-| App/field background | `#222426` | inputs, text fields, base surface |
-| Panel/window surface | `#2C3034` | menus, combo lists, dropdowns, dialogs |
-| Deep surface | `#2A2C30` | hero/rotating data view background |
-| Raised surface | `#333639` | tile rows, badges (text color on yellow chip) |
-| Surface hover | `#414549` | hovered/selected tile + list row |
-| Border / divider | `#272A2E`, `#393C3F` | hero frame (4 px), block backgrounds |
-| Hairline | `rgba(255,255,255,.10)`, top `.20` | poster frame border, list separators |
-| Text primary | `#F2F2F2` | poster titles, row titles, buttons |
-| Text heading | `#E9E9E9` | detail title, hero meta |
-| Text secondary | `#CFCFCF` | taglines, info lines, certificate chips |
-| Text tertiary | `#ABABAB` | descriptions, dates, season tabs |
-| Text disabled | `#686868` / `#666` | inactive controls |
-| **Brand red** | `#D13B3B` | **active/selected state**, season underline, selection border, recording, "today" |
-| Accent cyan | `#00D4FF` | **watch progress**, tag hover, links in detail |
-| Teal | `#009DBD` | "last watched" dot |
-| Amber | `#D1A53B` | "unwatched (new)" dot |
-| Highlight yellow | `#E6C929` (bg) + `#333639` (text) | "Watched" status chip |
-| Link/secondary blue | `#19A1FF`, `#2D89C9` | DSM-level links/primary buttons |
+| Hero container | 1608 × 548 | 968 × 348 |
+| Hero poster / backdrop | 360×540 / 840×540 | 226×340 / 528×340 |
+| Hero collapsed poster | 96 px | 60 px |
+| Home row (poster) | 294 px = 36 toolbar + 242 body | same |
+| Home row (landscape) | 232 px = 36 + 180 + borders | same |
+| Poster card / cell | 120×180, cell 120×224 | same (fixed) |
+| Landscape card / cell | 180×120, cell 180×164 | same |
+| Tile row | 1608×175, thumb 100×150, padding 12 20 12 12 | same |
+| List row | 1608×37, title 14, year right-aligned | same |
+| Detail poster | 270×388, play button 76×76, actions 28 px row below | same |
+| Season bar | 49 px, active tab = red box | same |
+| Sidebar | 200 px (fixed) | 200 px |
+| Top toolbar / navbar | 48 / 48 | 48 / 48 |
 
-Two-accent system is intentional: **red = state/selection/brand**, **cyan = progress +
-interactive highlight**. Amber/teal are semantic watch-state dots. This is worth keeping —
-it gives immediate "what's selected / what's in progress" reads at poster-grid density.
+The only responsive change is the **hero mode switch** (large ↔ regular) plus column
+count in the poster grid. Everything else is fixed-pixel. This is the single
+biggest thing to modernize (fluid grid, scene-relative type), while keeping the
+fixed left rail as the navigation anchor.
 
-### 2.2 Typography
+## 2. Colour (pixel-sampled, not stylesheet-inferred)
 
-```
-Roboto                 400/700   body, titles, buttons
-Roboto Slab            bold      rating/certificate chips (e.g. "PG-13", IMDb star)
-Handwritten Crystal v2 -         home-video titles / personal-video covers
-fallback               verdana, tahoma, arial, helvetica, sans-serif
-```
-
-Observed sizes (px):
-
-| Size | Usage |
-|---|---|
-| 36 | Detail page title |
-| 30 | Hero (rotating banner) title |
-| 24 | Detail info bar (year / rating / duration) |
-| 20 | Home row section titles, library names |
-| 18 | Detail tagline |
-| 16 | Section subtitle ("Summary"), season labels, certificate chips, player option labels, hero tagline |
-| 14 | Poster card title, list row title, body/summary text |
-| 12 | Card description/date, list episode/date, badges |
-
-Line heights observed: 20 px for 14 px titles, 20 px for 12 px descriptions. Tight.
-
-### 2.3 Layout metrics (grid, spacing, elevation)
-
-| Element | Spec |
-|---|---|
-| Window header bar (`syno-vc-header-panel`) | **50 px** tall, dark gradient |
-| Navigation toolbar (`nav-toolbar`) | **48 px** tall |
-| Poster card (grid view) | **120 × 180** (2:3), cell **120 × 224**, margin **0 20 14 0** |
-| Landscape card (episodes) | **180 × 120** (3:2), cell 180 × 164, margin **0 17 12 0** |
-| Tile-view row | **150 px** tall, thumb **100 × 150**, padding **12 20 12 12** |
-| List-view row | **36 px** tall, padding **0 16**, icon 24 px, title 14, episode column 60 px |
-| Home hero (regular) | poster **226 × 340**, backdrop **528 × 340**, frame 4 px `#272A2E`, radius 2, right margin 56 |
-| Home hero (large mode) | poster **360 × 540**, backdrop **840 × 540** |
-| Home hero collapsed | poster **60 px** (96 px large mode) |
-| Detail poster | **270 × 388**, play button **76 × 76** centered (top 156 / left 97) |
-| Detail page padding | `20 0 0 68px` (left gutter 68) |
-| Home page padding | `0 0 0 56px` |
-| Season bar (TV show) | **48 px**, active tab underlined with `#D13B3B` |
-| Watch progress bar | **3 px**, pinned to poster bottom, cyan on 50 % black |
-| Watched dot | **12 px**, bottom-right (8/4), amber or teal |
-| Card shadow | `0 2px 2px rgba(0,0,0,.3)` |
-| Card border | 1 px `rgba(255,255,255,.1)`, hover/selected **2 px `#D13B3B`** |
-| Radius | 2 px (cards, chips) — near-square, "media library" feel |
-| Hover scrim | bottom-up gradient to `rgba(0,0,0,.8)` over 90 px |
-| Hero scrim | left→right `rgba(0,0,0,.5)` → transparent |
-| Motion | action buttons slide up `translateY(-36px)` over ~0.2 s; home hero collapse 1 s |
-
-Spacing rhythm is roughly 4/8/12/16/20/28/36/56/68. Gutters are generous (20 px horizontal)
-because cards are small; vertical rhythm is tight (14 px).
-
----
-
-## 3. Screen anatomy (reconstructed from CSS + API surface)
-
-### 3.1 Shell
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│ header (50px): logo · library picker · search · queue · settings│
-├───────────────────────────────────────────────────────────────┤
-│ nav-toolbar (48px): category tabs / breadcrumb pathbar        │
-│   Movies · TV Shows · Home Videos · TV Recording · Collections │
-├───────────────────────────────────────────────────────────────┤
-│ body                                                          │
-│   ┌ home ──────────────────────────────────────────────────┐  │
-│   │ rotating hero (226×340 poster stack + 528×340 backdrop)│  │
-│   │ section rows: icon(28) + title(20px) + ‹ › (24px)      │  │
-│   │   poster row height 274 · landscape row height 212     │  │
-│   └────────────────────────────────────────────────────────┘  │
-│   ┌ browse ────────────────────────────────────────────────┐  │
-│   │ options bar: sort · filter · view mode (poster/list/tile)│ │
-│   │ grid 120×180 cards, hover actions, selection bar        │  │
-│   └────────────────────────────────────────────────────────┘  │
-│   ┌ detail ────────────────────────────────────────────────┐  │
-│   │ poster 270×388 + 76px play · title 36 · tagline 18      │  │
-│   │ info bar 24 (year · stars · duration · cert chip)       │  │
-│   │ action row: watchlist · favorite · playlist · share      │  │
-│   │ tabs/sections: episodes, cast, recommendations          │  │
-│   └────────────────────────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────┘
-player window: full-bleed video + auto-hiding control bars
-```
-
-Notes:
-- The **hero is a rotating stack of posters** (poster image + wide backdrop panel that
-  expands on hover), not a full-width billboard. Distinctive; expensive in CSS but cheap
-  to modernize as a 16:9 backdrop hero with the poster as a floating card.
-- Rows are **horizontally sliding** with 24 px prev/next buttons, height fixed per row type.
-- The nav has **two bars**: a category bar and a path bar (breadcrumbs), plus a separate
-  action bar that appears in selection mode (`navbar-select-actionbar`). Selection mode
-  swaps the whole toolbar.
-- A `library-icon` (28 px) prefixes each home row and is keyed by media type:
-  `library`, `playlist`, `movie`, `tvshow`, `home_video`, `tv_record`.
-
-### 3.2 Detail page (movie)
-
-- Left: 270×388 poster with a 76 px circular play button overlay, 3 px progress line at the
-  poster's bottom edge, 1 px frame.
-- Right: title 36/`#E9E9E9`, tagline 18/`#CFCFCF`, info bar at 24 px (year with 24 px right
-  margin, 5-star rating at 24 px per star, duration, certificate chip with
-  `Roboto Slab` bold and 1 px `#CFCFCF` border, radius 2, padding `0 8`).
-- Below: action chips `view-btn` (1 px border, radius 2, 12 px text) for versions/qualities,
-  then a summary block (label 16, body 14), genre tags that turn cyan on hover.
-- Action icons (28 px sprite): watchlist, favorite, playlist/collection, public sharing.
-- Prev/next item arrows float at the bottom corners of the page (36 px).
-
-### 3.3 TV show
-
-- Same left poster (270×388) but the right side is an episode browser:
-  **season bar 48 px** with text tabs; selected tab gets a red underline, unselected are
-  `#ABABAB`.
-- Episodes are **landscape cards 180×120** (3:2) with the same hover-action pattern.
-- Back/next season arrows in the season bar.
-
-### 3.4 Player
-
-- Control bar contains: playlist, previous, seek back, play/pause, seek forward, next,
-  volume, playback-rate, subtitle, audio track, fit/fullscreen, "streaming/remote" (cast),
-  screenshot.
-- Options bar above shows title + `player-option` labels at 16 px, playback-rate panel,
-  volume popup, subtitle search dialog.
-- Auto-hide panels: `hide-panels` sets `cursor:none` on the whole window (classic
-  media-player behaviour).
-- The window class list still contains `vlc` (legacy naming from the old VLC-based player).
-
-### 3.5 Other screens present
-
-| Screen | Evidence |
-|---|---|
-| Home videos | `home_video` library type, handwritten font, date sort |
-| TV recording + DTV wizard | `wizard-dtv`, `wizard_welcome/transcoding/end`, `schedule` view |
-| Collections / playlists | `icon_category_playlist`, `.view-playlist`, smart playlists (`icon_indicator_smart_playlist`) |
-| Sharing panel | `vc-sharing-*` classes: poster, screenshot, filename, info, play icon, empty state |
-| Settings | `icon_tab_setting`, `icon_tab_transcoding`, fieldsets, 4-step transcoding wizard |
-| Job/progress | `syno-vs2-progress`, `offline-conversion-status-dataview`, `syno-vs2-toast` |
-| Parental control | `icon_indicator_parental_on/off`, `icon_default_parental_on_xl` |
-| Cast/remote | `icon_btn_device`, `icon_btn_remote`, `signal-panel`, `VideoController.*` APIs |
-| Empty states | 320 px gray illustrations: `no_data`, `lock`, `fav`, `share`, `player_error` |
-
----
-
-## 4. Card & selection behaviour (the core interaction)
-
-Poster card state machine, as measured:
-
-| State | Visual |
-|---|---|
-| Rest | poster, 1 px `rgba(255,255,255,.1)` frame, 3 px progress line if partially watched, 12 px watch dot if new/last-watched |
-| Hover | 90 px bottom gradient scrim; three 20 px buttons slide up: **add** (left), **play** (center), **more** (right); frame becomes 2 px `#D13B3B` |
-| Selected | `multi_select.png` overlay (120×180) + red 2 px frame; toolbar switches to `navbar-select-actionbar` |
-| Playlist edit mode | 36 px buttons (edit / more) instead of 20 px |
-| Tile view | 4 px red left bar (28 px tall) instead of a full frame |
-| List view | row bg `rgba(51,54,57,.8)` → `rgba(65,69,73,.8)` on hover/selected, red 4 px left mark |
-
-Accessibility liabilities we should **not** copy: hover-only affordances, 12 px text,
-36 px rows, colour-only selection, no visible focus ring in the stylesheet.
-
----
-
-## 5. Iconography
-
-- 155 assets in the public set; **24 px grid**, exported at `1x`/`2x`, drawn as **1 px
-  strokes**, mostly monochrome white-gray, with a **red or cyan accent** on state.
-- Multi-state icons are **vertical sprites** (e.g. 24×96: normal / hover / active /
-  disabled), applied via `background-position: 0 -24px` etc. We should replace this with
-  `<lucide>` components + CSS `currentColor` states.
-- Media-type icons are the **only fully coloured/illustrated** glyphs
-  (`category_movie`, `category_tv_show`, `category_video`, `category_tv_recording`,
-  `category_library`, `category_playlist`, `category_calendar`, `category_dongle`).
-- Empty states use **large flat illustrations** (320×320) in gray, one accent element.
-- Logo: play-triangle mark + "station" wordmark (Synology lockup). **Do not reuse.**
-
-Suggested mapping for our icon set (Lucide names):
-
-| VS glyph | Semantic | Lucide replacement |
+| Role | Hex | Evidence |
 |---|---|---|
-| category_movie | Movies library | `clapperboard` |
-| category_tv_show | TV library | `tv` |
-| category_video | Home videos | `video` |
-| category_tv_recording | DVR | `radio-tower` / `cast` |
-| category_library | Library | `library` |
-| category_playlist | Collections | `list-video` |
-| indicator_watchlist | Watchlist | `bookmark` |
-| indicator_fav | Favorites | `heart` |
-| indicator_loop | Loop/shuffle | `repeat` |
-| indicator_lock / parental_on | Parental lock | `lock` |
-| btn_scan / reindex | Scan library | `refresh-cw` / `radar` |
-| btn_streaming / device / remote | Cast | `cast` |
-| btn_screenshot | Capture frame | `camera` |
-| btn_tick | Watched | `check` |
-| indicator_signal | Connection quality | `signal` |
-| btn_playback_rate | Speed | `gauge` |
+| Top toolbar | `#212427` (gradient `#24272b`→`#202325`) | pixel + computed |
+| Content canvas | **`#393C3F`** | pixel at empty grid area |
+| Sidebar / list surface | `#333639` | pixel |
+| Selected sidebar row | `#404347` | pixel |
+| Raised row / tile | `rgba(51,54,57,.8)`, hover `rgba(65,69,73,.8)` | computed |
+| Default poster plate | `#272A2C` | pixel (poster placeholder) |
+| Dialog surface | `#393C3F` | pixel |
+| Text primary | `#F2F2F2` | computed (card titles, sidebar) |
+| Text heading | `#E9E9E9` | detail title |
+| Text secondary | `#CFCFCF` | taglines, info values |
+| Text tertiary | `#ABABAB` | years, dates, inactive tabs |
+| **Brand/active red** | `#D13B3B` | selection border+badge, season tab, dialog title, active page |
+| **Progress cyan** | `#00D4FF` | watch bar |
+| New/unwatched | `#D1A53B` dot · `#E6C929` chip bg with `#333639` text | computed |
+| Rating stars | `#E6C929` | hero + detail |
+| Primary button | `#2D89C9` (blue "OK") | settings/edit dialogs |
+| Hairline | `rgba(255,255,255,.10)`, top `.20`, separators `.30` | computed |
+| Cert chip | 1 px `#CFCFCF`, radius 2, 16 px Roboto Slab bold | detail top-right + hero |
 
----
+Note: the *canvas is lighter than the chrome* (`#393C3F` vs `#212427` top bar), the
+opposite of most modern dark apps. Worth keeping if we want the "Video Station feel",
+but it costs contrast; a modern take is a darker canvas + lighter cards.
 
-## 6. Terminology observed (for parity of labels)
+## 3. Typography (measured)
 
-Library types: **Movie**, **TV Show**, **Home Video**, **TV Recording**, plus
-**Playlist/Collection** and **Smart Playlist**.
-Item states: **Watched**, **Unwatched**, **Last watched**, **Watchlist**, **Favorite**,
-**Shared**.
-Actions: **Play**, **Add to**, **More**, **Edit video info**, **Change video info**
-(manual re-match), **Search subtitles**, **Offline conversion**, **Public sharing**,
-**Re-index**, **Scan**, **Filter**, **Sort**, **View mode: poster/list/tile**.
+```
+Roboto 400/700  — UI, titles          Roboto Slab bold — rating/cert chips
+13px default UI text · 14px card/list titles · 12px secondary (years, dates, episode)
+16px section labels / season tabs · 18px tagline · 20px home row titles
+24px detail info-bar · 30px hero title · 36px detail title
+```
 
-Exact on-screen English strings still need a logged-in capture (see §9).
+Notable: **body text is 13 px and secondary is 12 px** — below modern minimums.
+Card titles are single-line ellipsis with `ext:qtip` tooltips (ExtJS tooltip, not
+native `title`), and long summaries get a **"View all"** button.
 
----
+## 4. Screen inventory (all captured)
 
-## 7. What to keep, what to modernize
+| # | Screen | File | What it establishes |
+|---|---|---|---|
+| 01 | Home | `01-home.png` | Rotating poster-stack hero + 3 rows (TV Show, Movie, landscape "Recently Added") |
+| 02 | Home card hover | `02-home-poster-hover.png` | Bottom gradient + 20 px add/play/more, red 2 px frame |
+| 03 | Hero hover | `03-home-hero-hover.png` | Active hero widens to backdrop with title/tagline/stars |
+| 04 | Movies grid | `04-movies-grid.png` | 11 columns, 676 items, pagination, empty-poster cards for unparsed files |
+| 05/06 | View menu | `06-view-menu.png` | **Thumbnail / Tile / List** only |
+| 07 | List view | `07-movies-list.png` | 37 px rows, hover actions, right-aligned year |
+| 08/42 | Tile view | `08-movies-tile.png`, `42-tile-1920.png` | 175 px rows, 100×150 thumb, 80 px summary block |
+| 09 | Movie detail | `09-movie-detail.png` | Full-bleed backdrop, poster 270×388, 36 px title, 24 px info bar, chips 1080p/AAC 5.1, cast inline, reference links, subtitle/audio dropdowns |
+| 10/11 | Detail scrolled | `10-…`, `11-…` | Cast, recommendations, summary, back/next arrows bottom corners |
+| 13 | TV shows grid | `13-tvshows-grid.png` | Same card system |
+| 14 | Show detail | `14-tvshow-detail.png` | Season bar 1–5 + episode stills (16:9-ish), "Episode N" |
+| 15 | Home Video | `15-home-video.png` | Landscape cards, filename-as-title, date (MM/DD/YYYY) |
+| 16 | Playlist | `16-playlist.png` | Three system collections: **Favorites / Watchlist / Shared Videos** |
+| 17 | TV Recording | `17-tv-recording.png` | Empty state |
+| 18 | Settings | `18-settings-*.png` | Tabs: **Library / Parental Control / Video Info Plugin / DTV / Privileges / Advanced / Options**; library tree with 2 paths (`/homeshare/video/movie`, `/video/movie`) |
+| 19 | Selection mode | `19-selection-mode.png` | Red border + red check bar; toolbar swaps to cancel/playlist/share/watched/unwatched/edit/delete/convert |
+| 20/28 | Search | `28-search-results.png` | Global search with "All" scope, results grid |
+| 21/29 | Empty state | `29-search-empty.png` | "No data / No videos available" |
+| 22/23 | Card hover + menu | `23-card-more-menu.png` | View media info, Edit video info, Search for subtitles, Public sharing, Mark as watched, Delete, Offline Convert |
+| 24 | Category menu | `24-category-menu.png` | **Recently Added / Recently Watched / Recently Released / All / By Folder / By Channel / By Program / Timeline** |
+| 25 | Filter | `25-filter-menu.png` | Facet list starting with Cast (very long), plus others |
+| 26 | Settings tabs | `26-settings-video-info-plugin.png` | TMDB as "System default", per-type plugin list, connection status, **drag-to-reorder priority**, Add/Test/Edit/Delete |
+| 32 | View media info | `32-media-info.png`, `38-…` | Overview / Video / Audio; exact field list (below) |
+| 33 | Edit video info | `33-edit-video-info.png` | Video Info / Poster / Backdrop; plugin search vs. existing; field set + **Lock/Unlock** |
+| 35 | Subtitle search | `35-subtitle-search.png` | Language / File name / Source; "No match found" (no provider configured) |
+| 36 | Detail action menu | `36-detail-actionbar-menu.png` | Adds **Correct video info** and **Delete file** |
+| 37/41 | 1280 layout | `41-home-1280.png` | Hero falls back to regular size |
 
-### Keep (it *is* Video Station to its users)
+Not captured (deliberately): player screens (playback would write watch progress),
+public-share dialog (creating a link is a write), DVR/schedule (would need tuner state),
+bulk delete/convert confirmations.
 
-1. **Information architecture**: Home → category → library → item → season/episode.
-2. **The four library types** incl. home videos and recordings, as first-class concepts.
-3. **Poster-first browsing** with 2:3 posters and 3:2 episode stills.
-4. **Watch-state language**: 3 px progress line, amber "new", teal "in progress", red "active".
-5. **Row-based home** with horizontally sliding shelves and per-row library icons.
-6. **Manual "Change video info"** affordance, always reachable from the item.
-7. **Dense metadata detail page**: year, rating, runtime, certification, codecs, tracks.
-8. **Immediate "Continue watching"** and per-title resume.
+## 5. Component specs
 
-### Modernize (do not reproduce)
+### 5.1 Poster card (the atom of the app)
 
-| VS pattern | Our replacement |
+```
+cell 120×224
+├─ thumb 120×180  (2:3, cover, 1px rgba(255,255,255,.1) frame)
+│   ├─ gradient (hover, 90px, to rgba(0,0,0,.8))
+│   ├─ left-btn "+"  20×20 at 8/8, hidden until hover
+│   ├─ center-btn "▶" 20×20 centered
+│   └─ right-btn "…" 20×20 right
+├─ watch bar 3px at y=177: cyan fill / 50% black track
+├─ title 14px #F2F2F2, 112px wide, 8px left pad, ellipsis
+└─ description 12px #ABABAB, 20px tall
+hover/selected → frame becomes 2px #D13B3B
+selection → full-card overlay + red bottom bar with white check
+watched dots 12px bottom-right: #D1A53B (new) / #009DBD (in progress)
+```
+
+### 5.2 List row
+
+`1608×37`, bg `rgba(51,54,57,.8)` (hover `rgba(65,69,73,.8)`), 1 px bottom hairline,
+title 14 px left at x+16, year 12 px right-aligned, hover actions `+ ▶ …` and a
+4 px red left bar when selected.
+
+### 5.3 Tile row
+
+`1608×175`, padding `12 20 12 12`, 100×150 thumb, title 14, summary 12 px clamped to
+80 px, 4 px red left selection bar, watch bar 100 px wide under the thumb.
+
+### 5.4 Toolbars
+
+- **Top**: logo (a Synology lockup: play-triangle mark + "Vídeo station" wordmark, 170×32),
+  home button 28 px, search field 214×48 (magnifier + "Keyword" placeholder + funnel at
+  right), then user dropdown, help, offline-conversion queue, settings — all 28 px icons
+  with 40 px hit cells.
+- **Navbar**: category dropdown (title + chevron, 136×26) on the left; on the right the
+  action cluster (selection, view mode, sort). In selection mode the whole cluster is
+  replaced by 8 action icons.
+- **Breadcrumb**: `Recently Added › The King's Speech` replaces the category dropdown on
+  detail pages; detail also adds a 2-button actionbar (cast device, overflow) at the far right.
+
+### 5.5 Dialogs (distinctive, worth adapting)
+
+- 1 px **red top accent line**, centered title in red 13 px, close `×` at right.
+- Tabs with red underline for the active tab (Library, Video Info, Poster…).
+- Footer: gray **Cancel** + blue **OK** (right-aligned); info dialogs get a single **Close**.
+- Sizes: edit 684×572, media info 684×~500, settings 888×594.
+- Form rows: 13 px gray label column (~110 px) + full-width input with 1 px border,
+  token/chip inputs for Genre and Cast (chip with `×`, dropdown chevron), date field with
+  calendar button, 1 px separators between sections.
+- Toolbar row inside dialogs: `Search from Video Info Plugin` (primary) ·
+  `Select from existing videos` (toggle) · `Reset` (right).
+
+### 5.6 Pagination & counts
+
+Centered `‹ ‹‹ 1 2 3 ›› ›` (28 px buttons, active page is a red square), bottom-right
+`676 items` with an info icon; thin horizontal scrollbar above it in list/tile views.
+
+## 6. Field lists (directly reusable for our data model/UI)
+
+**View media info › Overview**
+`File name · File path · Duration · Size · Resolution · Container · Video codec ·
+Audio codec · Video bitrate`
+
+**› Video**
+`Video codec · Resolution · Rotation · Frame per second · Profile · Level`
+
+**› Audio** (repeats per track)
+`Audio - #N · Audio codec · Audio channel · Sample rate · Language`
+
+**Edit video info › Video Info**
+Mode: `Search from Video Info Plugin` / `Select from existing videos` / `Reset`
+Fields: `Title · Tagline · Release date · Classification · Rating · Genre (chips) ·
+Cast (chips) · Writer (chips) · Director (chips) · Lock status: Lock/Unlock · Summary ·
+Source`
+Tabs: `Video Info · Poster · Backdrop` — poster/backdrop offer `Original`, `Enter URL`,
+`Select from folders`, `Select` (plus a pointer to Settings › Advanced › Video Cover Settings).
+
+**Subtitle search**: `Language · File name · Source`, empty state "No match found."
+
+**Settings › Library**: tree of library → paths (a library can hold **multiple paths**),
+toolbar `+ / search / filter / upload`.
+**Settings › Video Info Plugin**: table `Video Info Source · Connection status · Apply`,
+grouped by `Movie` and `TV Show`, TMDB listed as "(System default)".
+
+## 7. Labels observed (verbatim)
+
+```
+Library · Playlist · Movie · TV Show · Home Video · TV Recording
+Recently Added · Recently Watched · Recently Released · All · By Folder ·
+By Channel · By Program · Timeline
+Thumbnail · Tile · List · Selection Mode · Sort order
+Favorites · Watchlist · Shared Videos
+Watched · Unwatched · View all
+View media info · Edit video info · Correct video info · Search for subtitles ·
+Public sharing · Mark as watched · Mark as unwatched · Delete · Delete file ·
+Offline Convert · Offline Conversion
+Season · Episode N · Summary · Genre · Duration · Cast · Writer · Director ·
+Reference · Subtitles · Audio Tracks · Classification · Rating · Tagline ·
+Release date · Lock status
+Library / Parental Control / Video Info Plugin / DTV / Privileges / Advanced / Options
+Video Info Source · Connection status · Apply · Test Connection
+```
+
+Localization note: this library contains zh titles; the UI stays enu, so titles render
+as-is. Search matched English and CJK titles.
+
+## 8. Corrections to our earlier assumptions
+
+| Assumption | Reality |
 |---|---|
-| ExtJS 3.4 + 1.2 MB hand-written CSS + sprite sheets | Tailwind 4 tokens + CSS vars + Lucide SVG |
-| Hover-only action buttons, no focus states | Always-visible on focus-within; keyboard-first; visible rings |
-| 12 px secondary text, 36 px rows | 13–14 px minimum, 44–48 px rows |
-| Red hover border (reads as error) | Red only for **active/selected/recording**; hover = elevation + ring |
-| Fixed 120 px column grid | Responsive `minmax()` grid: 160/184/208/232 px poster widths |
-| Rotating poster-stack hero (340 px tall, 1 s collapse animations) | 16:9 backdrop hero with floating poster + progress, no auto-rotate |
-| Modal-heavy metadata editing | Inline side panel, field-level locks, optimistic save |
-| Sprite/PNG icons, 1x/2x duplication | 24 px SVG, `currentColor`, tree-shaken |
-| 2 px radius, near-square cards | 8 px radius cards, 12 px panels (cinematic but modern) |
-| Dark-only, fixed blue-gray | Dark-first with light theme, neutral-slate base, tinted surfaces |
+| "VS has no metadata lock" | **Wrong.** `Edit video info` has `Lock status: Lock/Unlock`. Our per-field locks are still finer-grained, but item-level locking is parity, not an advantage. |
+| "VS has no poster management" | **Wrong.** Poster/Backdrop tabs with Original / URL / from-folder selection. |
+| "VS scrapers = TMDB + TVDB + Douban" | Here only **TMDB** is installed ("System default") for both Movie and TV; other providers are installable plugins. |
+| "VS has no manual re-match" | It has two flows: **Edit video info** (search/select from plugin, or existing) and **Correct video info** (from the detail overflow menu). |
+| "View modes are poster/list" | Three modes: **Thumbnail / Tile / List**. |
+| "Collections are user playlists only" | There are three built-in collections (Favorites, Watchlist, Shared Videos) under **Playlist**. |
+| "Home hero is a poster row" | It is a **collapsing stack**: active item expands to backdrop+meta, siblings collapse to 60/96 px slivers, auto-advancing. |
 
-### Proposed modern token set (starting point for `web/src/styles/theme.css`)
+## 9. Design decisions this unlocks
 
-```css
-@theme {
-  /* surfaces (VS-derived, slightly cooler/deeper) */
-  --color-bg:            #0F1115;
-  --color-surface:       #16191E;
-  --color-surface-2:     #1E2229;
-  --color-surface-3:     #262B33;
-  --color-hairline:      rgb(255 255 255 / 0.08);
-  --color-hairline-strong: rgb(255 255 255 / 0.16);
+Adopt (they *are* the product to its users):
 
-  /* text */
-  --color-fg:            #F2F4F6;
-  --color-fg-heading:    #E9EDF1;
-  --color-fg-muted:      #A9B1BB;
-  --color-fg-dim:        #737B86;
+1. Fixed 200 px left rail + 48 px top bar + 48 px context bar. Cheap, familiar, works.
+2. Poster-first grid with 2:3 cards and hover-revealed actions; **red** selection frames
+   and red check-bar in selection mode.
+3. Three watch-state signals: 3 px cyan progress line, amber "new" dot, teal dot.
+4. **Category menu** semantics (Recently Added / Watched / Released / All / By Folder /
+   Timeline) — implement as URL-state filters, not ExtJS menus.
+5. **Selection mode swaps the toolbar** — keep this pattern, add keyboard shortcuts and
+   a sticky bottom action bar for accessibility.
+6. Media info split into Overview / Video / Audio with the exact field list above.
+7. Edit dialog split into Video Info / Poster / Backdrop, with plugin-search vs. existing
+   choice and a lock toggle (we upgrade it to per-field locks).
+8. Detail page anatomy: poster + play overlay + unwatched chip + 4 social actions +
+   inline metadata + cast + reference links + track dropdowns + summary + "View all".
+9. Breadcrumb + bottom-corner back/next arrows for item-to-item navigation.
+10. System collections surfaced first in Playlist (Favorites / Watchlist / Shared).
 
-  /* semantic (from VS, renamed for clarity) */
-  --color-active:        #E5484D;  /* was #D13B3B: selection, live, record */
-  --color-progress:      #22D3EE;  /* was #00D4FF: playhead, progress */
-  --color-new:           #D1A53B;  /* unwatched */
-  --color-continue:      #009DBD;  /* in progress */
-  --color-rating:        #E6C929;  /* stars */
+Modernize (keep semantics, change execution):
 
-  --radius-card: 8px;
-  --radius-panel: 12px;
-  --shadow-card: 0 2px 8px rgb(0 0 0 / 0.35);
-}
-```
+| VS | Ours |
+|---|---|
+| 13/12 px body text, 37 px rows | 14/13 px, 44–48 px rows, density toggle |
+| Fixed 120 px columns, 11 columns at 1920 | `repeat(auto-fill, minmax(172–200px,1fr))` |
+| Hover-only actions, no focus ring | `:focus-within` reveals actions; 2 px focus ring |
+| Red 2 px hover border (reads as error) | Hover = elevation + hairline; red only for selected/active/recording |
+| ExtJS modal soup, 3 dialog types for identity | One side panel with tabs (Info / Art / Files) + inline validation |
+| Poster-stack hero, 1 s collapse animation | Static 16:9 backdrop + floating 2:3 poster, no auto-rotate |
+| Sprite icons at 1x/2x | Lucide 24 px SVGs, `currentColor`, tree-shaken |
+| Fixed pixel layout | Fluid grid + container queries; type scale via tokens |
+| No empty-state guidance ("No data") | Actionable empty states ("Add a library", "Scan now") |
+| `ext:qtip` tooltips | Native `title` + accessible descriptions |
 
-Type scale: 12 / 13 / 14 / 16 / 20 / 24 / 32 / 40 (Inter or Roboto Flex + Roboto Slab only
-for rating chips). Poster grid: `repeat(auto-fill, minmax(184px, 1fr))`, gutter 16/24,
-2:3 aspect via `aspect-ratio`. Episode stills: 16:9 (modern) instead of 3:2, with a
-`screenshots` fallback.
+## 10. Parity checklist for M1–M3 (derived from what we saw)
 
----
+- [ ] Libraries with **multiple paths**, type = Movie / TV Show / Home Video / TV Recording
+- [ ] Grid: Thumbnail / Tile / List, persisted per user
+- [ ] Category filters: Recently Added / Watched / Released / All / By Folder / Timeline
+- [ ] Sort (title, year, date added, rating, last watched) + facet filter (genre, cast, year, rating)
+- [ ] Global search across libraries with "All" scope and empty state
+- [ ] Pagination + item counts
+- [ ] Poster card: hover actions, watch bar, new/in-progress dots, selection overlay
+- [ ] Selection mode: toolbar swap, bulk watched/unwatched, add to playlist, delete (admin), convert
+- [ ] Detail: poster + play, unwatched chip, favorites/watchlist/playlist/share actions,
+      media badges (resolution/audio/codec), certification chip, cast/writer/director,
+      external reference links, subtitle/audio track dropdowns, "View all" summary,
+      breadcrumb, prev/next item
+- [ ] Show detail: season tabs, episode stills, episode numbering, "next up"
+- [ ] Media info dialog (Overview/Video/Audio, per-track audio)
+- [ ] Edit metadata: fields, chips, poster/backdrop (URL / folder / generated), lock
+- [ ] Identify/Correct flow ("Search from Video Info Plugin", select from existing)
+- [ ] System collections (Favorites, Watchlist, Shared) before user collections
+- [ ] Home Video: landscape cards, filename title, date sort
+- [ ] Settings: Library, Video Info Plugin (with priority order + connection test),
+      Parental Control, Privileges, Advanced (cover settings), Options
+- [ ] User menu, offline conversion queue, help
 
-## 8. What this changes in our plan
+## 11. Still unprobed
 
-1. **Icon strategy** — add an explicit icon map (Lucide) and forbid bitmap icons.
-   *Action:* `docs/DESIGN.md` (or §7 here) becomes the reference for M1 UI work.
-2. **Home page** — VS's rotating hero is a signature; we should ship *a* hero in M2, but as
-   a static 16:9 backdrop with poster overlay (cheap, no JS animation).
-3. **Selection model** — adopt the "selection mode with swapped toolbar" pattern; it is
-   how VS users do bulk edits and is a real workflow.
-4. **Watch-state dots + 3 px progress line** — cheap, high recognizability. Adopt exactly
-   (semantics), restyle (radius, colour tokens).
-5. **Density** — VS is denser than modern web apps; we should keep a *comfortable* and a
-   *compact* density toggle (Jotai atom), defaulting to comfortable.
-6. **Naming** — keep "Home Video", "Watchlist", "Collection", "Change video info" wording so
-   migrating users feel at home.
-7. **Player controls** — the VS control set (prev/next, seek, rate, subtitle, audio,
-   fit/fullscreen, cast, screenshot) is a good checklist for M4/M5 UI completeness.
+1. **Player UI** — needs a playback session (writes watch progress + transcode temp files).
+   We have the CSS spec (controls: prev/play-pause/next, seek ±, volume, rate, subtitle,
+   audio, fit/fullscreen, cast, screenshot, auto-hide + `cursor:none`).
+2. **Public share dialog** — opening it likely creates a share record.
+3. **Privileges / Parental Control / Advanced / Options** tabs — captured as images but
+   their inner controls need a closer read (`18-settings-*`, `26-settings-*`).
+4. **Favorites/Watchlist contents** — empty for the temp user.
+5. DVR screens — no tuner configured.
 
----
+If we want these, the cheapest path is a user-side capture (play a 10-second clip, open
+share dialog) rather than me writing to the instance.
 
-## 9. Remaining probe work (needs an authenticated session)
+## 12. Provenance & legal
 
-All HTML/JS is behind DSM auth, so the following still needs one logged-in pass:
-
-1. Screenshots of: Home, Movies grid, TV Shows, show detail (seasons/episodes), movie
-   detail, player with controls, settings › library, settings › transcoding, task monitor,
-   selection mode, share dialog, parental control, DTV/schedule.
-2. Exact English UI strings (`innerText` dump) for label parity.
-3. Computed styles/DOM for the two toolbars (so we can reproduce information density, not
-   just colours).
-4. The **metadata edit / "Change video info"** dialog flow, field by field.
-5. Whether the library list is per-user or global, and how permissions render.
-
-**Fastest path** (needs a temporary DSM account, ideally read-only admin):
-
-```
-1. I log in with SYNO.API.Auth (v6, session cookie, no token persistence)
-2. Open ...?launchApp=SYNO.SDS.VideoStation.AppInstance in headless Chromium
-3. Walk the screens above; capture PNG + innerText + computed stylesheet values
-4. Store screenshots in docs/ui-probe/screens/ (local reference), keep only
-   measurements + labels in git
-```
-
-Fallback without credentials: you open the app, and for each screen run the snippet in
-DevTools console that I provide (dumps innerText, key element box sizes, computed
-colors/typography) and share the JSON; screenshots optional.
-
----
-
-## 10. Provenance & legal
-
-- Measurements above are facts about a UI; they are fine to use.
-- **Do not** copy: `style.css`, sprites/PNGs, fonts (Handwritten Crystal has unclear
-  licensing), the logo, or Synology's wording/illustrations.
-- Re-create iconography with Lucide (ISC) + custom SVGs; use Inter/Roboto (Apache/OFL) or
-  system UI; ship our own wordmark.
-- Keep parity in *structure and semantics*, innovate in *execution*.
+- Screenshots and DOM dumps live in `~/vs-probe/screens/` (not committed) and contain the
+  user's library titles.
+- Do **not** copy Synology CSS, sprite PNGs, fonts (Handwritten Crystal has unclear
+  licensing), the logo/wordmark, or UI text wholesale.
+- Re-create icons with Lucide (ISC) + custom SVGs; use Inter or Roboto (Apache/OFL);
+  ship our own wordmark. Keep *structure and vocabulary*, change *execution*.

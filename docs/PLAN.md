@@ -8,8 +8,9 @@ Status: **draft / awaiting decisions** (see §12)
 Companion docs:
 [`GAPS.md`](./GAPS.md) — feature-parity register vs Synology Video Station (44 known gaps,
 6 of them S1), including deliberate non-goals and the advantages we hold.
-[`UI-PROBE.md`](./UI-PROBE.md) — measurements from a live Video Station 3.0.7 instance:
-color/type/layout tokens, card behaviour, icon inventory, and a proposed modern token set.
+[`UI-PROBE.md`](./UI-PROBE.md) — verified probe of a live Video Station 3.0.7 instance
+(42 screenshots): shell geometry, colour/type/layout tokens, component specs, verbatim
+labels, field lists, and a parity checklist for M1–M3.
 
 ---
 
@@ -284,11 +285,20 @@ optimistic watch-state updates, URL-as-state for filters.
 
 **Design parity rules** (from `UI-PROBE.md`):
 - Keep Video Station's *information architecture and vocabulary* (Home → category →
-  library → item; Movies / TV Shows / Home Videos / Recordings; Watchlist, Collection,
-  "Change video info"), so migrating users recognise it immediately.
+  library → item; Movies / TV Shows / Home Videos / Recordings; Playlist → Favorites /
+  Watchlist / Shared; Watchlist, Collection, "Change video info"), so migrating users
+  recognise it immediately.
 - Keep the watch-state language: 3 px progress line, amber "new", teal "in progress",
   red "active/selected/recording" — but red never means hover.
-- Keep selection mode with a swapped toolbar (bulk edit is a real VS workflow).
+- Keep **three view modes** (thumbnail/tile/list), the category menu (Recently Added /
+  Watched / Released / All / By Folder / Timeline), and selection mode with a swapped
+  toolbar (bulk edit is a real VS workflow).
+- Keep the detail anatomy: poster + play overlay + unwatched chip + four actions
+  (favorite/watchlist/playlist/share) + media badges + certification + cast/writer/
+  director + reference links + subtitle/audio dropdowns + summary with "View all".
+- Media info is split Overview / Video / Audio (per-track audio); metadata editing has
+  Info / Poster / Backdrop tabs. VS locks at item level — we lock per field, which is a
+  strict superset, so no regression.
 - Replace ExtJS chrome and PNG sprites with Tailwind tokens + Lucide SVG; add focus rings,
   ≥13 px secondary text, and a comfortable/compact density toggle.
 - Icons: 24 px grid, 1 px strokes, `currentColor`; media-type glyphs may be two-tone.
@@ -314,15 +324,20 @@ Each phase closes a defined slice of the gap register in [`GAPS.md`](./GAPS.md);
 - Scanner: walk, ignore rules, change detection, probe, grouping, jobs + progress
 - Filename parser with corpus tests (≥40 real-world patterns)
 - DB schema + migrations + queries + FTS5
-- Browse API + UI: grid/list, sort/filter, item detail with technical info
-- Manual metadata edit (title/year/overview/genres) with locks
+- Browse API + UI: grid (thumbnail/tile/list), sort/filter, category menu, pagination,
+  item counts, global search, empty states, item detail with technical info
+- Media info panel (Overview / Video / Audio, per-track audio) fed by ffprobe output
+- Manual metadata edit (title/year/overview/genres/poster) with per-field locks
 - **Done when**: 100-file library indexes correctly; re-scan is incremental
   (<1s for unchanged files); titles/seasons/episodes are right; search is instant.
 
 ### M2 — Metadata enrichment
 - TMDB provider (movies/TV), art caching, cast/crew, collections, genres
-- Matcher + confidence + "Needs attention" queue + Identify dialog
-- NFO reader + local art detection; unmatched items show cleanly
+- Matcher + confidence + "Needs attention" queue + Identify dialog (VS parity:
+  "Search from Video Info Plugin" / "Select from existing", plus a separate
+  "Correct video info" entry point)
+- Poster/backdrop picker (provider art, URL, from media folder) + NFO reader + local art
+- System collections first (Favorites, Watchlist, Shared), then user collections
 - Home page rows (recently added, collections, genres)
 - **Done when**: typical library auto-matches ≥90%; unmatched are obvious and fixable.
 

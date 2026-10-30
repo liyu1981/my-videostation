@@ -42,6 +42,9 @@ MyVideoStation currently does not**, so gaps are deliberate rather than accident
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
+The rendered probe also **corrected three assumptions** (Video Station does have an
+item-level metadata lock, per-item poster/backdrop management, and a "Correct video
+info" re-match flow), so parity expectations in M1–M3 were raised accordingly.
 
 Distribution of the six S1 gaps matters more than the total: **five are client/playback
 side** (codec breadth, casting, mobile apps, TV apps, remote access) and only one is
@@ -60,7 +63,7 @@ remains unaddressed by the plan.
 | GAP-003 | Optical/ISO image playback (`ISO`, `BDMV/`, `VIDEO_TS/`) | VS can play DVD/BD folder structures and ISOs | `GAP-UNDECIDED` | S3 | — | ffmpeg can read these, but stream/seek/subtitle semantics and chapter handling are nontrivial. Decide after M5. |
 | GAP-004 | TV recording library + EPG + scheduled recording | VS records from USB DTV dongles / HDHomeRun, with EPG and series recording | `GAP-NEVER` (v1) | S1 | — | **[confirmed]** `SYNO.VideoStation2.DTV.{Tuner,Channel,ChannelScan,Program,Schedule,Statistic,Streaming}`. Requires tuner abstraction, EPG ingestion, conflict resolution, post-processing. Live TV is a separate product. Revisit only with a dedicated design. |
 | GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `GAP-LATER` | S3 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.{Scheduler,IndexFolder}`. We ship sane defaults; user-configurable globs, min-size, and "skip extras" toggles come with bulk edit. |
-| GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails | `GAP-LATER` | S2 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.ThumbnailQuality`. We need thumbnails (poster grid + trickplay), so controls (on/off, size, regenerate, cache budget) land with the first thumbnail worker. |
+| GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails, and choose per-item poster/backdrop (Original / URL / from folders), with a global cover setting under Settings › Advanced | `GAP-LATER` | S2 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.ThumbnailQuality`; per-item art picker verified in the Edit dialog (see `UI-PROBE.md` §6). Controls (on/off, size, regenerate, cache budget) land with the first thumbnail worker. |
 | GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
 | GAP-008 | Import/migration from an existing Video Station library | N/A (VS is the source) | `GAP-UNDECIDED` | S2 | post-M3 | **[verify]** storage is believed to be PostgreSQL. A one-shot importer (paths + watch state + manual matches) would remove the biggest switching cost. High leverage, low glamour. |
 | GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; cloud sources need host mounts (GAP-001). |
@@ -69,12 +72,13 @@ remains unaddressed by the plan.
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
-| GAP-010 | Multiple scrapers + per-library provider choice | VS offers TheMovieDB and TheTVDB, plus region-specific sources (Douban) **[verify]** | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** VS has a *plugin* architecture for metadata: `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` (exact provider list still **[verify]**). v1 ships TMDB only behind a provider interface; TVDB matters for anime/absolute ordering, Douban for zh-CN. |
+| GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. v1 ships TMDB behind a provider interface; add TVDB for anime ordering and Douban for zh-CN later. |
 | GAP-011 | Trailer playback (YouTube) | VS fetches and plays trailers | `GAP-LATER` | S3 | M7 | Requires provider trailer keys + an embed/privacy decision (no third-party iframe by default). |
-| GAP-012 | Online subtitle search & download | VS/DS video can search and download subtitles **[verify]** | `GAP-UNDECIDED` | S2 | M6 | **[confirmed]** a `search-subtitle-dialog` exists in the app stylesheet (56 rules); provider unknown. OpenSubtitles needs an account/API key + rate limits, and this is copyright-sensitive — decide policy explicitly. |
+| GAP-012 | Online subtitle search & download | VS has a "Search for subtitles" flow with Language / File name / Source columns | `GAP-UNDECIDED` | S2 | M6 | **[confirmed]** dialog captured; no provider configured on this instance ("No match found"). OpenSubtitles needs an account/API key + rate limits, and this is copyright-sensitive — decide policy explicitly. |
 | GAP-013 | Metadata language/region per library | VS selects scraper language per library | `PLANNED` | S3 | M1 | Already in the plan (`libraries.language` + provider language param); listed to confirm parity intent rather than claim a gap. |
 | GAP-014 | Rich person pages / filmography | VS shows cast lists only | `ADV` | — | M2 | We store `people` as first-class rows, so filmography pages are cheap and exceed VS. |
-| GAP-064 | Third-party scraper/plugin marketplace | VS exposes a metadata plugin system (install/search plugins) | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch}` + `SYNO.VideoStation.Metadata`. We expose a Go provider interface + config instead of a sandboxed plugin runtime. Revisit only if third-party providers become a real demand. |
+| GAP-064 | Third-party scraper/plugin marketplace | VS exposes a metadata plugin system (install/search plugins, per-type ordering) | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch}` + Settings › Video Info Plugin. We expose a Go provider interface + config instead of a sandboxed plugin runtime. Revisit only if third-party providers become a real demand. |
+| GAP-067 | Per-item poster/backdrop from URL or media folder | Edit dialog offers Original / Enter URL / Select from folders / Select | `PLANNED` | S3 | M2 | Not a gap — already covered by `POST /items/{id}/art` in `PLAN.md` §6; listed so parity is explicit. |
 
 ## 4. Playback & transcoding
 
@@ -142,7 +146,7 @@ remains unaddressed by the plan.
 | ADV-02 | NFO read/write + local art precedence | Kodi/Jellyfin-compatible sidecars; users keep their metadata if they leave. VS has no `.nfo` support **[verify]**. |
 | ADV-03 | Single static binary, no DSM | Runs on any Linux, NAS, Pi, or laptop; no DSM version coupling. |
 | ADV-04 | FTS5 search over title, overview, cast | Instant search, no filesystem walk. |
-| ADV-05 | Per-item "needs attention" queue + field-level locks | Manual matches and edits are never silently overwritten. |
+| ADV-05 | Per-field metadata locks + unmatched queue | VS has only a single item-level `Lock/Unlock` toggle and no "needs attention" queue; we lock per field and surface unmatched items explicitly. |
 | ADV-06 | Durable job queue with SSE progress + scan stats | Visibility into indexing/transcoding instead of a spinner. |
 | ADV-07 | API-first with documented REST contract | Scriptable, testable, integrable (and a path to client compatibility). |
 | ADV-08 | Docker + amd64/arm64, no vendor account | Deploy anywhere; reproducible upgrades. |
