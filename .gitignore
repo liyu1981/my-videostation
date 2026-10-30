@@ -1,0 +1,77 @@
+# ---------- build output ----------
+/bin/
+/dist/
+/build/
+*.exe
+*.test
+*.out
+*.so
+*.dylib
+
+# Go
+vendor/
+coverage.out
+coverage.html
+profile.cov
+*.pprof
+
+# ---------- frontend ----------
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+web/dist/
+web/.vite/
+.vite/
+*.tsbuildinfo
+.eslintcache
+.oxlintcache
+test-results/
+playwright-report/
+blob-report/
+
+# ---------- runtime data (never commit) ----------
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+config.yaml
+transcodes/
+cache/
+
+# ---------- secrets ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ---------- local probe / scratch artifacts ----------
+/vs-probe/
+/screens/
+docs/ui-probe/
+docs/**/screens/
+*.har
+*.cdp.json
+
+# ---------- logs ----------
+*.log
+logs/
+
+# ---------- tooling caches ----------
+.tools/
+.cache/
+tmp/
+.tmp/
+
+# ---------- editors & OS ----------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*~
