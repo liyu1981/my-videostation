@@ -140,6 +140,7 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 		if plans[i].item.PosterPath == "" && results[i] != nil {
 			plans[i].item.PosterPath, plans[i].item.BackdropPath = media.FindLocalArt(plans[i].file.path)
 		}
+		applySubtitles(&plans[i].item, plans[i].file.path)
 	}
 
 	// Persist in batches so a huge library does not hold one long write transaction.
@@ -211,6 +212,16 @@ func (sc *Scanner) probeAll(ctx context.Context, plans []planned, needs []int,
 		}(idx)
 	}
 	wg.Wait()
+}
+
+func applySubtitles(item *store.ScannedFile, path string) {
+	found := media.FindSubtitles(path)
+	item.Subtitles = make([]store.SubtitleFile, 0, len(found))
+	for _, sub := range found {
+		item.Subtitles = append(item.Subtitles, store.SubtitleFile{
+			Path: sub.Path, Language: sub.Language, Label: sub.Label, Format: sub.Format,
+		})
+	}
 }
 
 func applyTech(item *store.ScannedFile, tech *media.Technical) {

@@ -99,7 +99,7 @@ export function DetailPage() {
 
   const play = () => {
     if (!playable) return;
-    setPlayer({ itemId: detail.id, title: detail.title, streamUrl: playable.streamUrl });
+    setPlayer({ itemId: detail.id, title: detail.title });
   };
 
   const breadcrumb: { label: string; to?: string; search?: Record<string, unknown> }[] = [];

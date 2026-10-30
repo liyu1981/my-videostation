@@ -100,6 +100,8 @@ testdata/           parser corpus and generated sample media
   bulk watched + add-to-collection, category presets (added / watched / released / A–Z),
   genre/year/watched/folder filters from live facets, per-library auto-scan intervals,
   and a live task monitor.
+- **Playback (M4)**: direct play with resume, sidecar + embedded subtitle tracks served as
+  WebVTT (UTF-8/GB18030/Big5), subtitle menu, keyboard shortcuts, and next-episode prompt.
 
 ## Getting started
 
@@ -165,7 +167,7 @@ Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file 
 | **M1** ✅ | Libraries, incremental scanner, filename parser, browse UI, search, media info |
 | **M2** ✅ | TMDB matching, art management, identify/correct flows |
 | **M3** ✅ | Collections, selection/bulk actions, categories/facets, scheduler, task monitor |
-| **M4** | Full player: subtitle/audio tracks, resume UI, next episode |
+| **M4** ✅ | Player: subtitle tracks, resume, next episode |
 | **M5** | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |
 | **M6** | Users, permissions, parental controls, share links, i18n |
 | **M7** | PWA, casting, trailers, offline conversion, metrics |

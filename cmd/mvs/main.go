@@ -82,7 +82,14 @@ func run() error {
 		region, _, _ := st.Setting(ctx, metadata.SettingRegion)
 		return metadata.NewTMDB(key, language, region), nil
 	}
-	enricher := enrich.New(st, providerFactory, filepath.Join(cfg.DataDir, "cache"), log)
+	cacheDir := filepath.Join(cfg.DataDir, "cache")
+	enricher := enrich.New(st, providerFactory, cacheDir, log)
+	ffmpegPath := media.DetectFFmpeg("")
+	if ffmpegPath == "" {
+		log.Warn("ffmpeg not found: embedded subtitle extraction disabled", "hint", "run `pnpm bootstrap`")
+	} else {
+		log.Info("ffmpeg found", "path", ffmpegPath)
+	}
 
 	sc := scanner.New(st, prober, log)
 	manager := jobs.New(st, log)
@@ -173,6 +180,8 @@ func run() error {
 		MediaDir:   cfg.DataDir,
 		Provider:   providerFactory,
 		Enricher:   enricher,
+		FFmpeg:     ffmpegPath,
+		CacheDir:   cacheDir,
 	})
 
 	srv := &http.Server{

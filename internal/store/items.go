@@ -370,6 +370,67 @@ func (s *Store) FileByID(ctx context.Context, id int64) (*File, error) {
 	return &f, nil
 }
 
+// ExternalSubtitles lists sidecar subtitles for a file.
+func (s *Store) ExternalSubtitles(ctx context.Context, fileID int64) ([]ExternalSubtitle, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, file_id, path, language, label, format
+		FROM external_subtitles WHERE file_id = ? ORDER BY language, path`, fileID)
+	if err != nil {
+		return nil, wrap("external subtitles", err)
+	}
+	defer rows.Close()
+	out := []ExternalSubtitle{}
+	for rows.Next() {
+		var e ExternalSubtitle
+		if err := rows.Scan(&e.ID, &e.FileID, &e.Path, &e.Language, &e.Label, &e.Format); err != nil {
+			return nil, wrap("scan subtitle", err)
+		}
+		out = append(out, e)
+	}
+	return out, wrap("iterate subtitles", rows.Err())
+}
+
+// ExternalSubtitleByID loads one sidecar subtitle.
+func (s *Store) ExternalSubtitleByID(ctx context.Context, id int64) (*ExternalSubtitle, error) {
+	var e ExternalSubtitle
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, file_id, path, language, label, format
+		FROM external_subtitles WHERE id = ?`, id).Scan(&e.ID, &e.FileID, &e.Path, &e.Language, &e.Label, &e.Format)
+	if err != nil {
+		return nil, wrap("get subtitle", err)
+	}
+	return &e, nil
+}
+
+// NextEpisode returns the next episode in the same season, if any.
+func (s *Store) NextEpisode(ctx context.Context, itemID int64) (*Item, error) {
+	var seasonID int64
+	var number int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT parent_id, COALESCE(episode_number,0) FROM media_items WHERE id = ? AND kind = 'episode'`,
+		itemID).Scan(&seasonID, &number)
+	if err != nil {
+		return nil, nil // not an episode
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+itemColumns+`, `+itemStateColumns+`
+		FROM media_items m `+fmt.Sprintf(itemJoin, DefaultUserID)+`
+		WHERE m.parent_id = ? AND m.kind = 'episode' AND m.episode_number > ?
+		ORDER BY m.episode_number LIMIT 1`, seasonID, number)
+	if err != nil {
+		return nil, wrap("next episode", err)
+	}
+	defer rows.Close()
+	var out []Item
+	if err := collectItems(rows, &out); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return &out[0], nil
+}
+
 // ItemPeople returns cast/crew, cast first.
 func (s *Store) ItemPeople(ctx context.Context, itemID int64) ([]Person, error) {
 	rows, err := s.db.QueryContext(ctx, `

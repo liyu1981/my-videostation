@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -267,4 +268,90 @@ func FindLocalArt(videoPath string) (poster, backdrop string) {
 		backdrop = poster
 	}
 	return poster, backdrop
+}
+
+// SubtitleFile is a sidecar subtitle discovered next to a video.
+type SubtitleFile struct {
+	Path     string
+	Language string
+	Label    string
+	Format   string
+}
+
+// FindSubtitles lists sidecar subtitles for a video file: <stem>.<ext> or
+// <stem>.<lang>.<ext> with srt/ass/ssa/vtt/sub extensions.
+func FindSubtitles(videoPath string) []SubtitleFile {
+	dir := filepath.Dir(videoPath)
+	base := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	baseLower := strings.ToLower(base)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	allowed := map[string]bool{".srt": true, ".ass": true, ".ssa": true, ".vtt": true, ".sub": true}
+
+	var out []SubtitleFile
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if !allowed[ext] {
+			continue
+		}
+		stem := strings.TrimSuffix(name, filepath.Ext(name))
+		stemLower := strings.ToLower(stem)
+		lang := ""
+		switch {
+		case stemLower == baseLower:
+			// no language marker
+		case strings.HasPrefix(stemLower, baseLower+"."):
+			lang = strings.TrimPrefix(stemLower, baseLower+".")
+			if len(lang) > 20 || strings.ContainsAny(lang, " ./\\") {
+				continue
+			}
+		default:
+			continue
+		}
+		label := "External"
+		if lang != "" {
+			label = strings.ToUpper(lang)
+		}
+		out = append(out, SubtitleFile{
+			Path:     filepath.Join(dir, name),
+			Language: lang,
+			Label:    label,
+			Format:   strings.TrimPrefix(ext, "."),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Language != out[j].Language {
+			return out[i].Language < out[j].Language
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
+// DetectFFmpeg locates the ffmpeg binary (used for embedded subtitle extraction).
+func DetectFFmpeg(explicit string) string {
+	candidates := []string{}
+	if explicit != "" {
+		candidates = append(candidates, explicit)
+	}
+	if v := os.Getenv("MVS_FFMPEG"); v != "" {
+		candidates = append(candidates, v)
+	}
+	if p, err := exec.LookPath("ffmpeg"); err == nil {
+		candidates = append(candidates, p)
+	}
+	candidates = append(candidates, ".tools/ffmpeg", "bin/ffmpeg", "/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg")
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && !st.IsDir() {
+			return c
+		}
+	}
+	return ""
 }

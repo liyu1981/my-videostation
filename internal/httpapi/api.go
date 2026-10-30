@@ -29,6 +29,8 @@ type Server struct {
 	mediaDir string
 	provider metadata.Factory
 	enricher *enrich.Service
+	ffmpeg   string
+	cacheDir string
 }
 
 // Options configures the HTTP server.
@@ -41,6 +43,8 @@ type Options struct {
 	MediaDir   string
 	Provider   metadata.Factory
 	Enricher   *enrich.Service
+	FFmpeg     string
+	CacheDir   string
 }
 
 // New creates the API server.
@@ -52,7 +56,8 @@ func New(o Options) *Server {
 		o.Version = buildinfo.Version
 	}
 	return &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
-		mediaDir: o.MediaDir, provider: o.Provider, enricher: o.Enricher}
+		mediaDir: o.MediaDir, provider: o.Provider, enricher: o.Enricher,
+		ffmpeg: o.FFmpeg, cacheDir: o.CacheDir}
 }
 
 // Handler builds the root HTTP handler (API + UI).
@@ -103,6 +108,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/items/{id}/backdrop", s.handleArt("backdrop"))
 
 	mux.HandleFunc("GET /api/v1/media/{fileId}", s.handleStream)
+	mux.HandleFunc("GET /api/v1/media/{fileId}/subtitle", s.handleSubtitle)
+	mux.HandleFunc("GET /api/v1/items/{id}/playback", s.handlePlayback)
 
 	mux.Handle("/", web.Handler())
 

@@ -41,7 +41,10 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | POST | `/items/{id}/art` | `{kind:"poster"|"backdrop", url}` — download + cache artwork |
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
+| GET | `/items/{id}/playback` | Player payload: stream URL, resume position, subtitle tracks, next episode |
 | GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206` |
+| GET | `/media/{fileId}/subtitle?ext=ID` | Sidecar subtitle as WebVTT |
+| GET | `/media/{fileId}/subtitle?embedded=INDEX` | ffmpeg-extracted embedded subtitle as WebVTT (cached) |
 
 ## Examples
 

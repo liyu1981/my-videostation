@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/liyu1981/myvideostation/internal/db"
@@ -771,5 +772,164 @@ func TestFacetsFoldersAndCategories(t *testing.T) {
 	}
 	if len(due) != 0 {
 		t.Fatalf("due after mark = %v", due)
+	}
+}
+
+// ---- M4: playback, subtitles, next-up -----------------------------------
+
+func TestPlaybackSubtitlesAndNextUp(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	tvDir := filepath.Join(dir, "tv", "Show (2020)", "Season 1")
+	writeFile(t, filepath.Join(tvDir, "Show.S01E01.mkv"))
+	writeFile(t, filepath.Join(tvDir, "Show.S01E02.mkv"))
+	if err := os.WriteFile(filepath.Join(tvDir, "Show.S01E01.en.srt"),
+		[]byte("1\n00:00:01,000 --> 00:00:03,000\nHello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tvDir, "Show.S01E01.zh.srt"),
+		[]byte("1\n00:00:01,000 --> 00:00:03,000\n你好\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{filepath.Join(dir, "tv")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil))).ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var seasons struct {
+		Items []struct {
+			ID int64 `json:"id"`
+		} `json:"items"`
+	}
+	getJSON(t, srv.URL+"/api/v1/browse?kind=season&parentId=1", &seasons)
+	if len(seasons.Items) != 1 {
+		t.Fatalf("seasons = %+v", seasons.Items)
+	}
+	var episodes struct {
+		Items []struct {
+			ID      int64 `json:"id"`
+			Episode int   `json:"episodeNumber"`
+		} `json:"items"`
+	}
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(seasons.Items[0].ID)+"/children", &episodes)
+	if len(episodes.Items) != 2 {
+		t.Fatalf("episodes = %+v", episodes.Items)
+	}
+	ep1, ep2 := episodes.Items[0].ID, episodes.Items[1].ID
+	if episodes.Items[0].Episode != 1 {
+		ep1, ep2 = ep2, ep1
+	}
+
+	var pb struct {
+		ItemID    int64  `json:"itemId"`
+		FileID    int64  `json:"fileId"`
+		StreamURL string `json:"streamUrl"`
+		ResumeMS  int64  `json:"resumeMs"`
+		Subtitles []struct {
+			ID       string `json:"id"`
+			Label    string `json:"label"`
+			Language string `json:"language"`
+			URL      string `json:"url"`
+			Source   string `json:"source"`
+			Default  bool   `json:"default"`
+		} `json:"subtitles"`
+		Next *struct {
+			ItemID int64 `json:"itemId"`
+		} `json:"next"`
+	}
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(ep1)+"/playback", &pb)
+	if pb.StreamURL == "" || pb.FileID == 0 {
+		t.Fatalf("playback = %+v", pb)
+	}
+	if len(pb.Subtitles) != 2 {
+		t.Fatalf("subtitles = %+v", pb.Subtitles)
+	}
+	if pb.Next == nil || pb.Next.ItemID != ep2 {
+		t.Fatalf("next = %+v, want %d", pb.Next, ep2)
+	}
+
+	// external subtitle is served as WebVTT
+	var subURL string
+	for _, s := range pb.Subtitles {
+		if s.Language == "en" {
+			subURL = s.URL
+		}
+	}
+	if subURL == "" {
+		t.Fatal("no english subtitle track")
+	}
+	res, err := http.Get(srv.URL + subURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("subtitle status = %d", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.Contains(ct, "text/vtt") {
+		t.Errorf("content type = %q", ct)
+	}
+	vtt, _ := io.ReadAll(res.Body)
+	if !strings.HasPrefix(string(vtt), "WEBVTT") || !strings.Contains(string(vtt), "00:00:01.000 --> 00:00:03.000") {
+		t.Fatalf("vtt = %q", string(vtt))
+	}
+
+	// resume position round-trips, and is cleared once watched
+	prog, _ := json.Marshal(map[string]any{"positionMs": 30000, "durationMs": 60000, "played": false})
+	pres, err := http.Post(srv.URL+"/api/v1/items/"+itoa(ep1)+"/progress", "application/json", bytes.NewReader(prog))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pres.Body.Close()
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(ep1)+"/playback", &pb)
+	if pb.ResumeMS != 30000 {
+		t.Fatalf("resumeMs = %d, want 30000", pb.ResumeMS)
+	}
+
+	done, _ := json.Marshal(map[string]any{"positionMs": 60000, "durationMs": 60000, "played": true})
+	dres, err := http.Post(srv.URL+"/api/v1/items/"+itoa(ep1)+"/progress", "application/json", bytes.NewReader(done))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dres.Body.Close()
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(ep1)+"/playback", &pb)
+	if pb.ResumeMS != 0 {
+		t.Fatalf("resumeMs after watched = %d, want 0", pb.ResumeMS)
+	}
+
+	// last episode has no next
+	pb.Next = nil
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(ep2)+"/playback", &pb)
+	if pb.Next != nil {
+		t.Fatalf("last episode next = %+v", pb.Next)
+	}
+}
+
+func TestPlaybackMissingFile(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+	mediaDir := filepath.Join(dir, "m")
+	writeFile(t, filepath.Join(mediaDir, "Movie (2020)", "Movie.2020.mkv"))
+	lib, err := st.CreateLibrary(ctx, "M", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil))).ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	items, _, _ := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie})
+	res, err := http.Get(srv.URL + "/api/v1/items/" + itoa(items[0].ID) + "/playback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("playback = %d %s", res.StatusCode, b)
 	}
 }

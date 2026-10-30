@@ -46,6 +46,9 @@ type ScannedFile struct {
 	Audio      []AudioStream
 	Subtitle   []SubtitleStream
 	Probed     bool
+
+	// Sidecar subtitles found next to the file (nil = leave untouched).
+	Subtitles []SubtitleFile
 }
 
 // FileStat is the cheap fingerprint used for incremental scans.
@@ -318,6 +321,24 @@ func touchItem(ctx context.Context, tx *sql.Tx, id int64, f *ScannedFile) error 
 	return wrap("touch item", err)
 }
 
+// SubtitleFile is a sidecar subtitle stored for a media file.
+type SubtitleFile struct {
+	Path     string
+	Language string
+	Label    string
+	Format   string
+}
+
+// ExternalSubtitle is a persisted sidecar subtitle.
+type ExternalSubtitle struct {
+	ID       int64  `json:"id"`
+	FileID   int64  `json:"fileId"`
+	Path     string `json:"-"`
+	Language string `json:"language,omitempty"`
+	Label    string `json:"label"`
+	Format   string `json:"format"`
+}
+
 func ensureFile(ctx context.Context, tx *sql.Tx, f *ScannedFile, itemID int64) error {
 	audio := mustJSON(f.Audio)
 	subs := mustJSON(f.Subtitle)
@@ -343,7 +364,7 @@ func ensureFile(ctx context.Context, tx *sql.Tx, f *ScannedFile, itemID int64) e
 			`UPDATE media_files SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...); err != nil {
 			return wrap("update file", err)
 		}
-		return nil
+		return replaceExternalSubtitles(ctx, tx, id, f.Subtitles)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return wrap("find file", err)
@@ -353,7 +374,7 @@ func ensureFile(ctx context.Context, tx *sql.Tx, f *ScannedFile, itemID int64) e
 	if f.Probed {
 		probedAt = now()
 	}
-	_, err = tx.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO media_files
 			(library_id, item_id, path, rel_path, size, mtime, inode, container, duration_ms,
 			 bitrate, width, height, video_codec, hdr, audio_streams, subtitle_streams,
@@ -361,7 +382,29 @@ func ensureFile(ctx context.Context, tx *sql.Tx, f *ScannedFile, itemID int64) e
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`,
 		f.LibraryID, itemID, f.Path, f.RelPath, f.Size, f.Mtime, f.Inode, f.Container,
 		f.DurationMS, f.Bitrate, f.Width, f.Height, f.VideoCodec, f.HDR, audio, subs, probedAt, now())
-	return wrap("insert file", err)
+	if err != nil {
+		return wrap("insert file", err)
+	}
+	id, _ = res.LastInsertId()
+	return replaceExternalSubtitles(ctx, tx, id, f.Subtitles)
+}
+
+// replaceExternalSubtitles syncs sidecar subtitle rows for a file.
+func replaceExternalSubtitles(ctx context.Context, tx *sql.Tx, fileID int64, subs []SubtitleFile) error {
+	if subs == nil {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM external_subtitles WHERE file_id = ?`, fileID); err != nil {
+		return wrap("clear subtitles", err)
+	}
+	for _, sub := range subs {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO external_subtitles (file_id, path, language, label, format)
+			VALUES (?,?,?,?,?)`, fileID, sub.Path, sub.Language, sub.Label, sub.Format); err != nil {
+			return wrap("insert subtitle", err)
+		}
+	}
+	return nil
 }
 
 // DeleteOrphanItems removes episodes, seasons and shows that lost all files.

@@ -556,6 +556,27 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 - Folder filter is a flat prefix list (no tree UI); "Timeline" grouping is not implemented yet.
 - Auto-scan intervals are minute-based and evaluated once per minute; no cron expressions.
 
+### M4 — delivered
+
+| Plan item | Status |
+|---|---|
+| Direct play | ✅ byte-range streaming + the M4 player UI |
+| Subtitle discovery | ✅ sidecar `<stem>.<lang>.srt/ass/ssa/vtt` found during scans, stored per file |
+| Subtitle conversion | ✅ SRT/ASS/SSA/VTT → WebVTT, charset detection (UTF-8 / GB18030 / Big5), embedded tracks extracted with ffmpeg and cached |
+| Track selection | ✅ subtitle menu in the player; default prefers English |
+| Resume | ✅ playback endpoint returns `resumeMs`; player seeks on load; progress saved on pause/interval/close |
+| Next episode | ✅ next-up card on end (same season, next number) + watch state |
+| Keyboard | ✅ space, ←/→ (10 s), f (fullscreen), esc |
+
+### M4 — known limitations
+
+- `streamUrl` is the original file: browsers that cannot decode HEVC/AC3/DTS will not play.
+  That is what M5 (remux/transcode) fixes.
+- Audio-track switching is not possible with plain `<video>`; it arrives with HLS renditions in M5.
+- Image-based subtitles (PGS/VobSub) are skipped in the player (burn-in needs M5).
+- No subtitle sync offset, styling controls, or SMI support yet.
+- Next-up covers the same season only (no cross-season rollover), and does not auto-play.
+
 ### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
 
 1. **sqlc deferred** — hand-written typed store until the schema settles (post-M2).
