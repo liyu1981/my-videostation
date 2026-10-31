@@ -57,9 +57,22 @@ func Load(args []string) (Config, error) {
 	if cfg.DataDir == "" {
 		return Config{}, fmt.Errorf("data directory must not be empty")
 	}
+	// Absolute paths only: cached artwork paths are persisted in SQLite and must
+	// not depend on the process working directory.
+	if abs, err := filepath.Abs(cfg.DataDir); err == nil {
+		cfg.DataDir = abs
+	}
 	// The database lives in the data dir unless -db/MVS_DB says otherwise.
 	if !dbFlagSet {
 		cfg.DBPath = filepath.Join(cfg.DataDir, "mvs.db")
+	}
+	if abs, err := filepath.Abs(cfg.DBPath); err == nil {
+		cfg.DBPath = abs
+	}
+	if cfg.FFprobe != "" {
+		if abs, err := filepath.Abs(cfg.FFprobe); err == nil {
+			cfg.FFprobe = abs
+		}
 	}
 	switch cfg.LogFormat {
 	case "text", "json":

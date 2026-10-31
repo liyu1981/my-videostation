@@ -260,7 +260,10 @@ func (s *Server) handleArt(kind string) http.HandlerFunc {
 // configured library root are served.
 func (s *Server) withinLibrary(r *http.Request, p string) (bool, error) {
 	if !filepath.IsAbs(p) {
-		return false, nil
+		// Older rows stored paths relative to the process cwd (e.g. "data/cache/...").
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
 	}
 	clean := filepath.Clean(p)
 	// Cached artwork (provider downloads, .vsmeta embeds) lives under <data>/cache.
