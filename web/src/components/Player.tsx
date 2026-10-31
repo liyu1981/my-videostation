@@ -164,14 +164,16 @@ export function PlayerModal() {
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 pb-4">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
         {playback.isLoading ? (
-          <div className="flex items-center gap-2 text-[13px] text-fg-dim">
+          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-black text-[13px] text-fg-dim">
             <Loader2 className="size-4 animate-spin" aria-hidden /> Preparing playback…
           </div>
         ) : null}
         {playback.isError ? (
-          <p className="max-w-md text-center text-[13px] text-fg-muted">{(playback.error as Error).message}</p>
+          <p className="absolute inset-0 z-10 flex max-w-none items-center justify-center bg-black px-8 text-center text-[13px] text-fg-muted">
+            {(playback.error as Error).message}
+          </p>
         ) : null}
 
         {data ? (
@@ -181,7 +183,7 @@ export function PlayerModal() {
             controls
             autoPlay
             crossOrigin="anonymous"
-            className="max-h-full w-full max-w-6xl rounded-lg bg-black shadow-2xl"
+            className="h-full w-full object-contain"
             onLoadedMetadata={(e) => {
               const v = e.currentTarget;
               if (resumedFor.current === data.itemId) return;
@@ -242,10 +244,6 @@ export function PlayerModal() {
           </div>
         ) : null}
       </div>
-
-      <p className="px-4 pb-4 text-center text-[11.5px] text-fg-dim">
-        Direct play — the browser must support the file's codecs. Audio-track switching and transcoding arrive in M5.
-      </p>
     </div>
   );
 }

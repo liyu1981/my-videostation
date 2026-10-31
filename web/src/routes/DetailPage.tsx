@@ -11,7 +11,6 @@ import { ErrorState, Loading } from '../components/State';
 import { ItemViews } from '../components/ItemViews';
 import { MediaInfoPanel } from '../components/MediaInfo';
 import { EditDialog } from '../components/EditDialog';
-import { PlayerModal } from '../components/Player';
 import { IdentifyDialog } from '../components/IdentifyDialog';
 import { Artwork } from '../components/Poster';
 
@@ -363,7 +362,6 @@ export function DetailPage() {
 
       {editing ? <EditDialog item={detail} onClose={() => setEditing(false)} /> : null}
       {identifying ? <IdentifyDialog item={detail} onClose={() => setIdentifying(false)} /> : null}
-      <PlayerModal />
     </div>
   );
 }

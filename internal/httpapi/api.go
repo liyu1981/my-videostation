@@ -79,6 +79,9 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/jobs", s.handleListJobs)
 	mux.HandleFunc("GET /api/v1/jobs/{id}", s.handleGetJob)
+	mux.HandleFunc("GET /api/v1/jobs/{id}/logs", s.handleJobLogs)
+	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.handleDeleteJob)
+	mux.HandleFunc("DELETE /api/v1/jobs", s.handleClearFinishedJobs)
 
 	mux.HandleFunc("GET /api/v1/collections", s.handleListCollections)
 	mux.HandleFunc("POST /api/v1/collections", s.handleCreateCollection)

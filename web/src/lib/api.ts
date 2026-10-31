@@ -132,6 +132,14 @@ export interface Job {
   finishedAt?: string;
 }
 
+export interface JobLog {
+  id: number;
+  jobId: number;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  createdAt: string;
+}
+
 export interface Home {
   continue: Item[];
   recent: Item[];
@@ -288,9 +296,13 @@ export const api = {
   updateLibrary: (id: number, body: { name?: string; language?: string; paths?: string[]; autoScanMinutes?: number }) =>
     request<Library>(`/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteLibrary: (id: number) => request<void>(`/libraries/${id}`, { method: 'DELETE' }),
-  scanLibrary: (id: number) => request<Job>(`/libraries/${id}/scan`, { method: 'POST' }),
+  scanLibrary: (id: number, force = false) =>
+    request<Job>(`/libraries/${id}/scan`, { method: 'POST', body: JSON.stringify({ force }) }),
   jobs: (limit = 20) => request<{ jobs: Job[] }>(`/jobs${qs({ limit })}`),
   job: (id: number) => request<Job>(`/jobs/${id}`),
+  jobLogs: (id: number, limit = 5000) => request<{ logs: JobLog[] }>(`/jobs/${id}/logs${qs({ limit })}`),
+  deleteJob: (id: number) => request<void>(`/jobs/${id}`, { method: 'DELETE' }),
+  clearFinishedJobs: () => request<{ deleted: number }>('/jobs', { method: 'DELETE' }),
 
   // metadata
   settings: () => request<Settings>('/settings'),

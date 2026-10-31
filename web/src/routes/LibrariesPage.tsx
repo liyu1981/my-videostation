@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { FolderPlus, HardDrive, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import { FolderPlus, HardDrive, Pencil, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from 'lucide-react';
 import { api, type Job, type Library, type LibraryType } from '../lib/api';
 import { formatDateTime } from '../lib/format';
 import { JobMessage } from '../components/JobMessage';
@@ -55,6 +55,13 @@ export function LibrariesPage() {
 
   const enrich = useMutation({
     mutationFn: (id: number) => api.enrichLibrary(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
+
+  const rescan = useMutation({
+    mutationFn: (id: number) => api.scanLibrary(id, true),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['jobs'] });
     },
@@ -179,7 +186,19 @@ export function LibrariesPage() {
                   {lib.unmatchedCount > 0 ? (
                     <Link
                       to="/browse"
-                      search={{ kind: lib.type === 'tv' ? 'show' : 'movie', libraryId: lib.id, sort: 'added', page: 1, q: '', status: 'unmatched' }}
+                      search={{
+                        kind: lib.type === 'tv' ? 'show' : 'movie',
+                        libraryId: lib.id,
+                        sort: '',
+                        page: 1,
+                        q: '',
+                        status: 'unmatched',
+                        category: 'recent_added',
+                        genre: '',
+                        year: undefined,
+                        watched: undefined,
+                        folder: '',
+                      }}
                       className="rounded-full border border-new/40 bg-new/10 px-2 py-0.5 text-[10.5px] text-new hover:bg-new/15"
                     >
                       {lib.unmatchedCount} unmatched
@@ -208,9 +227,22 @@ export function LibrariesPage() {
                 <button
                   type="button"
                   onClick={() => scan.mutate(lib.id)}
+                  title="Incremental scan (only new or changed files)"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
                 >
                   <RefreshCw className="size-3.5" aria-hidden /> Scan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`Re-probe every file in “${lib.name}”?\n\nThis ignores the size/mtime cache and is slower than a normal scan.`)) {
+                      rescan.mutate(lib.id);
+                    }
+                  }}
+                  title="Full rescan: re-probe every file and re-apply sidecar metadata"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+                >
+                  <RotateCcw className="size-3.5" aria-hidden /> Rescan
                 </button>
                 <button
                   type="button"

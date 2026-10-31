@@ -137,6 +137,105 @@ func (s *Store) QueuedJobs(ctx context.Context) ([]int64, error) {
 	return ids, wrap("iterate queued jobs", rows.Err())
 }
 
+// JobLog is one persisted log line for a job.
+type JobLog struct {
+	ID        int64     `json:"id"`
+	JobID     int64     `json:"jobId"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// AppendJobLog stores one log line. Logs are kept until the job is deleted.
+func (s *Store) AppendJobLog(ctx context.Context, jobID int64, level, message string) error {
+	if jobID <= 0 || message == "" {
+		return nil
+	}
+	switch level {
+	case "info", "warn", "error":
+	default:
+		level = "info"
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO job_logs (job_id, level, message, created_at) VALUES (?,?,?,?)`,
+		jobID, level, message, now())
+	return wrap("append job log", err)
+}
+
+// JobLogs returns the newest lines for a job (oldest first).
+func (s *Store) JobLogs(ctx context.Context, jobID int64, limit int) ([]JobLog, error) {
+	if limit <= 0 || limit > 5000 {
+		limit = 1000
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, job_id, level, message, created_at FROM (
+			SELECT id, job_id, level, message, created_at FROM job_logs
+			WHERE job_id = ? ORDER BY id DESC LIMIT ?
+		) ORDER BY id ASC`, jobID, limit)
+	if err != nil {
+		return nil, wrap("job logs", err)
+	}
+	defer rows.Close()
+	out := []JobLog{}
+	for rows.Next() {
+		var l JobLog
+		var created string
+		if err := rows.Scan(&l.ID, &l.JobID, &l.Level, &l.Message, &created); err != nil {
+			return nil, wrap("scan job log", err)
+		}
+		l.CreatedAt = parseTime(created)
+		out = append(out, l)
+	}
+	return out, wrap("iterate job logs", rows.Err())
+}
+
+// PruneJobLogs keeps only the newest keep lines for a job.
+func (s *Store) PruneJobLogs(ctx context.Context, jobID int64, keep int) error {
+	if keep <= 0 {
+		keep = 50000
+	}
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM job_logs WHERE job_id = ? AND id NOT IN (
+			SELECT id FROM job_logs WHERE job_id = ? ORDER BY id DESC LIMIT ?
+		)`, jobID, jobID, keep)
+	return wrap("prune job logs", err)
+}
+
+// DeleteJob removes a job and its logs. Media and library data are untouched.
+func (s *Store) DeleteJob(ctx context.Context, jobID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrap("begin", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM job_logs WHERE job_id = ?`, jobID); err != nil {
+		return wrap("delete job logs", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id = ?`, jobID); err != nil {
+		return wrap("delete job", err)
+	}
+	return wrap("commit", tx.Commit())
+}
+
+// ClearFinishedJobs deletes terminal jobs (and their logs); active jobs are kept.
+func (s *Store) ClearFinishedJobs(ctx context.Context) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, wrap("begin", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM job_logs WHERE job_id IN (SELECT id FROM jobs WHERE status NOT IN ('queued','running'))`); err != nil {
+		return 0, wrap("delete finished logs", err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE status NOT IN ('queued','running')`)
+	if err != nil {
+		return 0, wrap("delete finished jobs", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, wrap("commit", tx.Commit())
+}
+
 // FailStaleJobs marks jobs left running by a previous process as failed.
 func (s *Store) FailStaleJobs(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `

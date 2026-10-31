@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Clapperboard, Film, Home, LibraryBig, ListVideo, Search, Settings, Tv, Video } from 'lucide-react';
+import { PlayerModal } from './Player';
 
 type NavItem = { label: string; to: string; search?: Record<string, string>; icon: typeof Home };
 
@@ -177,6 +178,7 @@ export function Shell() {
           <Outlet />
         </main>
       </div>
+      <PlayerModal />
     </div>
   );
 }

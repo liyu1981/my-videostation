@@ -113,6 +113,7 @@ func (m *Manager) run(ctx context.Context, id int64) {
 		return
 	}
 	m.log.Info("job started", "job", id, "type", job.Type)
+	_ = m.store.AppendJobLog(ctx, id, "info", "job started ("+job.Type+")")
 
 	// Throttle DB writes for progress updates.
 	last := time.Time{}
@@ -129,9 +130,13 @@ func (m *Manager) run(ctx context.Context, id int64) {
 	err = h(ctx, job, report)
 	if err != nil {
 		m.log.Error("job failed", "job", id, "type", job.Type, "err", err)
+		_ = m.store.AppendJobLog(ctx, id, "error", err.Error())
 		_ = m.store.FinishJob(ctx, id, "failed", err.Error(), "")
+		_ = m.store.PruneJobLogs(ctx, id, 50000)
 		return
 	}
+	_ = m.store.AppendJobLog(ctx, id, "info", "job finished")
 	_ = m.store.FinishJob(ctx, id, "succeeded", "", "")
+	_ = m.store.PruneJobLogs(ctx, id, 50000)
 	m.log.Info("job finished", "job", id, "type", job.Type)
 }

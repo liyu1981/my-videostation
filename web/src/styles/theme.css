@@ -95,3 +95,87 @@
     scrollbar-width: none;
   }
 }
+
+/* Hero carousel animations (pattern inspired by ReactBits' Carousel: slide,
+   staggered text reveal, ken-burns backdrop, progress bars). */
+@keyframes hero-kenburns {
+  from {
+    transform: scale(1.03);
+  }
+  to {
+    transform: scale(1.1);
+  }
+}
+@keyframes hero-slide-in {
+  from {
+    opacity: 0.35;
+    transform: translateX(4%) scale(1.02);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+@keyframes hero-slide-out {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-3%) scale(1.01);
+  }
+}
+@keyframes hero-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes hero-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+@keyframes hero-poster-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes hero-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-anim,
+  .hero-anim * {
+    animation: none !important;
+  }
+}

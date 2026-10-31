@@ -12,10 +12,13 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | GET | `/libraries/{id}` | One library |
 | PATCH | `/libraries/{id}` | Rename / change language / replace paths / `autoScanMinutes` |
 | DELETE | `/libraries/{id}` | Remove library and derived data (never touches media files) |
-| POST | `/libraries/{id}/scan` | Enqueue a scan job → `202 {job}` |
+| POST | `/libraries/{id}/scan` | Enqueue a scan job → `202 {job}`; optional body `{force:true}` re-probes every file |
 | POST | `/libraries/{id}/enrich` | Enqueue metadata matching for unmatched items → `202 {job}` |
 | GET | `/jobs?limit=` | Recent jobs |
 | GET | `/jobs/{id}` | Job status/progress/message |
+| GET | `/jobs/{id}/logs?limit=` | Persisted log lines (`info`/`warn`/`error`) |
+| DELETE | `/jobs/{id}` | Delete one task and its logs |
+| DELETE | `/jobs` | Delete all finished tasks and their logs → `{deleted}` |
 | GET | `/home` | `{continue,recent,shelves[]}` for the landing page |
 | GET | `/browse` | `?kind=&libraryId=&sort=&page=&perPage=&q=&metadataStatus=&category=&genre=&year=&watched=&folder=` → `{items,page,perPage,total,totalPages}` |
 | GET | `/libraries/{id}/facets?kind=` | Genre/year counts for filters |

@@ -18,9 +18,9 @@ export function ItemViews({
   const density = useAtomValue(densityAtom);
   if (selection) view = 'poster';
   const compact = density === 'compact';
-  const gridClass = compact
-    ? 'grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 2xl:grid-cols-9'
-    : 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7';
+  // Fixed card width (like Video Station's 120x180 grid): posters never stretch
+  // to fill the page, the column count follows the viewport.
+  const cardWidth = compact ? 104 : 120;
 
   if (view === 'tile') {
     return (
@@ -43,9 +43,9 @@ export function ItemViews({
   }
 
   return (
-    <div className={bare ? 'flex gap-4 overflow-x-auto pb-2 no-scrollbar' : gridClass}>
+    <div className={bare ? 'flex gap-4 overflow-x-auto pb-2 no-scrollbar' : 'flex flex-wrap gap-x-5 gap-y-7'}>
       {items.map((item) => (
-        <div key={item.id} className={bare ? 'w-[150px] shrink-0' : undefined}>
+        <div key={item.id} className="shrink-0" style={{ width: bare ? 150 : cardWidth }}>
           <PosterCard
             item={item}
             selectMode={Boolean(selection)}

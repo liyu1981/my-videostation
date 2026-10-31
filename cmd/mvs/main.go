@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -97,6 +98,7 @@ func run() error {
 	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		var payload struct {
 			LibraryID int64 `json:"libraryId"`
+			Force     bool  `json:"force"`
 		}
 		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
 			return fmt.Errorf("bad job payload: %w", err)
@@ -108,30 +110,59 @@ func run() error {
 		if lib, err := st.GetLibrary(ctx, payload.LibraryID); err == nil {
 			name = lib.Name
 		}
-		report(0, "scanning "+name)
-		stats, err := sc.ScanLibrary(ctx, payload.LibraryID, func(p float64, msg string) {
+		lastMsg := ""
+		var logMu sync.Mutex
+		reportMsg := func(p float64, msg string) {
 			report(p, msg)
-		})
+			logMu.Lock()
+			changed := msg != lastMsg
+			if changed {
+				lastMsg = msg
+			}
+			logMu.Unlock()
+			if changed {
+				_ = st.AppendJobLog(ctx, job.ID, "info", msg)
+			}
+		}
+		logLine := func(level, msg string) {
+			_ = st.AppendJobLog(ctx, job.ID, level, msg)
+		}
+		sc.SetJobLogger(logLine)
+		defer sc.SetJobLogger(nil)
+
+		if payload.Force {
+			reportMsg(0, "rescanning "+name+" (force re-probe)")
+		} else {
+			reportMsg(0, "scanning "+name)
+		}
+		stats, err := sc.ScanLibraryForce(ctx, payload.LibraryID, payload.Force, reportMsg)
 		if err != nil {
 			return err
 		}
-		report(100, name+": "+stats.String())
+		reportMsg(100, name+": "+stats.String())
 		return nil
 	})
 	manager.Handle("enrich", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		var payload struct {
 			LibraryID int64 `json:"libraryId"`
+			Force     bool  `json:"force"`
 		}
 		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
 			return fmt.Errorf("bad job payload: %w", err)
 		}
-		stats, err := enricher.EnrichLibrary(ctx, payload.LibraryID, func(p float64, msg string) {
+		lastMsg := ""
+		reportMsg := func(p float64, msg string) {
 			report(p, msg)
-		})
+			if msg != lastMsg {
+				lastMsg = msg
+				_ = st.AppendJobLog(ctx, job.ID, "info", msg)
+			}
+		}
+		stats, err := enricher.EnrichLibrary(ctx, payload.LibraryID, reportMsg)
 		if err != nil {
 			return err
 		}
-		report(100, stats.String())
+		reportMsg(100, stats.String())
 		return nil
 	})
 	manager.Start(ctx)

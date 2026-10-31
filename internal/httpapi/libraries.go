@@ -154,7 +154,18 @@ func (s *Server) handleScanLibrary(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	job, err := s.jobs.Enqueue(r.Context(), "scan", map[string]int64{"libraryId": id})
+	force := false
+	if r.ContentLength > 0 {
+		var in struct {
+			Force bool `json:"force"`
+		}
+		if err := decodeJSON(r, &in); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body: "+err.Error())
+			return
+		}
+		force = in.Force
+	}
+	job, err := s.jobs.Enqueue(r.Context(), "scan", map[string]any{"libraryId": id, "force": force})
 	if err != nil {
 		s.fail(w, err)
 		return

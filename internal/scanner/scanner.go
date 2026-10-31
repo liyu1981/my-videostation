@@ -27,6 +27,8 @@ type Scanner struct {
 	log      *slog.Logger
 	probeers int
 	cacheDir string
+	logMu    sync.Mutex
+	jobLog   func(level, msg string)
 }
 
 // New creates a scanner. probe may be nil (technical metadata is then skipped).
@@ -36,6 +38,31 @@ func New(st *store.Store, probe *media.Prober, log *slog.Logger) *Scanner {
 
 // SetCacheDir enables caching of embedded .vsmeta artwork under <dir>/images.
 func (sc *Scanner) SetCacheDir(dir string) { sc.cacheDir = dir }
+
+// SetJobLogger routes scanner warnings into the current job's persisted log.
+func (sc *Scanner) SetJobLogger(fn func(level, msg string)) {
+	sc.logMu.Lock()
+	sc.jobLog = fn
+	sc.logMu.Unlock()
+}
+
+func (sc *Scanner) logf(level, format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	switch level {
+	case "warn":
+		sc.log.Warn(msg)
+	case "error":
+		sc.log.Error(msg)
+	default:
+		sc.log.Info(msg)
+	}
+	sc.logMu.Lock()
+	fn := sc.jobLog
+	sc.logMu.Unlock()
+	if fn != nil {
+		fn(level, msg)
+	}
+}
 
 // Stats summarises one library scan.
 type Stats struct {
@@ -82,8 +109,14 @@ type planned struct {
 	item store.ScannedFile
 }
 
-// ScanLibrary indexes one library, reporting progress 0-100.
+// ScanLibrary indexes one library incrementally, reporting progress 0-100.
 func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func(float64, string)) (Stats, error) {
+	return sc.ScanLibraryForce(ctx, libraryID, false, report)
+}
+
+// ScanLibraryForce indexes one library. With force=true every file is re-probed
+// (and sidecar metadata re-applied), regardless of size/mtime.
+func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force bool, report func(float64, string)) (Stats, error) {
 	var stats Stats
 	lib, err := sc.store.GetLibrary(ctx, libraryID)
 	if err != nil {
@@ -107,18 +140,21 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 	report(0, "walking folders")
 	var files []foundFile
 	for _, p := range lib.Paths {
+		sc.logf("info", "walking %s", p.Path)
 		got, err := sc.discover(ctx, p.Path)
 		if err != nil {
-			sc.log.Warn("walk failed", "path", p.Path, "err", err)
+			sc.logf("warn", "walk failed: %s: %v", p.Path, err)
 			stats.Errors++
 			continue
 		}
 		files = append(files, got...)
 	}
 	stats.Discovered = len(files)
-	report(3, fmt.Sprintf("%d files found", len(files)))
+	report(3, fmt.Sprintf("%d video files found", len(files)))
 
 	plans := sc.classify(lib.Type, files, &stats)
+	sc.logf("info", "classified %d items (extras %d, samples %d, unidentified %d)",
+		len(plans), stats.Extras, stats.Samples, stats.Unidentified)
 	for i := range plans {
 		plans[i].item.LibraryID = libraryID
 		sc.attachSidecars(&plans[i], &stats)
@@ -131,16 +167,16 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 	needs := make([]int, 0, len(plans))
 	for i := range plans {
 		prev, seen := known[plans[i].file.path]
-		if !seen || prev.Size != plans[i].file.size || prev.Mtime != plans[i].file.mtime {
+		if force || !seen || prev.Size != plans[i].file.size || prev.Mtime != plans[i].file.mtime {
 			needs = append(needs, i)
 		} else {
 			stats.Unchanged++
 		}
 	}
 	if sc.probe != nil && len(needs) > 0 {
-		sc.probeAll(ctx, plans, needs, results, probeFailed, &stats, func(done int) {
+		sc.probeAll(ctx, plans, needs, results, probeFailed, &stats, func(done, idx int) {
 			pct := 8 + float64(done)/float64(len(needs))*67
-			report(pct, fmt.Sprintf("probing %d/%d", done, len(needs)))
+			report(pct, fmt.Sprintf("probing %d/%d: %s", done, len(needs), plans[idx].file.path))
 		})
 	}
 	for i := range plans {
@@ -175,12 +211,12 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			sc.log.Warn("batch failed, retrying per file", "err", err, "files", len(batch))
+			sc.logf("warn", "batch failed (%d files), retrying per file: %v", len(batch), err)
 			created = 0
 			for _, f := range batch {
 				c, ferr := sc.store.ApplyScanBatch(ctx, []store.ScannedFile{f})
 				if ferr != nil {
-					sc.log.Warn("skipping file", "file", f.Path, "err", ferr)
+					sc.logf("warn", "skipped %s: %v", f.Path, ferr)
 					stats.Errors++
 					stats.Skipped++
 					continue
@@ -205,7 +241,7 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 		}
 		if before > 0 && len(batch) == 0 {
 			report(75+float64(i+1)/float64(len(plans))*23,
-				fmt.Sprintf("indexing %d/%d (%d added)", i+1, len(plans), stats.Created))
+				fmt.Sprintf("indexing %d/%d (%d added): %s", i+1, len(plans), stats.Created, plans[i].file.path))
 		}
 	}
 	if err := flush(true); err != nil {
@@ -263,7 +299,7 @@ func toLocalMeta(m *sidecar.Meta) *store.LocalMetadata {
 }
 
 func (sc *Scanner) probeAll(ctx context.Context, plans []planned, needs []int,
-	results []*media.Technical, failed []bool, stats *Stats, progress func(done int)) {
+	results []*media.Technical, failed []bool, stats *Stats, progress func(done, idx int)) {
 	sem := make(chan struct{}, sc.probeers)
 	var wg sync.WaitGroup
 	var done atomic.Int64
@@ -280,12 +316,12 @@ func (sc *Scanner) probeAll(ctx context.Context, plans []planned, needs []int,
 
 			tech, err := sc.probe.Probe(ctx, plans[i].file.path)
 			if err != nil {
-				sc.log.Warn("probe failed", "file", plans[i].file.path, "err", err)
+				sc.logf("warn", "probe failed: %s: %v", plans[i].file.path, err)
 				failed[i] = true
 			} else {
 				results[i] = tech
 			}
-			progress(int(done.Add(1)))
+			progress(int(done.Add(1)), i)
 		}(idx)
 	}
 	wg.Wait()
@@ -346,7 +382,7 @@ func (sc *Scanner) classify(libraryType string, files []foundFile, stats *Stats)
 			continue
 		case naming.KindUnknown, "":
 			stats.Unidentified++
-			sc.log.Debug("unidentified file", "file", f.path)
+			sc.logf("warn", "unidentified file: %s", f.path)
 			continue
 		case naming.KindEpisode:
 			item.Kind = store.KindEpisode

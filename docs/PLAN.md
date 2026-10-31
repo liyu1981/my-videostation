@@ -602,6 +602,28 @@ art cost a read per scan).
 | Duplicate titles | ✅ migration 0006 drops the unique `(library_id, kind, title, year)` index; the same movie in two folders/qualities is allowed (identity is the file path; version merging is future work) |
 | Job diagnostics | ✅ task rows expand to the full message/error and have a copy button (Tasks page and Libraries page) |
 
+### Home layout (post-M4) — delivered
+
+| Item | Status |
+|---|---|
+| Hero carousel | ✅ full-height poster + backdrop with title/tagline/stars/certification, Play / More info, upcoming posters clipped on the right (VS-style strip). Animation (ReactBits-inspired patterns, implemented originally): slide + crossfade between layers, ken-burns backdrop, staggered blur-rise text, autoplay progress bars, drag/swipe, hover pause, arrows. Reduced-motion aware. |
+| Rows | ✅ rows grouped by media type (Movies, TV Shows, Home Videos) plus Continue watching and Needs attention; fixed 120 px posters, row icons, counts, ‹ › paging, View all |
+| Browse grid | ✅ fixed card size (120×180, 104 in compact density) with `flex-wrap`; column count follows the viewport, posters never scale up to fill the page (matches Video Station's 120 px grid) |
+| Playback entry | ✅ `PlayerModal` is now global, so hero/row Play works from any page |
+
+### Operations & player fit (post-M4)
+
+| Item | Status |
+|---|---|
+| Force rescan | ✅ `POST /libraries/{id}/scan {force:true}` re-probes every file and re-applies sidecars; UI **Scan** (incremental) vs **Rescan** (confirmed, tooltipped) |
+| Job logs | ✅ migration 0007 `job_logs`; manager logs start/finish/failure; scanner logs walk roots, classification summary, **per-file probe progress with full paths** (`probing 83/734: /mnt/…/Movie.mkv`), index progress with the current file, and warnings (probe failures, skipped files, unidentified files, walk errors); enrich jobs log progress too |
+| Log viewing | ✅ Tasks page: "Logs" toggle (live refresh while running), per-line level colours, copy-all, per-task delete, "Clear finished" |
+| Player fit | ✅ `<video class="h-full w-full object-contain">` in a full-bleed black stage: always scaled to the viewport, aspect ratio preserved, no 1152 px cap |
+
+Retention: logs are kept until the task is deleted (or "Clear finished"). To bound growth,
+each job is pruned to its newest 50,000 lines when it finishes; the API/UI fetch the newest
+5,000 by default.
+
 ### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
 
 1. **sqlc deferred** — hand-written typed store until the schema settles (post-M2).

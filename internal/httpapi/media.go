@@ -86,6 +86,51 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, job)
 }
 
+func (s *Server) handleJobLogs(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid job id")
+		return
+	}
+	if _, err := s.store.GetJob(r.Context(), id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	logs, err := s.store.JobLogs(r.Context(), id, intQuery(r, "limit", 5000))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"logs": logs})
+}
+
+func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid job id")
+		return
+	}
+	if _, err := s.store.GetJob(r.Context(), id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.store.DeleteJob(r.Context(), id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleClearFinishedJobs(w http.ResponseWriter, r *http.Request) {
+	n, err := s.store.ClearFinishedJobs(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.log.Info("finished jobs cleared", "count", n)
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": n})
+}
+
 func parseInt64(s string) (int64, bool) {
 	var n int64
 	if s == "" {

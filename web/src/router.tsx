@@ -19,6 +19,11 @@ const toNum = (v: unknown): number | undefined => {
   return undefined;
 };
 const toStr = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
+const toBool = (v: unknown): boolean | undefined => {
+  if (v === true || v === 'true') return true;
+  if (v === false || v === 'false') return false;
+  return undefined;
+};
 
 const rootRoute = createRootRoute({ component: Shell });
 
@@ -34,10 +39,15 @@ const browseRoute = createRoute({
   validateSearch: (search: Record<string, unknown>) => ({
     kind: toStr(search.kind, 'movie'),
     libraryId: toNum(search.libraryId),
-    sort: toStr(search.sort, 'added'),
+    sort: toStr(search.sort),
     page: toNum(search.page) ?? 1,
     q: toStr(search.q),
     status: toStr(search.status),
+    category: toStr(search.category, 'recent_added'),
+    genre: toStr(search.genre),
+    year: toNum(search.year),
+    watched: toBool(search.watched),
+    folder: toStr(search.folder),
   }),
   component: BrowsePage,
 });

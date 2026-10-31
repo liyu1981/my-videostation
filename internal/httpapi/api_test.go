@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liyu1981/myvideostation/internal/db"
 	"github.com/liyu1981/myvideostation/internal/enrich"
@@ -41,6 +42,20 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	manager := jobs.New(st, log)
+	scan := scanner.New(st, nil, log)
+	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
+		var payload struct {
+			LibraryID int64 `json:"libraryId"`
+			Force     bool  `json:"force"`
+		}
+		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			return err
+		}
+		_, err := scan.ScanLibraryForce(ctx, payload.LibraryID, payload.Force, func(p float64, msg string) {
+			report(p, msg)
+		})
+		return err
+	})
 	manager.Start(ctx)
 
 	api := httpapi.New(httpapi.Options{Store: st, Jobs: manager, Logger: log})
@@ -1198,4 +1213,138 @@ func TestDuplicateLocalTitlesDoNotAbortScan(t *testing.T) {
 		}
 	}
 	_ = srv
+}
+
+// ---- job logs, deletion, force rescan --------------------------------
+
+func waitJob(t *testing.T, srvURL string, id int64) store.Job {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		var job store.Job
+		getJSON(t, srvURL+"/api/v1/jobs/"+itoa(id), &job)
+		if job.Status == "succeeded" || job.Status == "failed" {
+			return job
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("job %d did not finish", id)
+	return store.Job{}
+}
+
+func TestJobLogsDeletionAndForceRescan(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	mediaDir := filepath.Join(dir, "media")
+	writeFile(t, filepath.Join(mediaDir, "Movie (2020)", "Movie.2020.mkv"))
+	lib, err := st.CreateLibrary(ctx, "Movies", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// incremental scan via the API
+	res, err := http.Post(srv.URL+"/api/v1/libraries/"+itoa(lib.ID)+"/scan", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var job store.Job
+	if err := json.NewDecoder(res.Body).Decode(&job); err != nil {
+		t.Fatal(err)
+	}
+	finished := waitJob(t, srv.URL, job.ID)
+	if finished.Status != "succeeded" {
+		t.Fatalf("scan status = %s: %s", finished.Status, finished.Error)
+	}
+
+	// logs are persisted
+	var logs struct {
+		Logs []struct {
+			Level   string `json:"level"`
+			Message string `json:"message"`
+		} `json:"logs"`
+	}
+	getJSON(t, srv.URL+"/api/v1/jobs/"+itoa(job.ID)+"/logs", &logs)
+	if len(logs.Logs) < 2 {
+		t.Fatalf("logs = %+v", logs.Logs)
+	}
+	if logs.Logs[0].Message != "job started (scan)" {
+		t.Errorf("first log = %+v", logs.Logs[0])
+	}
+
+	// force rescan re-probes unchanged files
+	sc := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	forceStats, err := sc.ScanLibraryForce(ctx, lib.ID, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forceStats.Probed != 0 { // no ffprobe in tests, but Force should still "attempt" probing
+		t.Logf("probed = %d (ffprobe unavailable in test env)", forceStats.Probed)
+	}
+	if forceStats.Unchanged != 0 {
+		t.Errorf("force rescan reported %d unchanged, want 0", forceStats.Unchanged)
+	}
+
+	// delete one job and its logs
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/jobs/"+itoa(job.ID), nil)
+	dres, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dres.Body.Close()
+	if dres.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete job = %d", dres.StatusCode)
+	}
+	gres, err := http.Get(srv.URL + "/api/v1/jobs/" + itoa(job.ID) + "/logs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gres.Body.Close()
+	if gres.StatusCode != http.StatusNotFound {
+		t.Fatalf("logs after delete = %d, want 404", gres.StatusCode)
+	}
+
+	// a second (force) scan through the API keeps a finished job for the clear test
+	fres, err := http.Post(srv.URL+"/api/v1/libraries/"+itoa(lib.ID)+"/scan", "application/json", bytes.NewReader([]byte(`{"force":true}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forceJob store.Job
+	if err := json.NewDecoder(fres.Body).Decode(&forceJob); err != nil {
+		fres.Body.Close()
+		t.Fatal(err)
+	}
+	fres.Body.Close()
+	if forceJob.Status == "" {
+		t.Fatalf("force scan job = %+v", forceJob)
+	}
+	if fdone := waitJob(t, srv.URL, forceJob.ID); fdone.Status != "succeeded" {
+		t.Fatalf("force scan status = %s: %s", fdone.Status, fdone.Error)
+	}
+
+	// clear finished jobs
+	var cleared struct {
+		Deleted int64 `json:"deleted"`
+	}
+	creq, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/jobs", nil)
+	cres, err := http.DefaultClient.Do(creq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewDecoder(cres.Body).Decode(&cleared); err != nil {
+		cres.Body.Close()
+		t.Fatal(err)
+	}
+	cres.Body.Close()
+	if cleared.Deleted < 1 {
+		t.Fatalf("cleared = %d", cleared.Deleted)
+	}
+	var remaining struct {
+		Jobs []store.Job `json:"jobs"`
+	}
+	getJSON(t, srv.URL+"/api/v1/jobs", &remaining)
+	if len(remaining.Jobs) != 0 {
+		t.Fatalf("jobs after clear = %d", len(remaining.Jobs))
+	}
 }

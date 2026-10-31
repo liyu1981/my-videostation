@@ -90,8 +90,10 @@ testdata/           parser corpus and generated sample media
   titles, editions, folders as fallback — 34-case test corpus.
 - **Probing**: ffprobe (container, duration, resolution, codecs, HDR, audio/subtitle tracks);
   graceful degradation when ffprobe is absent.
-- **Library UI**: home shelves + continue-watching, poster/tile/list views, sort, per-library
-  filter, pagination, global FTS5 search, show → season → episode navigation.
+- **Library UI**: Video-Station-style home (animated poster-strip hero, compact poster rows
+  with paging), continue-watching, **fixed-size 120 px poster grid** (posters never stretch
+  to fill the page), tile/list views, sort, per-library filter, pagination, global FTS5
+  search, show → season → episode navigation.
 - **Item UI**: poster/backdrop (local sidecars or URL), metadata badges, media-info panel,
   metadata editing with per-field locks, watched state, direct playback with resume progress.
 - **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
@@ -103,10 +105,13 @@ testdata/           parser corpus and generated sample media
   Format notes: [`docs/VSMETA-FORMAT.md`](docs/VSMETA-FORMAT.md).
 - **Organisation (M3)**: Favorites / Watchlist / custom collections, selection mode with
   bulk watched + add-to-collection, category presets (added / watched / released / A–Z),
-  genre/year/watched/folder filters from live facets, per-library auto-scan intervals,
-  and a live task monitor with expandable + copyable job messages.
-- **Playback (M4)**: direct play with resume, sidecar + embedded subtitle tracks served as
-  WebVTT (UTF-8/GB18030/Big5), subtitle menu, keyboard shortcuts, and next-episode prompt.
+  genre/year/watched/folder filters from live facets, per-library auto-scan intervals.
+- **Operations**: per-library **Scan** (incremental) and **Rescan** (force re-probe), a task
+  monitor with **persisted logs** — per-file probe/index lines including full paths,
+  warn/error entries, copy-all, per-task delete and "clear finished".
+- **Playback (M4)**: direct play scaled to fit the window (`object-contain`, any aspect
+  ratio), resume, sidecar + embedded subtitle tracks served as WebVTT (UTF-8/GB18030/Big5),
+  subtitle menu, keyboard shortcuts, and next-episode prompt.
 
 ## Getting started
 
