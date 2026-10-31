@@ -30,6 +30,9 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     'Noto Sans', 'Noto Sans CJK SC', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  /* Extra breakpoint used by the hero to reach Video Station's large poster size. */
+  --breakpoint-3xl: 1800px;
 }
 
 @layer base {
@@ -93,6 +96,36 @@
   }
   .no-scrollbar {
     scrollbar-width: none;
+  }
+}
+
+/* Hero height scale (kept in CSS so the cascade is deterministic). */
+.hero-height {
+  height: 320px;
+}
+@media (min-width: 640px) {
+  .hero-height {
+    height: 380px;
+  }
+}
+@media (min-width: 1024px) {
+  .hero-height {
+    height: 420px;
+  }
+}
+@media (min-width: 1280px) {
+  .hero-height {
+    height: 470px;
+  }
+}
+@media (min-width: 1536px) {
+  .hero-height {
+    height: 500px;
+  }
+}
+@media (min-width: 1800px) {
+  .hero-height {
+    height: 540px;
   }
 }
 
@@ -178,4 +211,45 @@
   .hero-anim * {
     animation: none !important;
   }
+}
+
+/* Player sliders */
+.player-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-progress) var(--player-progress, 0%),
+    rgb(255 255 255 / 0.25) var(--player-progress, 0%)
+  );
+  cursor: pointer;
+  outline: none;
+}
+.player-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgb(0 0 0 / 0.25);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.player-range:hover::-webkit-slider-thumb,
+.player-range:focus::-webkit-slider-thumb {
+  opacity: 1;
+}
+.player-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+}
+.player-range-sm {
+  height: 3px;
 }

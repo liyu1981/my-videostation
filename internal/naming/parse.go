@@ -296,6 +296,8 @@ func finishEpisode(res *Result, folder string) {
 	}
 }
 
+var reReleaseJunk = regexp.MustCompile(`(?i)(1080p|720p|2160p|480p|web[- .]?dl|webrip|bluray|blu-ray|bdrip|hdtv|x ?26[45]|h ?26[45]|hevc|ddp? ?5|ac3|dts|remux|proper|repack|hdr)`)
+
 func episodeTitle(tail string) string {
 	if !strings.Contains(tail, " ") {
 		// Mixed separators: "Show.S02E01.1080p.WEB-DL" leaves a dot-joined tail.
@@ -303,7 +305,12 @@ func episodeTitle(tail string) string {
 	}
 	t, _ := extractYear(tail)
 	t = stripReleaseTags(t)
-	return cleanTitle(t)
+	t = cleanTitle(t)
+	if reReleaseJunk.MatchString(t) {
+		// Still looks like scene junk -> let the caller fall back to "Episode N".
+		return ""
+	}
+	return t
 }
 
 // extractYear finds a release year: parenthesised first, then a trailing year token

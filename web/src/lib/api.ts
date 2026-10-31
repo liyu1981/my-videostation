@@ -194,6 +194,15 @@ export interface PlaybackSubtitle {
   default?: boolean;
 }
 
+export interface PlaybackAudio {
+  index: number;
+  codec: string;
+  channels: number;
+  language?: string;
+  title?: string;
+  default?: boolean;
+}
+
 export interface PlaybackInfo {
   itemId: number;
   fileId: number;
@@ -201,6 +210,7 @@ export interface PlaybackInfo {
   resumeMs: number;
   durationMs: number;
   subtitles: PlaybackSubtitle[];
+  audio: PlaybackAudio[];
   next?: { itemId: number; title: string; seasonNumber?: number; episodeNumber?: number };
 }
 
@@ -287,6 +297,7 @@ export const api = {
   patchItem: (id: number, patch: ItemPatch) =>
     request<ItemDetail>(`/items/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   playback: (id: number) => request<PlaybackInfo>(`/items/${id}/playback`),
+  neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
   progress: (id: number, body: { positionMs: number; durationMs: number; played: boolean }) =>
     request<{ ok: boolean }>(`/items/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),
   libraries: () => request<{ libraries: Library[] }>('/libraries'),

@@ -606,7 +606,7 @@ art cost a read per scan).
 
 | Item | Status |
 |---|---|
-| Hero carousel | ✅ full-height poster + backdrop with title/tagline/stars/certification, Play / More info, upcoming posters clipped on the right (VS-style strip). Animation (ReactBits-inspired patterns, implemented originally): slide + crossfade between layers, ken-burns backdrop, staggered blur-rise text, autoplay progress bars, drag/swipe, hover pause, arrows. Reduced-motion aware. |
+| Hero carousel | ✅ **inset card**: same gutters as the rows (`mx-6 lg:mx-8`) plus a 24 px top gap, rounded border; **large poster** (359×538 at 1920 / 332×498 at 1600, VS large mode at ≥1800 px), bounded backdrop with title/tagline/stars/certification, Play / More info, upcoming posters clipped in a right-hand strip. Animation (ReactBits-inspired patterns, implemented originally): slide + crossfade between layers, ken-burns backdrop, staggered blur-rise text, autoplay progress bars, drag/swipe (14 px threshold so button clicks work), hover pause, arrows. Reduced-motion aware. |
 | Rows | ✅ rows grouped by media type (Movies, TV Shows, Home Videos) plus Continue watching and Needs attention; fixed 120 px posters, row icons, counts, ‹ › paging, View all |
 | Browse grid | ✅ fixed card size (120×180, 104 in compact density) with `flex-wrap`; column count follows the viewport, posters never scale up to fill the page (matches Video Station's 120 px grid) |
 | Playback entry | ✅ `PlayerModal` is now global, so hero/row Play works from any page |
@@ -623,6 +623,17 @@ art cost a read per scan).
 Retention: logs are kept until the task is deleted (or "Clear finished"). To bound growth,
 each job is pruned to its newest 50,000 lines when it finishes; the API/UI fetch the newest
 5,000 by default.
+
+### Detail page & player parity (post-M4)
+
+| Item | Status |
+|---|---|
+| Detail layout | ✅ Video-Station structure: **backdrop covers the whole page** (not a top band), 270×388 poster with 76 px play button and 3 px progress line, yellow Unwatched chip, icon actions, 36 px title, tagline, info bar (year/stars/clock duration/certification + resolution/audio badges), bold-label definition rows, summary with View all, bottom-corner prev/next arrows, overflow menu (edit/identify/refresh/watched) |
+| Shows & episodes | ✅ season bar with red active tab, 180×120 landscape episode cards; episode pages reuse the layout with `SxxEyy`; episode titles that look like filenames/release tags are repaired to "Episode N" (including when a Jellyfin `.nfo` contains a filename as its title) |
+| Player | ✅ custom control bar: prev/next item, ±10 s, play/pause, volume slider, clock, subtitle menu, audio-track list (informational until M5), speed menu, fullscreen, buffered bar, auto-hide (cursor hidden), big pause overlay, next-up prompt, keyboard shortcuts |
+| Unsupported codecs | ✅ explicit error panel + download link instead of a silent black screen (Chromium cannot demux MKV/XviD; H.264 needs proprietary codecs) |
+| Loading polish | ✅ blurred poster placeholder behind hero/detail backdrops so images never "pop in" onto an empty page; backdrop fades in on load |
+| API | ✅ `/items/{id}/neighbors`, audio tracks in `/items/{id}/playback` |
 
 ### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
 

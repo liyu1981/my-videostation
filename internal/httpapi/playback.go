@@ -25,6 +25,15 @@ type subtitleTrackDTO struct {
 	Default  bool   `json:"default,omitempty"`
 }
 
+type audioTrackDTO struct {
+	Index    int    `json:"index"`
+	Codec    string `json:"codec"`
+	Channels int    `json:"channels"`
+	Language string `json:"language,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Default  bool   `json:"default,omitempty"`
+}
+
 type nextUpDTO struct {
 	ItemID  int64  `json:"itemId"`
 	Title   string `json:"title"`
@@ -39,6 +48,7 @@ type playbackDTO struct {
 	ResumeMS   int64              `json:"resumeMs"`
 	DurationMS int64              `json:"durationMs"`
 	Subtitles  []subtitleTrackDTO `json:"subtitles"`
+	Audio      []audioTrackDTO    `json:"audio"`
 	Next       *nextUpDTO         `json:"next,omitempty"`
 }
 
@@ -77,6 +87,7 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 		StreamURL:  "/api/v1/media/" + strconv.FormatInt(file.ID, 10),
 		DurationMS: file.DurationMS,
 		Subtitles:  []subtitleTrackDTO{},
+		Audio:      []audioTrackDTO{},
 	}
 	if item.PositionMS > 0 && !item.Played {
 		out.ResumeMS = item.PositionMS
@@ -94,6 +105,12 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 			Language: e.Language,
 			URL:      fmt.Sprintf("/api/v1/media/%d/subtitle?ext=%d", file.ID, e.ID),
 			Source:   "external",
+		})
+	}
+	for _, a := range file.AudioStreams {
+		out.Audio = append(out.Audio, audioTrackDTO{
+			Index: a.Index, Codec: a.Codec, Channels: a.Channels,
+			Language: a.Language, Title: a.Title, Default: a.Default,
 		})
 	}
 	for _, st := range file.SubtitleStreams {

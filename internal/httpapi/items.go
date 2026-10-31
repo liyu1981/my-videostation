@@ -138,6 +138,27 @@ func (s *Server) handleItemChildren(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.itemDTOs(items)})
 }
 
+func (s *Server) handleItemNeighbors(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	prev, next, err := s.store.Neighbors(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	body := map[string]any{}
+	if prev != nil {
+		body["prev"] = s.itemDTO(*prev)
+	}
+	if next != nil {
+		body["next"] = s.itemDTO(*next)
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
 func (s *Server) handlePatchItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {

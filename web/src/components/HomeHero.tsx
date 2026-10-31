@@ -21,6 +21,7 @@ export function HomeHero({ items }: { items: Item[] }) {
   const [paused, setPaused] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragX = useRef<number | null>(null);
+  const dragged = useRef(false);
   const [, setPlayer] = useAtom(playerAtom);
   const navigate = useNavigate();
   const reduced = usePrefersReducedMotion();
@@ -65,12 +66,19 @@ export function HomeHero({ items }: { items: Item[] }) {
 
   return (
     <section
-      className="group relative h-[300px] touch-pan-y overflow-hidden bg-black sm:h-[360px] lg:h-[420px]"
+      className="hero-height group relative mx-6 mt-6 touch-pan-y overflow-hidden rounded-xl border border-hairline bg-black lg:mx-8"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onPointerDown={(e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         dragX.current = e.clientX;
+        dragged.current = false;
+      }}
+      onPointerMove={(e) => {
+        if (dragX.current === null || dragged.current) return;
+        // Only start a drag after real movement, so clicks on arrows/buttons work.
+        if (Math.abs(e.clientX - dragX.current) < 14) return;
+        dragged.current = true;
         setDragging(true);
         try {
           (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -81,71 +89,27 @@ export function HomeHero({ items }: { items: Item[] }) {
       onPointerUp={(e) => {
         if (dragX.current === null) return;
         const dx = e.clientX - dragX.current;
+        const wasDragged = dragged.current;
         dragX.current = null;
+        dragged.current = false;
         setDragging(false);
-        if (Math.abs(dx) > 60) go(dx < 0 ? 1 : -1);
+        if (wasDragged && Math.abs(dx) > 60) go(dx < 0 ? 1 : -1);
       }}
       onPointerCancel={() => {
         dragX.current = null;
+        dragged.current = false;
         setDragging(false);
       }}
       aria-roledescription="carousel"
       aria-label="Featured"
     >
-      {/* outgoing slide (fades out) */}
-      {previous ? (
-        <div
-          key={`out-${previous.id}`}
-          className="absolute inset-0"
-          style={reduced ? { opacity: 0 } : { animation: `hero-slide-out ${TRANSITION_MS}ms cubic-bezier(0.4, 0, 1, 1) both` }}
-          aria-hidden
-        >
-          <Backdrop item={previous} zoom={false} reduced={reduced} />
-        </div>
-      ) : null}
-
-      {/* current slide (fades in + ken-burns) */}
-      <div
-        key={`in-${item.id}`}
-        className="absolute inset-0"
-        style={reduced ? undefined : { animation: `hero-slide-in ${TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) both` }}
-      >
-        <Backdrop item={item} zoom reduced={reduced} />
-        <div className="absolute inset-0 bg-gradient-to-r from-bg via-bg/65 to-bg/30" />
-        <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/10 to-bg/30" />
-      </div>
-
-      {/* upcoming posters, clipped at the right (VS-style strip) */}
-      <div className="absolute inset-y-0 right-0 z-0 hidden overflow-hidden md:flex" aria-hidden>
-        <span className="pointer-events-none absolute inset-y-0 left-0 z-10 w-28 bg-gradient-to-r from-bg to-transparent" />
-        {upcoming.map((s, i) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => {
-              setPrev(index);
-              setIndex(slides.findIndex((x) => x.id === s.id));
-            }}
-            tabIndex={-1}
-            className={[
-              'relative h-full shrink-0 opacity-55 transition-all duration-500 hover:opacity-100',
-              i === 0 ? 'translate-x-0' : '',
-            ].join(' ')}
-            style={{ aspectRatio: '2 / 3' }}
-          >
-            <PosterArt item={s} />
-            <span className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent" />
-          </button>
-        ))}
-      </div>
-
-      {/* poster + staggered text */}
-      <div className="relative z-10 flex h-full">
+      <div className="flex h-full">
+        {/* poster (full hero height, like VS) */}
         <Link
           key={`poster-${item.id}`}
           to="/items/$itemId"
           params={{ itemId: String(item.id) }}
-          className="hidden h-full shrink-0 border-r border-white/10 shadow-2xl sm:block"
+          className="hidden h-full shrink-0 border-r border-white/10 sm:block"
           style={{
             aspectRatio: '2 / 3',
             ...(reduced ? {} : { animation: `hero-poster-in 640ms cubic-bezier(0.22, 1, 0.36, 1) both` }),
@@ -155,70 +119,123 @@ export function HomeHero({ items }: { items: Item[] }) {
           <PosterArt item={item} />
         </Link>
 
-        <div key={`text-${item.id}`} className="flex min-w-0 flex-1 flex-col justify-end px-5 pb-7 sm:px-6 md:max-w-[58%] lg:pb-9">
-          <p
-            className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-progress"
-            style={rise(40)}
-          >
-            {item.kind === 'show' ? 'TV Show' : item.kind === 'home_video' ? 'Home Video' : 'Movie'}
-            {item.year ? ` · ${item.year}` : ''}
-          </p>
-          <h1
-            className="line-clamp-2 text-[26px] font-semibold leading-[1.15] tracking-tight text-fg-heading sm:text-[32px] lg:text-[38px]"
-            style={rise(110)}
-          >
-            {item.title}
-          </h1>
-          {item.tagline ? (
-            <p className="mt-1 line-clamp-1 text-[13px] italic text-fg-muted" style={rise(180)}>
-              {item.tagline}
-            </p>
+        {/* active backdrop + text */}
+        <div className="relative min-w-0 flex-1 overflow-hidden">
+          {previous ? (
+            <div
+              key={`out-${previous.id}`}
+              className="absolute inset-0"
+              style={reduced ? { opacity: 0 } : { animation: `hero-slide-out ${TRANSITION_MS}ms cubic-bezier(0.4, 0, 1, 1) both` }}
+              aria-hidden
+            >
+              <Backdrop item={previous} zoom={false} reduced={reduced} />
+            </div>
           ) : null}
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-fg-muted" style={rise(240)}>
-            {item.rating ? (
-              <span className="flex items-center gap-0.5" aria-label={`${item.rating.toFixed(1)} out of 10`}>
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <Star
-                    key={i}
-                    className={['size-3.5', i < stars ? 'fill-rating text-rating' : 'text-white/25'].join(' ')}
-                    aria-hidden
-                  />
-                ))}
-              </span>
-            ) : null}
-            {item.runtimeMs ? <span>{formatRuntime(item.runtimeMs)}</span> : null}
-            {item.contentRating ? (
-              <span className="rounded-sm border border-white/40 px-1.5 py-px text-[11px]">{item.contentRating}</span>
-            ) : null}
-            {item.played ? <span className="rounded bg-white/10 px-2 py-0.5 text-[11px]">Watched</span> : null}
+          <div
+            key={`in-${item.id}`}
+            className="absolute inset-0"
+            style={reduced ? undefined : { animation: `hero-slide-in ${TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) both` }}
+          >
+            <Backdrop item={item} zoom reduced={reduced} />
+            <div className="absolute inset-0 bg-gradient-to-r from-bg/90 via-bg/45 to-bg/10" />
+            <div className="absolute inset-0 bg-gradient-to-t from-bg/95 via-bg/15 to-bg/25" />
           </div>
 
-          {item.overview ? (
-            <p className="mt-2 line-clamp-2 max-w-xl text-[12.5px] leading-relaxed text-fg-muted" style={rise(300)}>
-              {item.overview}
+          <div
+            key={`text-${item.id}`}
+            className="relative flex h-full flex-col justify-end px-5 pb-6 sm:px-6 lg:pb-8"
+          >
+            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-progress" style={rise(40)}>
+              {item.kind === 'show' ? 'TV Show' : item.kind === 'home_video' ? 'Home Video' : 'Movie'}
+              {item.year ? ` · ${item.year}` : ''}
             </p>
-          ) : null}
+            <h1
+              className="line-clamp-2 text-[26px] font-semibold leading-[1.12] tracking-tight text-fg-heading sm:text-[30px] lg:text-[36px] xl:text-[40px]"
+              style={rise(110)}
+            >
+              {item.title}
+            </h1>
+            {item.tagline ? (
+              <p className="mt-1 line-clamp-1 text-[13px] italic text-fg-muted" style={rise(180)}>
+                {item.tagline}
+              </p>
+            ) : null}
 
-          <div className="mt-3.5 flex items-center gap-2" style={rise(360)}>
-            {item.fileCount > 0 ? (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-fg-muted" style={rise(240)}>
+              {item.rating ? (
+                <span className="flex items-center gap-0.5" aria-label={`${item.rating.toFixed(1)} out of 10`}>
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <Star
+                      key={i}
+                      className={['size-3.5', i < stars ? 'fill-rating text-rating' : 'text-white/25'].join(' ')}
+                      aria-hidden
+                    />
+                  ))}
+                </span>
+              ) : null}
+              {item.runtimeMs ? <span>{formatRuntime(item.runtimeMs)}</span> : null}
+              {item.contentRating ? (
+                <span className="rounded-sm border border-white/40 px-1.5 py-px text-[11px]">{item.contentRating}</span>
+              ) : null}
+              {item.played ? <span className="rounded bg-white/10 px-2 py-0.5 text-[11px]">Watched</span> : null}
+            </div>
+
+            {item.overview ? (
+              <p className="mt-2 line-clamp-2 max-w-xl text-[12.5px] leading-relaxed text-fg-muted" style={rise(300)}>
+                {item.overview}
+              </p>
+            ) : null}
+
+            <div className="mt-3.5 flex items-center gap-2" style={rise(360)}>
+              {item.fileCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setPlayer({ itemId: item.id, title: item.title })}
+                  className="inline-flex items-center gap-2 rounded-lg bg-progress/90 px-3.5 py-1.5 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
+                >
+                  <Play className="size-3.5" aria-hidden /> Play
+                </button>
+              ) : null}
               <button
                 type="button"
-                onClick={() => setPlayer({ itemId: item.id, title: item.title })}
-                className="inline-flex items-center gap-2 rounded-lg bg-progress/90 px-3.5 py-1.5 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
+                onClick={() => void navigate({ to: '/items/$itemId', params: { itemId: String(item.id) } })}
+                className="rounded-lg border border-hairline-strong bg-black/25 px-3.5 py-1.5 text-[12.5px] text-fg backdrop-blur hover:border-white/30 hover:bg-black/45"
               >
-                <Play className="size-3.5" aria-hidden /> Play
+                More info
               </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => void navigate({ to: '/items/$itemId', params: { itemId: String(item.id) } })}
-              className="rounded-lg border border-hairline-strong bg-black/25 px-3.5 py-1.5 text-[12.5px] text-fg backdrop-blur hover:border-white/30 hover:bg-black/45"
-            >
-              More info
-            </button>
+            </div>
           </div>
         </div>
+
+        {/* upcoming posters, clipped by the strip (VS-style) */}
+        {upcoming.length > 0 ? (
+          <div
+            className="relative hidden h-full shrink-0 overflow-hidden md:block"
+            style={{ width: 'clamp(140px, 24%, 340px)' }}
+            aria-hidden
+          >
+            <div className="absolute inset-y-0 left-0 flex h-full">
+              {upcoming.map((s2) => (
+                <button
+                  key={s2.id}
+                  type="button"
+                  onClick={() => {
+                    setPrev(index);
+                    setIndex(slides.findIndex((x) => x.id === s2.id));
+                  }}
+                  tabIndex={-1}
+                  className="relative h-full shrink-0 opacity-70 transition-opacity duration-300 hover:opacity-100"
+                  style={{ aspectRatio: '2 / 3' }}
+                >
+                  <PosterArt item={s2} />
+                  <span className="absolute inset-0 bg-gradient-to-r from-black/50 to-transparent" />
+                </button>
+              ))}
+            </div>
+            <span className="pointer-events-none absolute inset-y-0 left-0 z-10 w-20 bg-gradient-to-r from-bg/80 to-transparent" />
+          </div>
+        ) : null}
       </div>
 
       {/* arrows + autoplay bars */}
@@ -280,12 +297,21 @@ export function HomeHero({ items }: { items: Item[] }) {
 function Backdrop({ item, zoom, reduced }: { item: Item; zoom: boolean; reduced: boolean }) {
   if (item.backdropUrl) {
     return (
-      <img
-        src={item.backdropUrl}
-        alt=""
-        className="h-full w-full object-cover"
-        style={zoom && !reduced ? { animation: 'hero-kenburns 9s ease-out both' } : undefined}
-      />
+      <div className="relative h-full w-full">
+        {/* instant placeholder so the hero never looks empty while the backdrop loads */}
+        {item.posterUrl ? (
+          <img src={item.posterUrl} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.45]" />
+        ) : (
+          <div className="absolute inset-0" style={{ background: posterGradient(item.title) }} />
+        )}
+        <img
+          src={item.backdropUrl}
+          alt=""
+          decoding="async"
+          className="relative h-full w-full object-cover"
+          style={zoom && !reduced ? { animation: 'hero-kenburns 9s ease-out both' } : undefined}
+        />
+      </div>
     );
   }
   if (item.posterUrl) {

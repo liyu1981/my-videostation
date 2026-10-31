@@ -102,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/items/{id}", s.handleGetItem)
 	mux.HandleFunc("PATCH /api/v1/items/{id}", s.handlePatchItem)
 	mux.HandleFunc("GET /api/v1/items/{id}/children", s.handleItemChildren)
+	mux.HandleFunc("GET /api/v1/items/{id}/neighbors", s.handleItemNeighbors)
 	mux.HandleFunc("GET /api/v1/items/{id}/matches", s.handleMatches)
 	mux.HandleFunc("POST /api/v1/items/{id}/match", s.handleMatch)
 	mux.HandleFunc("POST /api/v1/items/{id}/refresh", s.handleRefreshMetadata)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -146,9 +147,14 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 	var existingKind string
 	if err := tx.QueryRowContext(ctx, `
 		SELECT m.id, m.kind FROM media_files mf JOIN media_items m ON m.id = mf.item_id
-		WHERE mf.path = ?`, f.Path).Scan(&existingID, &existingKind); err == nil && existingKind == f.Kind {
+		WHERE mf.path = ? AND m.library_id = ?`, f.Path, f.LibraryID).Scan(&existingID, &existingKind); err == nil && existingKind == f.Kind {
 		if err := touchItem(ctx, tx, existingID, f); err != nil {
 			return 0, false, err
+		}
+		if f.Kind == KindEpisode {
+			if err := repairEpisodeTitle(ctx, tx, existingID, f); err != nil {
+				return 0, false, err
+			}
 		}
 		return existingID, false, nil
 	}
@@ -289,7 +295,7 @@ func ensureSeason(ctx context.Context, tx *sql.Tx, libraryID, showID int64, numb
 
 func ensureEpisode(ctx context.Context, tx *sql.Tx, f *ScannedFile, showID, seasonID int64) (int64, bool, error) {
 	want := f.EpisodeTitle
-	if want == "" {
+	if want == "" || looksLikeJunkTitle(want) {
 		want = fmt.Sprintf("Episode %d", f.EpisodeNumber)
 	}
 	var id int64
@@ -299,12 +305,9 @@ func ensureEpisode(ctx context.Context, tx *sql.Tx, f *ScannedFile, showID, seas
 		WHERE parent_id = ? AND kind = 'episode' AND season_number = ? AND episode_number = ?`,
 		seasonID, f.SeasonNumber, f.EpisodeNumber).Scan(&id, &curTitle)
 	if err == nil {
-		if f.EpisodeTitle != "" && strings.HasPrefix(curTitle, "Episode ") {
-			if _, err := tx.ExecContext(ctx,
-				`UPDATE media_items SET title = ?, sort_title = ?, updated_at = ? WHERE id = ?`,
-				want, sortTitle(want), now(), id); err != nil {
-				return 0, false, wrap("update episode title", err)
-			}
+		_ = curTitle
+		if err := repairEpisodeTitle(ctx, tx, id, f); err != nil {
+			return 0, false, err
 		}
 		if err := touchItem(ctx, tx, id, f); err != nil {
 			return 0, false, err
@@ -375,10 +378,10 @@ func applyLocalMeta(ctx context.Context, tx *sql.Tx, itemID int64, m *LocalMetad
 		return nil
 	}
 	var locked int
-	var status, provider string
+	var status, provider, kind string
 	if err := tx.QueryRowContext(ctx,
-		`SELECT locked, metadata_status, COALESCE(provider,'') FROM media_items WHERE id = ?`,
-		itemID).Scan(&locked, &status, &provider); err != nil {
+		`SELECT locked, metadata_status, COALESCE(provider,''), kind FROM media_items WHERE id = ?`,
+		itemID).Scan(&locked, &status, &provider, &kind); err != nil {
 		return wrap("local meta load item", err)
 	}
 	if locked != 0 || status == "manual" {
@@ -404,7 +407,7 @@ func applyLocalMeta(ctx context.Context, tx *sql.Tx, itemID int64, m *LocalMetad
 	args := []any{m.Source, now(), now()}
 	add := func(col string, v any) { sets = append(sets, col+" = ?"); args = append(args, v) }
 
-	if !locks["title"] && m.Title != "" {
+	if !locks["title"] && m.Title != "" && !(kind == KindEpisode && looksLikeJunkTitle(m.Title)) {
 		add("title", m.Title)
 		sortT := m.SortTitle
 		if sortT == "" {
@@ -488,6 +491,55 @@ func applyLocalMeta(ctx context.Context, tx *sql.Tx, itemID int64, m *LocalMetad
 	return nil
 }
 
+// repairEpisodeTitle fixes episode titles stored as raw filenames (older scans) and
+// upgrades placeholder titles when a real one is available.
+func repairEpisodeTitle(ctx context.Context, tx *sql.Tx, id int64, f *ScannedFile) error {
+	var cur string
+	if err := tx.QueryRowContext(ctx, `SELECT title FROM media_items WHERE id = ?`, id).Scan(&cur); err != nil {
+		return nil
+	}
+	want := f.EpisodeTitle
+	if want == "" || looksLikeJunkTitle(want) {
+		want = fmt.Sprintf("Episode %d", f.EpisodeNumber)
+	}
+	if want == cur {
+		return nil
+	}
+	if !looksLikeJunkTitle(cur) && !strings.HasPrefix(cur, "Episode ") {
+		return nil // a real, user/provider-provided title wins
+	}
+	_, err := tx.ExecContext(ctx,
+		`UPDATE media_items SET title = ?, sort_title = ?, updated_at = ? WHERE id = ?`,
+		want, sortTitle(want), now(), id)
+	return wrap("repair episode title", err)
+}
+
+var (
+	reEpisodeCode = regexp.MustCompile(`(?i)s\d{1,2}[\s._-]*e\d{1,3}`)
+	reReleaseJunk = regexp.MustCompile(`(?i)(1080p|720p|2160p|480p|web[- .]?dl|webrip|bluray|blu-ray|bdrip|hdtv|x ?26[45]|h ?26[45]|hevc|ddp? ?5|ac3|dts|remux|proper|repack|hdr)`)
+)
+
+// looksLikeJunkTitle reports filename-ish episode titles ("Show.S01E01.X", "Chi_Eng").
+func looksLikeJunkTitle(title string) bool {
+	t := strings.TrimSpace(title)
+	if t == "" {
+		return true
+	}
+	if reEpisodeCode.MatchString(t) {
+		return true
+	}
+	if reReleaseJunk.MatchString(t) {
+		return true
+	}
+	if strings.ContainsAny(t, "/\\") {
+		return true
+	}
+	if (strings.Contains(t, "_") || strings.Contains(t, ".")) && !strings.Contains(t, " ") {
+		return true
+	}
+	return false
+}
+
 // showIDForEpisode resolves the show that owns an episode.
 func showIDForEpisode(ctx context.Context, tx *sql.Tx, episodeID int64) (int64, error) {
 	var showID int64
@@ -526,8 +578,8 @@ func ensureFile(ctx context.Context, tx *sql.Tx, f *ScannedFile, itemID int64) e
 	var id int64
 	err := tx.QueryRowContext(ctx, `SELECT id FROM media_files WHERE path = ?`, f.Path).Scan(&id)
 	if err == nil {
-		sets := []string{"item_id = ?", "missing = 0"}
-		args := []any{itemID}
+		sets := []string{"item_id = ?", "library_id = ?", "missing = 0"}
+		args := []any{itemID, f.LibraryID}
 		if f.Probed {
 			sets = append(sets,
 				"size = ?", "mtime = ?", "inode = ?", "container = ?", "duration_ms = ?",

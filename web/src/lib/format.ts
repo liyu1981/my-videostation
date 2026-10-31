@@ -6,6 +6,17 @@ export function formatRuntime(ms?: number): string {
   return h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m}m`;
 }
 
+export function formatClock(ms?: number): string {
+  if (!ms || ms <= 0) return '';
+  const total = Math.round(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+
 export function formatBytes(bytes?: number): string {
   if (!bytes || bytes <= 0) return '';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];

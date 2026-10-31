@@ -90,12 +90,18 @@ testdata/           parser corpus and generated sample media
   titles, editions, folders as fallback — 34-case test corpus.
 - **Probing**: ffprobe (container, duration, resolution, codecs, HDR, audio/subtitle tracks);
   graceful degradation when ffprobe is absent.
-- **Library UI**: Video-Station-style home (animated poster-strip hero, compact poster rows
-  with paging), continue-watching, **fixed-size 120 px poster grid** (posters never stretch
+- **Library UI**: Video-Station-style home (inset animated poster-strip hero with a large
+  poster, compact poster rows with paging), continue-watching, **fixed-size 120 px poster grid** (posters never stretch
   to fill the page), tile/list views, sort, per-library filter, pagination, global FTS5
   search, show → season → episode navigation.
-- **Item UI**: poster/backdrop (local sidecars or URL), metadata badges, media-info panel,
-  metadata editing with per-field locks, watched state, direct playback with resume progress.
+- **Item UI (VS parity)**: 270×388 poster with 76 px play overlay, unwatched chip + action
+  icons, 36 px title, tagline, info bar with stars/duration/certification, definition rows
+  (genre/cast/writer/director/reference/subtitles/audio), summary with "View all", season bar
+  + landscape episode cards, prev/next item arrows, media-info panel and extras.
+- **Player (VS parity)**: custom auto-hiding control bar (prev/next, ±10 s, volume, time,
+  subtitle menu, audio-track list, speed, fullscreen), buffered progress bar, big pause
+  overlay, next-up prompt, keyboard shortcuts, and a clear message when the browser cannot
+  decode the file (transcoding lands in M5).
 - **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
   artwork caching under `<data>/cache`, an "Identify" dialog for manual matches, a
   "Needs attention" queue, and refresh that never overwrites locked fields.

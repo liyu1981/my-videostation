@@ -1,6 +1,6 @@
 import { HardDrive, Subtitles, Volume2 } from 'lucide-react';
 import type { MediaFile } from '../lib/api';
-import { audioSummary, formatBytes, formatRuntime, resolutionLabel } from '../lib/format';
+import { audioSummary, formatBytes, formatClock, resolutionLabel } from '../lib/format';
 
 export function MediaInfoPanel({ files }: { files: MediaFile[] }) {
   return (
@@ -20,7 +20,7 @@ export function MediaInfoPanel({ files }: { files: MediaFile[] }) {
 
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 px-4 py-3 text-[12px] sm:grid-cols-4">
             <Field label="Container" value={file.container?.toUpperCase()} />
-            <Field label="Duration" value={formatRuntime(file.durationMs)} />
+            <Field label="Duration" value={formatClock(file.durationMs)} />
             <Field label="Resolution" value={file.width ? `${file.width}×${file.height}` : ''} />
             <Field label="Bitrate" value={file.bitrate ? `${(file.bitrate / 1_000_000).toFixed(1)} Mbps` : ''} />
             <Field label="Video" value={[file.videoCodec?.toUpperCase(), file.hdr].filter(Boolean).join(' · ')} />

@@ -283,6 +283,70 @@ func (s *Store) GetItem(ctx context.Context, id int64) (*Item, error) {
 	return &it, nil
 }
 
+// Neighbors returns the previous/next item in the natural browse order.
+// Movies/shows/home videos: title order within the library. Episodes: within the
+// season. Seasons: within the show.
+func (s *Store) Neighbors(ctx context.Context, itemID int64) (*Item, *Item, error) {
+	item, err := s.GetItem(ctx, itemID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var scopeSQL string
+	var args []any
+	switch item.Kind {
+	case KindEpisode:
+		scopeSQL = "m.parent_id = ? AND m.kind = 'episode'"
+		args = []any{item.ParentID}
+	case KindSeason:
+		scopeSQL = "m.parent_id = ? AND m.kind = 'season'"
+		args = []any{item.ParentID}
+	default:
+		scopeSQL = "m.library_id = ? AND m.kind = ?"
+		args = []any{item.LibraryID, item.Kind}
+	}
+
+	orderKey := "m.sort_title"
+	curValue := any(item.SortTitle)
+	if item.Kind == KindEpisode {
+		orderKey = "m.episode_number"
+		curValue = item.EpisodeNumber
+	} else if item.Kind == KindSeason {
+		orderKey = "COALESCE(m.season_number,0)"
+		curValue = item.SeasonNumber
+	}
+
+	fetch := func(dir string, cmp string, limit int) (*Item, error) {
+		q := `SELECT ` + itemColumns + `, ` + itemStateColumns + `
+			FROM media_items m ` + fmt.Sprintf(itemJoin, DefaultUserID) + `
+			WHERE ` + scopeSQL + ` AND m.hidden = 0 AND (` + orderKey + `, m.id) ` + cmp + ` (?, ?)
+			ORDER BY ` + orderKey + ` ` + dir + `, m.id ` + dir + ` LIMIT 1`
+		qargs := append(append([]any{}, args...), curValue, item.ID)
+		rows, err := s.db.QueryContext(ctx, q, qargs...)
+		if err != nil {
+			return nil, wrap("neighbors", err)
+		}
+		var out []Item
+		if err := collectItems(rows, &out); err != nil {
+			return nil, err
+		}
+		if len(out) == 0 {
+			return nil, nil
+		}
+		return &out[0], nil
+	}
+
+	prev, err := fetch("DESC", "<", 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	next, err := fetch("ASC", ">", 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	return prev, next, nil
+}
+
 // ListExtras returns trailers/featurettes attached to an item (hidden from browse).
 func (s *Store) ListExtras(ctx context.Context, itemID int64) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx, `
