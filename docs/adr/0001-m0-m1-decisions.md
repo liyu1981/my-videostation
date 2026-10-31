@@ -64,7 +64,7 @@ This keeps the index correct without triggers that would need to join people tab
 
 The dev loop is `pnpm dev`: **air** rebuilds/restarts the Go API on `.go`/`.sql` changes
 (binary built without `embedui`; Vite serves the SPA and proxies `/api`), while **Vite**
-hot-reloads the UI. Dev servers bind `0.0.0.0` (air binary on :8080, Vite on :5173) so the UI
+hot-reloads the UI. Dev servers bind `0.0.0.0` (air binary on :6500, Vite on :5173) so the UI
 can be tested from other devices on the LAN — the production binary still defaults to
 `127.0.0.1`. Builds are pnpm scripts (`scripts/build.mjs`) rather than Makefile targets, so
 there is one toolchain entry point (`pnpm`) for both halves of the repo.

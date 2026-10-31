@@ -50,23 +50,23 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 
 ```bash
 # create a library and scan it
-curl -X POST localhost:8080/api/v1/libraries \
+curl -X POST localhost:6500/api/v1/libraries \
   -H 'Content-Type: application/json' \
   -d '{"name":"Movies","type":"movie","paths":["/mnt/media/movies"]}'
 
-curl -X POST localhost:8080/api/v1/libraries/1/scan
-curl localhost:8080/api/v1/jobs/1
+curl -X POST localhost:6500/api/v1/libraries/1/scan
+curl localhost:6500/api/v1/jobs/1
 
 # browse + search
-curl 'localhost:8080/api/v1/browse?kind=movie&sort=title&page=1&perPage=48'
-curl 'localhost:8080/api/v1/search?q=king'
+curl 'localhost:6500/api/v1/browse?kind=movie&sort=title&page=1&perPage=48'
+curl 'localhost:6500/api/v1/search?q=king'
 
 # edit metadata, lock fields, record progress
-curl -X PATCH localhost:8080/api/v1/items/2 \
+curl -X PATCH localhost:6500/api/v1/items/2 \
   -H 'Content-Type: application/json' \
   -d '{"overview":"…","genres":["Drama"],"locks":["title","overview"]}'
 
-curl -X POST localhost:8080/api/v1/items/2/progress \
+curl -X POST localhost:6500/api/v1/items/2/progress \
   -H 'Content-Type: application/json' \
   -d '{"positionMs":12000,"durationMs":120000,"played":false}'
 ```
@@ -88,5 +88,7 @@ subtitleStreams[{codec,language,title,forced}], missing, streamUrl`.
 
 - `kind=show` for TV libraries; episodes are reached through show → season → episode.
 - Searches are prefix matches (`"king"*`) AND-ed across tokens.
+- `metadataStatus` is one of `unmatched`, `matched`, `manual`, `local` or `failed`.
+  `local` means metadata came from a `.nfo`/`.vsmeta` sidecar (`provider` shows which).
 - Progress is per user; M1 has a single built-in user (`id=1`).
 - No authentication in M1; the server binds to `127.0.0.1` by default.

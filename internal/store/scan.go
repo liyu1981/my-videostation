@@ -49,6 +49,11 @@ type ScannedFile struct {
 
 	// Sidecar subtitles found next to the file (nil = leave untouched).
 	Subtitles []SubtitleFile
+
+	// Local sidecar metadata (.nfo / .vsmeta) to apply to this item and (for
+	// episodes) to its parent show.
+	LocalMeta *LocalMetadata
+	ShowMeta  *LocalMetadata
 }
 
 // FileStat is the cheap fingerprint used for incremental scans.
@@ -110,6 +115,16 @@ func (s *Store) ApplyScanBatch(ctx context.Context, files []ScannedFile) (int, e
 		if err := ensureFile(ctx, tx, f, itemID); err != nil {
 			return 0, err
 		}
+		if err := applyLocalMeta(ctx, tx, itemID, f.LocalMeta); err != nil {
+			return 0, err
+		}
+		if f.Kind == KindEpisode && f.ShowMeta != nil {
+			if showID, err := showIDForEpisode(ctx, tx, itemID); err == nil && showID > 0 {
+				if err := applyLocalMeta(ctx, tx, showID, f.ShowMeta); err != nil {
+					return 0, err
+				}
+			}
+		}
 		touched[itemID] = struct{}{}
 	}
 
@@ -125,6 +140,19 @@ func (s *Store) ApplyScanBatch(ctx context.Context, files []ScannedFile) (int, e
 }
 
 func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, error) {
+	// Identity follows the file path, not the (mutable) title: user edits and
+	// sidecar metadata renames must not create duplicates on the next scan.
+	var existingID int64
+	var existingKind string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT m.id, m.kind FROM media_files mf JOIN media_items m ON m.id = mf.item_id
+		WHERE mf.path = ?`, f.Path).Scan(&existingID, &existingKind); err == nil && existingKind == f.Kind {
+		if err := touchItem(ctx, tx, existingID, f); err != nil {
+			return 0, false, err
+		}
+		return existingID, false, nil
+	}
+
 	switch f.Kind {
 	case KindMovie, KindHomeVideo:
 		return ensureLeafItem(ctx, tx, f.LibraryID, f.Kind, f.Title, f.Year, f)
@@ -319,6 +347,158 @@ func touchItem(ctx context.Context, tx *sql.Tx, id int64, f *ScannedFile) error 
 	args = append(args, id)
 	_, err := tx.ExecContext(ctx, `UPDATE media_items SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
 	return wrap("touch item", err)
+}
+
+// LocalMetadata is metadata imported from a local sidecar file.
+type LocalMetadata struct {
+	Source        string
+	Title         string
+	OriginalTitle string
+	SortTitle     string
+	Tagline       string
+	Overview      string
+	Certification string
+	Year          int
+	Rating        float64
+	RuntimeMS     int64
+	Genres        []string
+	Cast          []string
+	Directors     []string
+	Writers       []string
+	PosterPath    string
+	BackdropPath  string
+}
+
+// applyLocalMeta writes sidecar metadata, respecting locks and manual matches.
+func applyLocalMeta(ctx context.Context, tx *sql.Tx, itemID int64, m *LocalMetadata) error {
+	if m == nil || (m.Title == "" && m.Overview == "") {
+		return nil
+	}
+	var locked int
+	var status, provider string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT locked, metadata_status, COALESCE(provider,'') FROM media_items WHERE id = ?`,
+		itemID).Scan(&locked, &status, &provider); err != nil {
+		return wrap("local meta load item", err)
+	}
+	if locked != 0 || status == "manual" {
+		return nil
+	}
+	locks := map[string]bool{}
+	rows, err := tx.QueryContext(ctx, `SELECT field FROM item_locks WHERE item_id = ?`, itemID)
+	if err != nil {
+		return wrap("local meta locks", err)
+	}
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			rows.Close()
+			return wrap("scan lock", err)
+		}
+		locks[f] = true
+	}
+	rows.Close()
+
+	sets := []string{"provider = ?", "metadata_status = 'local'", "match_confidence = 0",
+		"last_refresh_at = ?", "updated_at = ?"}
+	args := []any{m.Source, now(), now()}
+	add := func(col string, v any) { sets = append(sets, col+" = ?"); args = append(args, v) }
+
+	if !locks["title"] && m.Title != "" {
+		add("title", m.Title)
+		sortT := m.SortTitle
+		if sortT == "" {
+			sortT = sortTitle(m.Title)
+		}
+		add("sort_title", sortT)
+	}
+	if !locks["original_title"] && m.OriginalTitle != "" {
+		add("original_title", m.OriginalTitle)
+	}
+	if !locks["tagline"] && m.Tagline != "" {
+		add("tagline", m.Tagline)
+	}
+	if !locks["overview"] && m.Overview != "" {
+		add("overview", m.Overview)
+	}
+	if !locks["content_rating"] && m.Certification != "" {
+		add("content_rating", m.Certification)
+	}
+	if !locks["year"] && m.Year > 0 {
+		add("year", m.Year)
+	}
+	if !locks["rating"] && m.Rating > 0 {
+		add("rating", m.Rating)
+	}
+	if m.RuntimeMS > 0 {
+		add("runtime_ms", m.RuntimeMS)
+	}
+	if !locks["poster"] && m.PosterPath != "" {
+		add("poster_path", m.PosterPath)
+	}
+	if !locks["backdrop"] && m.BackdropPath != "" {
+		add("backdrop_path", m.BackdropPath)
+	}
+
+	args = append(args, itemID)
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE media_items SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...); err != nil {
+		return wrap("apply local meta", err)
+	}
+
+	if !locks["genres"] && len(m.Genres) > 0 {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM item_genres WHERE item_id = ?`, itemID); err != nil {
+			return wrap("clear genres", err)
+		}
+		for _, name := range m.Genres {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO genres (name) VALUES (?)`, name); err != nil {
+				return wrap("insert genre", err)
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT OR IGNORE INTO item_genres (item_id, genre_id) SELECT ?, id FROM genres WHERE name = ?`,
+				itemID, name); err != nil {
+				return wrap("link genre", err)
+			}
+		}
+	}
+	if !locks["cast"] && len(m.Cast) > 0 {
+		people := make([]Person, 0, len(m.Cast))
+		for i, name := range m.Cast {
+			people = append(people, Person{Name: name, Role: "cast", Ordering: i})
+		}
+		if err := replaceCredits(ctx, tx, itemID, "cast", people); err != nil {
+			return err
+		}
+	}
+	if !locks["crew"] && (len(m.Directors) > 0 || len(m.Writers) > 0) {
+		people := make([]Person, 0, len(m.Directors)+len(m.Writers))
+		for i, name := range m.Directors {
+			people = append(people, Person{Name: name, Role: "director", Ordering: i})
+		}
+		for i, name := range m.Writers {
+			people = append(people, Person{Name: name, Role: "writer", Ordering: len(m.Directors) + i})
+		}
+		if err := replaceCredits(ctx, tx, itemID, "crew", people); err != nil {
+			return err
+		}
+	}
+	if err := refreshFTS(ctx, tx, itemID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// showIDForEpisode resolves the show that owns an episode.
+func showIDForEpisode(ctx context.Context, tx *sql.Tx, episodeID int64) (int64, error) {
+	var showID int64
+	err := tx.QueryRowContext(ctx, `
+		SELECT s.parent_id FROM media_items e
+		JOIN media_items s ON s.id = e.parent_id
+		WHERE e.id = ? AND e.kind = 'episode' AND s.kind = 'season'`, episodeID).Scan(&showID)
+	if err != nil {
+		return 0, nil // not an episode or no show; not fatal
+	}
+	return showID, nil
 }
 
 // SubtitleFile is a sidecar subtitle stored for a media file.

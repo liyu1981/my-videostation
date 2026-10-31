@@ -242,6 +242,14 @@ func (s *Server) withinLibrary(r *http.Request, p string) (bool, error) {
 		return false, nil
 	}
 	clean := filepath.Clean(p)
+	// Cached artwork (provider downloads, .vsmeta embeds) lives under <data>/cache.
+	if s.cacheDir != "" {
+		if cache, err := filepath.Abs(s.cacheDir); err == nil {
+			if rel, err := filepath.Rel(cache, clean); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return true, nil
+			}
+		}
+	}
 	libs, err := s.store.ListLibraries(r.Context())
 	if err != nil {
 		return false, err

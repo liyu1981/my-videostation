@@ -147,7 +147,7 @@ my-video-station/
   or a hand-maintained `types.ts` kept honest by contract tests)
 - PWA manifest + service worker (M7)
 
-**Dev loop**: `pnpm dev` → air (Go rebuild/restart on save) on :8080 + Vite on :5173 proxying
+**Dev loop**: `pnpm dev` → air (Go rebuild/restart on save) on :6500 + Vite on :5173 proxying
 `/api`; `pnpm build` → Vite bundle → `internal/web/dist` → `go build -tags embedui` → `bin/mvs`.
 
 ---
@@ -576,6 +576,22 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 - Image-based subtitles (PGS/VobSub) are skipped in the player (burn-in needs M5).
 - No subtitle sync offset, styling controls, or SMI support yet.
 - Next-up covers the same season only (no cross-season rollover), and does not auto-play.
+
+### Local sidecar metadata (post-M4) — delivered
+
+| Item | Status |
+|---|---|
+| `.nfo` import | ✅ Jellyfin/Kodi `movie`, `tvshow`, `episodedetails`; title/originaltitle/year/plot/tagline/mpaa/ratings/runtime/genres/actor/director/credits/uniqueid/thumbs |
+| `.vsmeta` import | ✅ schema-less protobuf parser with recovered field map; embedded poster/backdrop cached by MD5; provider JSON (IMDB/TMDB ids, rating) |
+| Precedence | ✅ NFO overrides `.vsmeta` field-by-field; `.vsmeta` fills gaps and provides artwork |
+| Scanner integration | ✅ `provider = nfo\|vsmeta\|nfo+vsmeta`, `metadata_status = local`, locks respected, manual Identify overrides |
+| Identity safety | ✅ item identity follows the file path, so sidecar titles and user renames survive re-scans (no duplicates) |
+| Show-level NFO | ✅ `tvshow.nfo` in show/season ancestors applied to the show; episode NFO applied to the episode |
+
+Limitations: NFO `<role>`/character names are parsed as cast names only (characters are not
+stored yet); remote NFO `<thumb>` URLs are ignored; `.vsmeta` TV-specific fields are unknown
+(no sample); sidecars are re-parsed on every scan (correct, but `vsmeta` files with embedded
+art cost a read per scan).
 
 ### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
 

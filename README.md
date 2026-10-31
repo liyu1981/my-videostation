@@ -96,6 +96,10 @@ testdata/           parser corpus and generated sample media
 - **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
   artwork caching under `<data>/cache`, an "Identify" dialog for manual matches, a
   "Needs attention" queue, and refresh that never overwrites locked fields.
+- **Local sidecars**: reads Jellyfin/Kodi `.nfo` (movie/tvshow/episode, local art, cast,
+  unique ids) and Synology `.vsmeta` (protobuf; embedded poster/backdrop) — NFO wins
+  field-by-field. Imported items are marked `local` and are not auto-overwritten.
+  Format notes: [`docs/VSMETA-FORMAT.md`](docs/VSMETA-FORMAT.md).
 - **Organisation (M3)**: Favorites / Watchlist / custom collections, selection mode with
   bulk watched + add-to-collection, category presets (added / watched / released / A–Z),
   genre/year/watched/folder filters from live facets, per-library auto-scan intervals,
@@ -111,7 +115,7 @@ pnpm install
 # one-time (idempotent): installs air (Go live reload) + static ffprobe into .tools/
 pnpm bootstrap
 
-# dev: Go API on :8080 with live reload (air) + Vite on :5173 with HMR
+# dev: Go API on :6500 with live reload (air) + Vite on :5173 with HMR
 pnpm dev
 
 # production: web bundle -> embedded dist -> single static binary
@@ -122,7 +126,7 @@ Editing a `.go` file rebuilds and restarts the API; editing a `.tsx/.ts/.css` fi
 the browser through Vite. Migrations are embedded, so changing SQL also triggers a rebuild.
 
 Both dev servers bind `0.0.0.0`, so you can open the UI from another device on the same LAN:
-`http://<your-lan-ip>:5173` (Vite) or `http://<your-lan-ip>:8080` (API / stub UI).
+`http://<your-lan-ip>:5173` (Vite) or `http://<your-lan-ip>:6500` (API / stub UI).
 
 | Script | Purpose |
 |---|---|
@@ -134,7 +138,7 @@ Both dev servers bind `0.0.0.0`, so you can open the UI from another device on t
 | `pnpm docker` | build the Alpine image with version metadata |
 | `pnpm clean` | remove build artifacts (`pnpm clean -- --data` also drops the DB) |
 
-Open <http://127.0.0.1:8080> (or :5173 in dev), go to **Libraries → Add library**, point it at
+Open <http://127.0.0.1:6500> (or :5173 in dev), go to **Libraries → Add library**, point it at
 a folder, and it creates + starts a scan.
 
 Docker (media mounts are read-only by design):
@@ -152,7 +156,7 @@ Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file 
 
 | Flag | Env | Default |
 |---|---|---|
-| `--listen` | `MVS_LISTEN` | `127.0.0.1:8080` |
+| `--listen` | `MVS_LISTEN` | `127.0.0.1:6500` |
 | `--data` | `MVS_DATA_DIR` | `./data` |
 | `--db` | `MVS_DB` | `<data>/mvs.db` |
 | `--ffprobe` | `MVS_FFPROBE` | auto-detected |
@@ -182,6 +186,7 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/PLAN.md`](./docs/PLAN.md) — vision, architecture, data model, API, phases, decisions
 - [`docs/GAPS.md`](./docs/GAPS.md) — feature-parity register vs. Synology Video Station
 - [`docs/UI-PROBE.md`](./docs/UI-PROBE.md) — verified UI measurements from a live 3.0.7 instance
+- [`docs/VSMETA-FORMAT.md`](./docs/VSMETA-FORMAT.md) — reverse-engineered `.vsmeta` protobuf layout
 - [`docs/adr/0001-m0-m1-decisions.md`](./docs/adr/0001-m0-m1-decisions.md) — M0/M1 decisions and deviations
 - [`AGENTS.md`](./AGENTS.md) — working rules for contributors and coding agents
 

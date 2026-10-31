@@ -39,15 +39,15 @@ RUN apk add --no-cache ffmpeg tzdata ca-certificates tini wget \
 COPY --from=build /out/mvs /usr/local/bin/mvs
 
 USER mvs
-ENV MVS_LISTEN=0.0.0.0:8080 \
+ENV MVS_LISTEN=0.0.0.0:6500 \
     MVS_DATA_DIR=/data \
     MVS_DB=/data/mvs.db \
     MVS_LOG_FORMAT=json
 
 VOLUME ["/data"]
-EXPOSE 8080
+EXPOSE 6500
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-  CMD wget -qO- http://127.0.0.1:8080/api/v1/health >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1:6500/api/v1/health >/dev/null || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/mvs"]

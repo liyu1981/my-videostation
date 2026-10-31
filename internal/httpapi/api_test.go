@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -910,6 +911,44 @@ func TestPlaybackSubtitlesAndNextUp(t *testing.T) {
 	}
 }
 
+func TestManualRenameSurvivesRescan(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+	mediaDir := filepath.Join(dir, "m")
+	writeFile(t, filepath.Join(mediaDir, "Original (2020)", "Original.2020.mkv"))
+	lib, err := st.CreateLibrary(ctx, "M", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sc := scanner.New(st, nil, log)
+	if _, err := sc.ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	items, _, _ := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie})
+	if len(items) != 1 {
+		t.Fatalf("items = %d", len(items))
+	}
+	patch, _ := json.Marshal(map[string]any{"title": "My Renamed Movie"})
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/items/"+itoa(items[0].ID), bytes.NewReader(patch))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("patch = %d", res.StatusCode)
+	}
+	if _, err := sc.ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, _, _ := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie})
+	if len(after) != 1 || after[0].Title != "My Renamed Movie" {
+		t.Fatalf("rescan lost identity/title: %+v", after)
+	}
+}
+
 func TestPlaybackMissingFile(t *testing.T) {
 	srv, st, dir := newTestServer(t)
 	ctx := context.Background()
@@ -931,5 +970,193 @@ func TestPlaybackMissingFile(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("playback = %d %s", res.StatusCode, b)
+	}
+}
+
+// ---- local sidecar metadata (.nfo / .vsmeta) ----------------------------
+
+func vsmetaBytes(title string) []byte {
+	vint := func(v uint64) []byte {
+		var out []byte
+		for v >= 0x80 {
+			out = append(out, byte(v)|0x80)
+			v >>= 7
+		}
+		return append(out, byte(v))
+	}
+	str := func(field int, s string) []byte {
+		b := []byte(s)
+		return append(append(vint(uint64(field<<3|2)), vint(uint64(len(b)))...), b...)
+	}
+	num := func(field int, v uint64) []byte { return append(vint(uint64(field<<3)), vint(v)...) }
+	cat := func(parts ...[]byte) []byte {
+		var out []byte
+		for _, p := range parts {
+			out = append(out, p...)
+		}
+		return out
+	}
+	img := append([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 'J', 'F', 'I', 'F', 0, 1}, make([]byte, 64)...)
+	credits := cat(str(1, "VS Actor"), str(3, "Action"))
+	return cat(
+		num(1, 1),
+		str(2, title),
+		num(5, 2021),
+		str(8, "VS overview."),
+		str(10, string(credits)),
+		num(12, 82),
+		str(17, base64.StdEncoding.EncodeToString(img)),
+		str(18, "vs-poster-hash"),
+	)
+}
+
+func TestLocalSidecarMetadata(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	d, err := db.Open(ctx, filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(d)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cacheDir := filepath.Join(dir, "cache")
+	factory := func(context.Context) (metadata.Provider, error) { return fakeProvider{}, nil }
+	enricher := enrich.New(st, factory, cacheDir, log)
+	manager := jobs.New(st, log)
+	manager.Start(ctx)
+	srv := httptest.NewServer(httpapi.New(httpapi.Options{
+		Store: st, Jobs: manager, Logger: log, Provider: factory, Enricher: enricher, CacheDir: cacheDir,
+	}).Handler())
+	t.Cleanup(srv.Close)
+
+	mediaDir := filepath.Join(dir, "media")
+	nfoPath := filepath.Join(mediaDir, "NFO Movie (2010)", "NFO Movie (2010).mkv")
+	writeFile(t, nfoPath)
+	if err := os.WriteFile(filepath.Join(mediaDir, "NFO Movie (2010)", "NFO Movie (2010).nfo"), []byte(
+		`<movie><title>NFO Title</title><year>2010</year><plot>NFO plot.</plot>
+		 <genre>Drama</genre><actor><name>NFO Actor</name></actor>
+		 <uniqueid type="tmdb">123</uniqueid></movie>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vsPath := filepath.Join(mediaDir, "VS Movie (2021)", "VS.Movie.2021.mkv")
+	writeFile(t, vsPath)
+	if err := os.WriteFile(vsPath+".vsmeta", vsmetaBytes("VS Title"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lib, err := st.CreateLibrary(ctx, "Movies", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := scanner.New(st, nil, log)
+	sc.SetCacheDir(cacheDir)
+	if _, err := sc.ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	items, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie, Sort: "title"})
+	if err != nil || len(items) != 2 {
+		t.Fatalf("items = %v err=%v", items, err)
+	}
+
+	// NFO item
+	var nfoDetail struct {
+		Title          string   `json:"title"`
+		Year           int      `json:"year"`
+		Overview       string   `json:"overview"`
+		Genres         []string `json:"genres"`
+		MetadataStatus string   `json:"metadataStatus"`
+		Provider       string   `json:"provider"`
+		People         []struct {
+			Name string `json:"name"`
+			Role string `json:"role"`
+		} `json:"people"`
+	}
+	var nfoID int64
+	for _, it := range items {
+		if it.Title == "NFO Title" {
+			nfoID = it.ID
+		}
+	}
+	if nfoID == 0 {
+		t.Fatalf("NFO item not found: %+v", items)
+	}
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(nfoID), &nfoDetail)
+	if nfoDetail.MetadataStatus != "local" || nfoDetail.Provider != "nfo" {
+		t.Fatalf("nfo status/provider = %q/%q", nfoDetail.MetadataStatus, nfoDetail.Provider)
+	}
+	if nfoDetail.Year != 2010 || nfoDetail.Overview != "NFO plot." || len(nfoDetail.Genres) != 1 {
+		t.Fatalf("nfo fields = %+v", nfoDetail)
+	}
+	if len(nfoDetail.People) != 1 || nfoDetail.People[0].Name != "NFO Actor" {
+		t.Fatalf("nfo people = %+v", nfoDetail.People)
+	}
+
+	// vsmeta item + cached poster served
+	var vsDetail struct {
+		Title          string `json:"title"`
+		Year           int    `json:"year"`
+		MetadataStatus string `json:"metadataStatus"`
+		Provider       string `json:"provider"`
+		PosterURL      string `json:"posterUrl"`
+	}
+	var vsID int64
+	for _, it := range items {
+		if it.Title == "VS Title" {
+			vsID = it.ID
+		}
+	}
+	if vsID == 0 {
+		t.Fatalf("vsmeta item not found: %+v", items)
+	}
+	getJSON(t, srv.URL+"/api/v1/items/"+itoa(vsID), &vsDetail)
+	if vsDetail.MetadataStatus != "local" || vsDetail.Provider != "vsmeta" || vsDetail.Year != 2021 {
+		t.Fatalf("vsmeta fields = %+v", vsDetail)
+	}
+	if vsDetail.PosterURL == "" {
+		t.Fatal("vsmeta poster not cached")
+	}
+	pres, err := http.Get(srv.URL + vsDetail.PosterURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pres.Body.Close()
+	if pres.StatusCode != http.StatusOK {
+		t.Fatalf("poster status = %d", pres.StatusCode)
+	}
+
+	// Re-scanning must not duplicate items when sidecar metadata (or a user edit)
+	// renamed them: identity follows the file path.
+	if _, err := sc.ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	again, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie})
+	if err != nil || len(again) != 2 {
+		t.Fatalf("after rescan items = %d (%v), want 2", len(again), err)
+	}
+
+	// Automatic refresh must not overwrite local sidecar metadata.
+	rres, err := http.Post(srv.URL+"/api/v1/items/"+itoa(nfoID)+"/refresh", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rres.Body.Close()
+	if rres.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(rres.Body)
+		t.Fatalf("refresh: %d %s", rres.StatusCode, b)
+	}
+	var after struct {
+		Title          string `json:"title"`
+		MetadataStatus string `json:"metadataStatus"`
+	}
+	if err := json.NewDecoder(rres.Body).Decode(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after.Title != "NFO Title" || after.MetadataStatus != "local" {
+		t.Fatalf("local metadata was overwritten: %+v", after)
 	}
 }

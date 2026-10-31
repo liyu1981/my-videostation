@@ -65,7 +65,7 @@ remains unaddressed by the plan.
 | GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `GAP-LATER` | S3 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.{Scheduler,IndexFolder}`. We ship sane defaults; user-configurable globs, min-size, and "skip extras" toggles come with bulk edit. |
 | GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails, and choose per-item poster/backdrop (Original / URL / from folders), with a global cover setting under Settings › Advanced | `GAP-LATER` | S2 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.ThumbnailQuality`; per-item art picker verified in the Edit dialog (see `UI-PROBE.md` §6). Controls (on/off, size, regenerate, cache budget) land with the first thumbnail worker. |
 | GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
-| GAP-008 | Import/migration from an existing Video Station library | N/A (VS is the source) | `GAP-UNDECIDED` | S2 | post-M3 | **[verify]** storage is believed to be PostgreSQL. A one-shot importer (paths + watch state + manual matches) would remove the biggest switching cost. High leverage, low glamour. |
+| GAP-008 | Import/migration from an existing Video Station library | N/A (VS is the source) | `GAP-UNDECIDED` | S2 | post-M3 | **[verify]** storage is believed to be PostgreSQL. **`.vsmeta` sidecars are now imported natively**, so titles/plots/art work without the VS database; a DB importer would only add watch state and library paths. |
 | GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; cloud sources need host mounts (GAP-001). |
 
 ## 3. Metadata
@@ -143,7 +143,7 @@ remains unaddressed by the plan.
 | ID | Advantage | Why it matters |
 |---|---|---|
 | ADV-01 | No codec licensing gate | Video Station's HEVC/AAC support was tied to Advanced Media Extensions and a Synology account; we use distro `ffmpeg` (LGPL build) with no account. |
-| ADV-02 | NFO read/write + local art precedence | Kodi/Jellyfin-compatible sidecars; users keep their metadata if they leave. VS has no `.nfo` support **[verify]**. |
+| ADV-02 | NFO **read** + local art precedence (write pending) | Kodi/Jellyfin-compatible `.nfo` import plus Synology `.vsmeta` import (protobuf), NFO winning field-by-field. VS has no `.nfo` support **[verify]**. Writing exclusions/`.nfo` remains opt-in work. |
 | ADV-03 | Single static binary, no DSM | Runs on any Linux, NAS, Pi, or laptop; no DSM version coupling. |
 | ADV-04 | FTS5 search over title, overview, cast | Instant search, no filesystem walk. |
 | ADV-05 | Per-field metadata locks + unmatched queue | VS has only a single item-level `Lock/Unlock` toggle and no "needs attention" queue; we lock per field and surface unmatched items explicitly. |

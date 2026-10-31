@@ -92,6 +92,7 @@ func run() error {
 	}
 
 	sc := scanner.New(st, prober, log)
+	sc.SetCacheDir(cacheDir)
 	manager := jobs.New(st, log)
 	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		var payload struct {

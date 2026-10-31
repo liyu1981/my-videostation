@@ -7,9 +7,9 @@ services:
     container_name: myvideostation
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "6500:6500"
     environment:
-      MVS_LISTEN: 0.0.0.0:8080
+      MVS_LISTEN: 0.0.0.0:6500
       MVS_DATA_DIR: /data
       MVS_LOG_LEVEL: info
       MVS_LOG_FORMAT: json

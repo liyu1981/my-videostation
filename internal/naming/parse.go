@@ -297,6 +297,10 @@ func finishEpisode(res *Result, folder string) {
 }
 
 func episodeTitle(tail string) string {
+	if !strings.Contains(tail, " ") {
+		// Mixed separators: "Show.S02E01.1080p.WEB-DL" leaves a dot-joined tail.
+		tail = strings.ReplaceAll(tail, ".", " ")
+	}
 	t, _ := extractYear(tail)
 	t = stripReleaseTags(t)
 	return cleanTitle(t)

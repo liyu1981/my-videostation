@@ -63,9 +63,9 @@ jobs:
       - run: pnpm build
       - name: Smoke test the binary
         run: |
-          ./bin/mvs --listen 127.0.0.1:8099 --data /tmp/mvs-ci &
-          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8099/api/v1/health && break; sleep 0.5; done
-          curl -fsS http://127.0.0.1:8099/ | grep -q '<div id="root">'
+          ./bin/mvs --listen 127.0.0.1:6500 --data /tmp/mvs-ci &
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:6500/api/v1/health && break; sleep 0.5; done
+          curl -fsS http://127.0.0.1:6500/ | grep -q '<div id="root">'
       - uses: actions/upload-artifact@v4
         with:
           name: mvs-linux-amd64

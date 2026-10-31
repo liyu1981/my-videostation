@@ -80,6 +80,8 @@ func TestParse(t *testing.T) {
 			want{kind: KindEpisode, title: "Anime", season: 1, episode: 5, end: 5}},
 		{"tv cjk episode title", "tv", "/tv/Show - S01E02 - 第2集.mkv",
 			want{kind: KindEpisode, title: "Show", season: 1, episode: 2, end: 2, epTitle: "第2集"}},
+		{"tv dotted tail tags", "tv", "/tv/For All Mankind.S02E01.1080p.WEB-DL.mkv",
+			want{kind: KindEpisode, title: "For All Mankind", season: 2, episode: 1, end: 1}},
 		{"tv lowercase", "tv", "/tv/show.s01e02.720p.mkv",
 			want{kind: KindEpisode, title: "show", season: 1, episode: 2, end: 2}},
 		{"tv unidentifiable", "tv", "/tv/Some Movie (2010).mkv",

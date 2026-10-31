@@ -178,6 +178,11 @@ func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, ite
 	if item.Kind != store.KindMovie && item.Kind != store.KindShow {
 		return metadata.ErrNoMatch
 	}
+	// Local .nfo/.vsmeta metadata wins over automatic matching; manual Identify
+	// still overrides it explicitly.
+	if item.MetadataStatus == "local" {
+		return nil
+	}
 
 	locks, err := s.lockSet(ctx, item)
 	if err != nil {

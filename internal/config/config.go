@@ -23,7 +23,7 @@ type Config struct {
 func Defaults() Config {
 	dataDir := envOr("MVS_DATA_DIR", "data")
 	return Config{
-		Listen:    envOr("MVS_LISTEN", "127.0.0.1:8080"),
+		Listen:    envOr("MVS_LISTEN", "127.0.0.1:6500"),
 		DataDir:   dataDir,
 		DBPath:    envOr("MVS_DB", filepath.Join(dataDir, "mvs.db")),
 		FFprobe:   envOr("MVS_FFPROBE", ""),

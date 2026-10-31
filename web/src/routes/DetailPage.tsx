@@ -372,6 +372,13 @@ function MetaStatus({ status, confidence, provider }: { status: string; confiden
   if (!status || status === 'unmatched') {
     return <span className="rounded-full border border-new/40 bg-new/10 px-2 py-0.5 text-[11px] text-new">Unmatched</span>;
   }
+  if (status === 'local') {
+    return (
+      <span className="rounded-full border border-progress/40 bg-progress/10 px-2 py-0.5 text-[11px] text-progress" title={provider ? `from ${provider}` : undefined}>
+        Local metadata{provider ? ` · ${provider === 'nfo+vsmeta' ? 'NFO+VS' : provider.toUpperCase()}` : ''}
+      </span>
+    );
+  }
   if (status === 'failed') {
     return <span className="rounded-full border border-active/40 bg-active/10 px-2 py-0.5 text-[11px] text-active">Match failed</span>;
   }

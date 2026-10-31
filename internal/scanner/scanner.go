@@ -15,6 +15,7 @@ import (
 
 	"github.com/liyu1981/myvideostation/internal/media"
 	"github.com/liyu1981/myvideostation/internal/naming"
+	"github.com/liyu1981/myvideostation/internal/sidecar"
 	"github.com/liyu1981/myvideostation/internal/store"
 )
 
@@ -24,12 +25,16 @@ type Scanner struct {
 	probe    *media.Prober
 	log      *slog.Logger
 	probeers int
+	cacheDir string
 }
 
 // New creates a scanner. probe may be nil (technical metadata is then skipped).
 func New(st *store.Store, probe *media.Prober, log *slog.Logger) *Scanner {
 	return &Scanner{store: st, probe: probe, log: log, probeers: 4}
 }
+
+// SetCacheDir enables caching of embedded .vsmeta artwork under <dir>/images.
+func (sc *Scanner) SetCacheDir(dir string) { sc.cacheDir = dir }
 
 // Stats summarises one library scan.
 type Stats struct {
@@ -41,12 +46,13 @@ type Stats struct {
 	Extras       int `json:"extras"`
 	Samples      int `json:"samples"`
 	Unidentified int `json:"unidentified"`
+	LocalMeta    int `json:"localMeta"`
 	Errors       int `json:"errors"`
 }
 
 func (s Stats) String() string {
-	return fmt.Sprintf("%d files: %d new, %d probed, %d unchanged, %d extras, %d samples, %d unidentified, %d errors",
-		s.Discovered, s.Created, s.Probed, s.Unchanged, s.Extras, s.Samples, s.Unidentified, s.Errors)
+	return fmt.Sprintf("%d files: %d new, %d probed, %d unchanged, %d extras, %d samples, %d unidentified, %d local metadata, %d errors",
+		s.Discovered, s.Created, s.Probed, s.Unchanged, s.Extras, s.Samples, s.Unidentified, s.LocalMeta, s.Errors)
 }
 
 type foundFile struct {
@@ -109,6 +115,7 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 	plans := sc.classify(lib.Type, files, &stats)
 	for i := range plans {
 		plans[i].item.LibraryID = libraryID
+		sc.attachSidecars(&plans[i], &stats)
 	}
 	report(8, fmt.Sprintf("%d items to index", len(plans)))
 
@@ -183,6 +190,45 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 	}
 	report(100, stats.String())
 	return stats, nil
+}
+
+// attachSidecars loads .nfo/.vsmeta metadata for one planned file.
+func (sc *Scanner) attachSidecars(p *planned, stats *Stats) {
+	res := sidecar.Load(p.file.path, sc.cacheDir)
+	if res == nil {
+		return
+	}
+	if res.File != nil {
+		p.item.LocalMeta = toLocalMeta(res.File)
+		stats.LocalMeta++
+	}
+	if res.Show != nil {
+		p.item.ShowMeta = toLocalMeta(res.Show)
+	}
+}
+
+func toLocalMeta(m *sidecar.Meta) *store.LocalMetadata {
+	if m == nil {
+		return nil
+	}
+	return &store.LocalMetadata{
+		Source:        m.Source,
+		Title:         m.Title,
+		OriginalTitle: m.OriginalTitle,
+		SortTitle:     m.SortTitle,
+		Tagline:       m.Tagline,
+		Overview:      m.Overview,
+		Certification: m.Certification,
+		Year:          m.Year,
+		Rating:        m.Rating,
+		RuntimeMS:     m.RuntimeMS,
+		Genres:        m.Genres,
+		Cast:          m.Cast,
+		Directors:     m.Directors,
+		Writers:       m.Writers,
+		PosterPath:    m.PosterPath,
+		BackdropPath:  m.BackdropPath,
+	}
 }
 
 func (sc *Scanner) probeAll(ctx context.Context, plans []planned, needs []int,
