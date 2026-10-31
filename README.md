@@ -82,9 +82,10 @@ testdata/           parser corpus and generated sample media
 ## What works today (M1)
 
 - **Libraries**: movie / TV / home-video libraries with multiple read-only folders.
-- **Scanning**: incremental (size+mtime), durable jobs with progress, `@eaDir`/`#recycle`
-  skipping, orphan cleanup, parallel probing (4 workers), extras indexed hidden and attached
-  to their movie/show, samples skipped.
+- **Scanning**: incremental (size+mtime), durable jobs with live progress, results streamed
+  into the library while scanning, per-file failure isolation, `@eaDir`/`#recycle` skipping,
+  orphan cleanup, parallel probing (4 workers), extras indexed hidden and attached to their
+  movie/show, samples skipped.
 - **Parsing**: scene names, `SxxExx`, `1x02`, multi-episode ranges (`S01E01-E02`), CJK
   titles, editions, folders as fallback — 34-case test corpus.
 - **Probing**: ffprobe (container, duration, resolution, codecs, HDR, audio/subtitle tracks);
@@ -103,7 +104,7 @@ testdata/           parser corpus and generated sample media
 - **Organisation (M3)**: Favorites / Watchlist / custom collections, selection mode with
   bulk watched + add-to-collection, category presets (added / watched / released / A–Z),
   genre/year/watched/folder filters from live facets, per-library auto-scan intervals,
-  and a live task monitor.
+  and a live task monitor with expandable + copyable job messages.
 - **Playback (M4)**: direct play with resume, sidecar + embedded subtitle tracks served as
   WebVTT (UTF-8/GB18030/Big5), subtitle menu, keyboard shortcuts, and next-episode prompt.
 

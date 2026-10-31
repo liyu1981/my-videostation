@@ -1160,3 +1160,42 @@ func TestLocalSidecarMetadata(t *testing.T) {
 		t.Fatalf("local metadata was overwritten: %+v", after)
 	}
 }
+
+// Regression: duplicate sidecar titles (same movie in two folders/qualities) must
+// not abort the scan. Identity is the file path, not the title.
+func TestDuplicateLocalTitlesDoNotAbortScan(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	mediaDir := filepath.Join(dir, "media")
+	for _, name := range []string{"A", "B"} {
+		video := filepath.Join(mediaDir, name, name+".mkv")
+		writeFile(t, video)
+		nfo := `<movie><title>Same Movie</title><year>2020</year><plot>Plot ` + name + `.</plot></movie>`
+		if err := os.WriteFile(filepath.Join(mediaDir, name, name+".nfo"), []byte(nfo), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lib, err := st.CreateLibrary(ctx, "Movies", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	stats, err := sc.ScanLibrary(ctx, lib.ID, nil)
+	if err != nil {
+		t.Fatalf("scan aborted: %v", err)
+	}
+	if stats.Skipped != 0 {
+		t.Fatalf("skipped = %d, want 0: %+v", stats.Skipped, stats)
+	}
+	items, total, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindMovie})
+	if err != nil || total != 2 {
+		t.Fatalf("items = %d (%v), want 2", total, err)
+	}
+	for _, it := range items {
+		if it.Title != "Same Movie" || it.MetadataStatus != "local" {
+			t.Errorf("item = %q / %q", it.Title, it.MetadataStatus)
+		}
+	}
+	_ = srv
+}

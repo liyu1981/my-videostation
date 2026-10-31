@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/liyu1981/myvideostation/internal/media"
 	"github.com/liyu1981/myvideostation/internal/naming"
@@ -48,11 +49,16 @@ type Stats struct {
 	Unidentified int `json:"unidentified"`
 	LocalMeta    int `json:"localMeta"`
 	Errors       int `json:"errors"`
+	Skipped      int `json:"skipped"`
 }
 
 func (s Stats) String() string {
-	return fmt.Sprintf("%d files: %d new, %d probed, %d unchanged, %d extras, %d samples, %d unidentified, %d local metadata, %d errors",
+	out := fmt.Sprintf("%d files: %d new, %d probed, %d unchanged, %d extras, %d samples, %d unidentified, %d local metadata, %d errors",
 		s.Discovered, s.Created, s.Probed, s.Unchanged, s.Extras, s.Samples, s.Unidentified, s.LocalMeta, s.Errors)
+	if s.Skipped > 0 {
+		out += fmt.Sprintf(", %d skipped", s.Skipped)
+	}
+	return out
 }
 
 type foundFile struct {
@@ -150,17 +156,40 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 		applySubtitles(&plans[i].item, plans[i].file.path)
 	}
 
-	// Persist in batches so a huge library does not hold one long write transaction.
-	batch := make([]store.ScannedFile, 0, 128)
-	flush := func() error {
+	// Small, time-bounded batches so the library populates while scanning, plus a
+	// per-file fallback so one bad row cannot abort the whole scan.
+	batch := make([]store.ScannedFile, 0, 32)
+	lastFlush := time.Now()
+	flush := func(force bool) error {
 		if len(batch) == 0 {
 			return nil
 		}
-		created, err := sc.store.ApplyScanBatch(ctx, batch)
-		if err != nil {
+		if !force && len(batch) < 8 && time.Since(lastFlush) < 400*time.Millisecond {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
+		created, err := sc.store.ApplyScanBatch(ctx, batch)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			sc.log.Warn("batch failed, retrying per file", "err", err, "files", len(batch))
+			created = 0
+			for _, f := range batch {
+				c, ferr := sc.store.ApplyScanBatch(ctx, []store.ScannedFile{f})
+				if ferr != nil {
+					sc.log.Warn("skipping file", "file", f.Path, "err", ferr)
+					stats.Errors++
+					stats.Skipped++
+					continue
+				}
+				created += c
+			}
+		}
 		stats.Created += created
+		lastFlush = time.Now()
 		batch = batch[:0]
 		return nil
 	}
@@ -170,14 +199,16 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 		}
 		batch = append(batch, plans[i].item)
 		stats.Indexed++
-		if len(batch) >= 100 {
-			if err := flush(); err != nil {
-				return stats, err
-			}
-			report(75+float64(i+1)/float64(len(plans))*23, fmt.Sprintf("indexing %d/%d", i+1, len(plans)))
+		before := len(batch)
+		if err := flush(false); err != nil {
+			return stats, err
+		}
+		if before > 0 && len(batch) == 0 {
+			report(75+float64(i+1)/float64(len(plans))*23,
+				fmt.Sprintf("indexing %d/%d (%d added)", i+1, len(plans), stats.Created))
 		}
 	}
-	if err := flush(); err != nil {
+	if err := flush(true); err != nil {
 		return stats, err
 	}
 	if err := sc.store.DeleteOrphanItems(ctx, libraryID); err != nil {

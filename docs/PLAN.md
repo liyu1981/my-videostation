@@ -593,6 +593,15 @@ stored yet); remote NFO `<thumb>` URLs are ignored; `.vsmeta` TV-specific fields
 (no sample); sidecars are re-parsed on every scan (correct, but `vsmeta` files with embedded
 art cost a read per scan).
 
+### Scan robustness (post-M4 fixes)
+
+| Item | Status |
+|---|---|
+| Incremental persistence | ✅ items are committed in small, time-bounded batches (8 files / 400 ms), so the library populates while the scan runs |
+| Failure isolation | ✅ if a batch fails, files are retried one-by-one; the bad file is skipped and counted (`skipped`) instead of aborting the scan |
+| Duplicate titles | ✅ migration 0006 drops the unique `(library_id, kind, title, year)` index; the same movie in two folders/qualities is allowed (identity is the file path; version merging is future work) |
+| Job diagnostics | ✅ task rows expand to the full message/error and have a copy button (Tasks page and Libraries page) |
+
 ### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
 
 1. **sqlc deferred** — hand-written typed store until the schema settles (post-M2).
@@ -611,6 +620,8 @@ art cost a read per scan).
   in an unrelated folder stay unattached (hidden, not shown).
 - Multi-episode files create one episode item with an `episodeEnd` range (no per-episode
   watch state yet).
+- Duplicate movies (same title/year, e.g. two qualities in separate folders) become separate
+  items; merging them as versions with multiple files is not implemented yet.
 - Probing is 4-way parallel; DB writes remain sequential per batch of 100.
 - Thumbnails/trickplay, collections, categories/timeline, scheduler and bulk selection are
   M3+.

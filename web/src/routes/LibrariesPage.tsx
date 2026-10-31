@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { FolderPlus, HardDrive, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { api, type Job, type Library, type LibraryType } from '../lib/api';
 import { formatDateTime } from '../lib/format';
+import { JobMessage } from '../components/JobMessage';
 import { ErrorState, Loading } from '../components/State';
 
 const TYPE_LABEL: Record<LibraryType, string> = {
@@ -317,13 +318,13 @@ function JobRow({ job, active = false }: { job: Job; active?: boolean }) {
         : 'text-progress';
   return (
     <div className="rounded-lg border border-hairline bg-surface px-3 py-2">
-      <div className="flex items-center justify-between gap-3 text-[12px]">
-        <span className="flex min-w-0 items-center gap-2">
+      <div className="flex items-start justify-between gap-3 text-[12px]">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className={`shrink-0 font-medium ${statusColor}`}>{job.status}</span>
-          <span className="text-fg-muted">{job.type}</span>
-          <span className="truncate text-fg-dim">{job.error || job.message}</span>
-        </span>
-        <span className="shrink-0 text-[11px] text-fg-dim">
+          <span className="shrink-0 text-fg-muted">{job.type}</span>
+          <JobMessage text={job.error || job.message || ''} />
+        </div>
+        <span className="shrink-0 pt-0.5 text-[11px] text-fg-dim">
           {active ? `${Math.round(job.progress)}%` : formatDateTime(job.finishedAt ?? job.createdAt)}
         </span>
       </div>

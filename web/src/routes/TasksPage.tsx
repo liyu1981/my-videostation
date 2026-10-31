@@ -3,6 +3,7 @@ import { Activity } from 'lucide-react';
 import { api, type Job } from '../lib/api';
 import { EmptyState, Loading } from '../components/State';
 import { formatDateTime } from '../lib/format';
+import { JobMessage } from '../components/JobMessage';
 
 export function TasksPage() {
   const jobs = useQuery({
@@ -51,7 +52,7 @@ function JobCard({ job }: { job: Job }) {
       <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
         <span className={`rounded-full border px-2 py-0.5 text-[10.5px] uppercase tracking-wide ${badge}`}>{job.status}</span>
         <span className="font-medium text-fg">{job.type}</span>
-        <span className="min-w-0 flex-1 truncate text-fg-muted">{job.error || job.message}</span>
+        <JobMessage text={job.error || job.message || ''} />
         <span className="text-[11px] text-fg-dim">
           {job.finishedAt ? formatDateTime(job.finishedAt) : formatDateTime(job.startedAt ?? job.createdAt)}
         </span>
