@@ -8,9 +8,8 @@
     "pnpm": ">=12"
   },
   "scripts": {
-    "dev": "node scripts/ensure-tools.mjs --quiet && concurrently -k -n api,web -c cyan,magenta \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev": "node scripts/ensure-tools.mjs --quiet && node scripts/air.mjs",
     "dev:api": "node scripts/air.mjs",
-    "dev:web": "pnpm --filter myvideostation-web dev",
     "build": "node scripts/build.mjs",
     "build:web": "pnpm --filter myvideostation-web build",
     "typecheck": "pnpm --filter myvideostation-web typecheck",
@@ -19,8 +18,5 @@
     "clean": "node scripts/clean.mjs",
     "docker": "node scripts/docker.mjs",
     "bootstrap": "node scripts/ensure-tools.mjs"
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.1"
   }
 }

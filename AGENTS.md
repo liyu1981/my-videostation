@@ -90,6 +90,7 @@ pnpm lint       # gofmt check + go vet + tsc --noEmit
 pnpm test       # go test ./...
 pnpm build      # pnpm build:web → go:embed → bin/mvs
 pnpm bootstrap  # one-time dev tools (air, static ffprobe)
+pnpm dev        # single embedded server on :6500 (rebuilds on save)
 ```
 
 If a command does not exist yet (pre-M0), say so instead of pretending it passed.

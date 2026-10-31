@@ -147,8 +147,9 @@ my-video-station/
   or a hand-maintained `types.ts` kept honest by contract tests)
 - PWA manifest + service worker (M7)
 
-**Dev loop**: `pnpm dev` → air (Go rebuild/restart on save) on :6500 + Vite on :5173 proxying
-`/api`; `pnpm build` → Vite bundle → `internal/web/dist` → `go build -tags embedui` → `bin/mvs`.
+**Dev loop**: `pnpm dev` → air watches Go/SQL and `web/src`, runs `scripts/dev-build.mjs`
+(Vite bundle → `internal/web/dist` → `go build -tags embedui`) and restarts the single binary
+on :6500. No separate frontend server or proxy; dev and production serve the app the same way.
 
 ---
 

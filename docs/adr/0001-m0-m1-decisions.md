@@ -62,10 +62,11 @@ This keeps the index correct without triggers that would need to join people tab
 
 ## 9. Dev tooling: air + pnpm scripts (no Makefile)
 
-The dev loop is `pnpm dev`: **air** rebuilds/restarts the Go API on `.go`/`.sql` changes
-(binary built without `embedui`; Vite serves the SPA and proxies `/api`), while **Vite**
-hot-reloads the UI. Dev servers bind `0.0.0.0` (air binary on :6500, Vite on :5173) so the UI
-can be tested from other devices on the LAN — the production binary still defaults to
+The dev loop is `pnpm dev`: **air** watches Go, SQL and frontend sources; on change it runs
+`scripts/dev-build.mjs`, which builds the SPA, embeds it into the Go binary (`-tags embedui`)
+and restarts that single binary. Dev and production therefore serve the app identically
+(one origin, no Vite proxy); the trade-off is a ~1 s rebuild and a manual browser refresh
+instead of HMR. The dev server binds `0.0.0.0:6500`; the production binary still defaults to
 `127.0.0.1`. Builds are pnpm scripts (`scripts/build.mjs`) rather than Makefile targets, so
 there is one toolchain entry point (`pnpm`) for both halves of the repo.
 

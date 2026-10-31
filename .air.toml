@@ -1,17 +1,21 @@
-# Air: Go live-reload for development.
-# The dev binary is built WITHOUT the `embedui` tag — Vite serves the SPA on :5173
-# and proxies /api to this process. Production builds embed the UI (pnpm build).
+# Air: live reload for development.
+#
+# Dev runs the *complete* app: the SPA is built, embedded into the Go binary and served
+# from the same port as the API. Any change under cmd/, internal/ or web/src triggers a
+# frontend rebuild + Go build, and air restarts the single binary.
 root = "."
 tmp_dir = ".air"
 
 [build]
-  cmd = "go build -o .air/mvs ./cmd/mvs"
+  cmd = "node scripts/dev-build.mjs"
   bin = ".air/mvs"
   full_bin = ".air/mvs --listen 0.0.0.0:6500 --data ./data"
-  include_ext = ["go", "sql"]
+  include_ext = ["go", "sql", "ts", "tsx", "js", "jsx", "css", "html"]
   exclude_dir = [
-    "web",
     "node_modules",
+    "web/node_modules",
+    "web/dist",
+    "internal/web/dist",
     "docs",
     "deployments",
     "scripts",
@@ -20,11 +24,10 @@ tmp_dir = ".air"
     ".git",
     "bin",
     "data",
-    "testdata",
-    "internal/web/dist"
+    "testdata"
   ]
   exclude_regex = ["_test\\.go$"]
-  delay = 400
+  delay = 600
   stop_on_error = true
   send_interrupt = true
   kill_delay = "500ms"

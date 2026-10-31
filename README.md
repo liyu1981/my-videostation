@@ -127,22 +127,24 @@ pnpm install
 # one-time (idempotent): installs air (Go live reload) + static ffprobe into .tools/
 pnpm bootstrap
 
-# dev: Go API on :6500 with live reload (air) + Vite on :5173 with HMR
+# dev: one server on :6500 — air rebuilds the SPA, embeds it and restarts the binary
 pnpm dev
 
 # production: web bundle -> embedded dist -> single static binary
 pnpm build && ./bin/mvs --data ./data
 ```
 
-Editing a `.go` file rebuilds and restarts the API; editing a `.tsx/.ts/.css` file hot-reloads
-the browser through Vite. Migrations are embedded, so changing SQL also triggers a rebuild.
+Editing anything under `cmd/`, `internal/` or `web/src/` triggers a frontend build, a Go build
+with the SPA embedded, and a restart — the same single server as production, on `:6500`
+(reload the browser tab after a change; there is no separate Vite dev server or HMR).
+Migrations are embedded too, so changing SQL also triggers a rebuild.
 
-Both dev servers bind `0.0.0.0`, so you can open the UI from another device on the same LAN:
-`http://<your-lan-ip>:5173` (Vite) or `http://<your-lan-ip>:6500` (API / stub UI).
+The dev server binds `0.0.0.0`, so you can open the UI from another device on the same LAN:
+`http://<your-lan-ip>:6500`.
 
 | Script | Purpose |
 |---|---|
-| `pnpm dev` | air + vite, both watching |
+| `pnpm dev` | air watches Go + frontend, rebuilds the embedded single binary |
 | `pnpm build` | embed the SPA and produce `bin/mvs` |
 | `pnpm test` | Go test suite |
 | `pnpm lint` | gofmt check, go vet, `tsc --noEmit` |
