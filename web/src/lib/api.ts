@@ -10,6 +10,7 @@ export interface Item {
   sortTitle: string;
   originalTitle?: string;
   year?: number;
+  releaseDate?: string;
   overview?: string;
   tagline?: string;
   runtimeMs?: number;
@@ -123,6 +124,7 @@ export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancele
 export interface Job {
   id: number;
   type: string;
+  libraryId?: number;
   status: JobStatus;
   progress: number;
   message?: string;
@@ -159,6 +161,7 @@ export interface Candidate {
   title: string;
   originalTitle?: string;
   year?: number;
+  releaseDate?: string;
   overview?: string;
   posterUrl?: string;
   backdropUrl?: string;

@@ -287,6 +287,7 @@ func toLocalMeta(m *sidecar.Meta) *store.LocalMetadata {
 		Overview:      m.Overview,
 		Certification: m.Certification,
 		Year:          m.Year,
+		ReleaseDate:   m.ReleaseDate,
 		Rating:        m.Rating,
 		RuntimeMS:     m.RuntimeMS,
 		Genres:        m.Genres,

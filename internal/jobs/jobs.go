@@ -53,7 +53,14 @@ func (m *Manager) Enqueue(ctx context.Context, jobType string, payload any) (*st
 		}
 		raw = string(b)
 	}
-	job, err := m.store.CreateJob(ctx, jobType, raw)
+	var libraryID int64
+	var probe struct {
+		LibraryID int64 `json:"libraryId"`
+	}
+	if err := json.Unmarshal([]byte(raw), &probe); err == nil {
+		libraryID = probe.LibraryID
+	}
+	job, err := m.store.CreateJob(ctx, jobType, raw, libraryID)
 	if err != nil {
 		return nil, err
 	}

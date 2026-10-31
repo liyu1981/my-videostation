@@ -95,13 +95,15 @@ testdata/           parser corpus and generated sample media
   to fill the page), tile/list views, sort, per-library filter, pagination, global FTS5
   search, show → season → episode navigation.
 - **Item UI (VS parity)**: 270×388 poster with 76 px play overlay, unwatched chip + action
-  icons, 36 px title, tagline, info bar with stars/duration/certification, definition rows
-  (genre/cast/writer/director/reference/subtitles/audio), summary with "View all", season bar
-  + landscape episode cards, prev/next item arrows, media-info panel and extras.
+  icons, 36 px title, tagline, iconised info line (release date · stars · clock duration ·
+  video codec · audio codec) with an age-classification chip, definition rows (genre/cast/
+  writer/director/reference/subtitles/audio), summary with "View all", season bar + landscape
+  episode cards, prev/next item arrows, **media info dialog** from the top-right info button
+  and overflow menu, extras.
 - **Player (VS parity)**: custom auto-hiding control bar (prev/next, ±10 s, volume, time,
   subtitle menu, audio-track list, speed, fullscreen), buffered progress bar, big pause
-  overlay, next-up prompt, keyboard shortcuts, and a clear message when the browser cannot
-  decode the file (transcoding lands in M5).
+  overlay, next-up prompt, keyboard shortcuts, browser Back closing the player, and a clear
+  message when the browser cannot decode the file (transcoding lands in M5).
 - **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
   artwork caching under `<data>/cache`, an "Identify" dialog for manual matches, a
   "Needs attention" queue, and refresh that never overwrites locked fields.
@@ -112,8 +114,9 @@ testdata/           parser corpus and generated sample media
 - **Organisation (M3)**: Favorites / Watchlist / custom collections, selection mode with
   bulk watched + add-to-collection, category presets (added / watched / released / A–Z),
   genre/year/watched/folder filters from live facets, per-library auto-scan intervals.
-- **Operations**: per-library **Scan** (incremental) and **Rescan** (force re-probe), a task
-  monitor with **persisted logs** — per-file probe/index lines including full paths,
+- **Operations**: per-library **Scan** (incremental) and **Rescan** (force re-probe), with
+  **outstanding tasks shown inside each library card** (queued/running/failed), plus a full
+  task monitor with **persisted logs** — per-file probe/index lines including full paths,
   warn/error entries, copy-all, per-task delete and "clear finished".
 - **Playback (M4)**: direct play scaled to fit the window (`object-contain`, any aspect
   ratio), resume, sidecar + embedded subtitle tracks served as WebVTT (UTF-8/GB18030/Big5),

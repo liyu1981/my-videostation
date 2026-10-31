@@ -20,6 +20,7 @@ type Meta struct {
 	Tagline       string
 	Certification string
 	Year          int
+	ReleaseDate   string
 	Rating        float64
 	RuntimeMS     int64
 	Genres        []string
@@ -78,8 +79,10 @@ type xmlNFO struct {
 			Text string `xml:",chardata"`
 		} `xml:"thumb"`
 	} `xml:"fanart"`
-	Season  int `xml:"season"`
-	Episode int `xml:"episode"`
+	Season    int    `xml:"season"`
+	Episode   int    `xml:"episode"`
+	Premiered string `xml:"premiered"`
+	Aired     string `xml:"aired"`
 }
 
 // ParseFile reads and parses an NFO file.
@@ -124,6 +127,7 @@ func Parse(raw []byte) (*Meta, error) {
 		Tagline:       strings.TrimSpace(doc.Tagline),
 		Certification: strings.TrimSpace(doc.MPAA),
 		Year:          doc.Year,
+		ReleaseDate:   firstNonEmpty(strings.TrimSpace(doc.Premiered), strings.TrimSpace(doc.Aired)),
 		Rating:        pickRating(doc),
 		RuntimeMS:     int64(doc.Runtime) * 60_000,
 		Genres:        cleanList(doc.Genres),

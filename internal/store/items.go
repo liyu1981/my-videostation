@@ -19,6 +19,7 @@ type Item struct {
 	SortTitle       string    `json:"sortTitle"`
 	OriginalTitle   string    `json:"originalTitle,omitempty"`
 	Year            int       `json:"year,omitempty"`
+	ReleaseDate     string    `json:"releaseDate,omitempty"`
 	Overview        string    `json:"overview,omitempty"`
 	Tagline         string    `json:"tagline,omitempty"`
 	RuntimeMS       int64     `json:"runtimeMs,omitempty"`
@@ -103,7 +104,7 @@ type Person struct {
 
 const itemColumns = `
 	m.id, m.library_id, m.parent_id, m.kind, m.title, m.sort_title,
-	COALESCE(m.original_title,''), COALESCE(m.year,0), COALESCE(m.overview,''),
+	COALESCE(m.original_title,''), COALESCE(m.year,0), COALESCE(m.release_date,''), COALESCE(m.overview,''),
 	COALESCE(m.tagline,''), COALESCE(m.runtime_ms,0), COALESCE(m.rating,0),
 	COALESCE(m.content_rating,''), COALESCE(m.poster_path,''), COALESCE(m.backdrop_path,''),
 	COALESCE(m.provider,''), COALESCE(m.provider_id,''), m.metadata_status, m.match_confidence,
@@ -127,7 +128,7 @@ func scanItem(r rowScanner, it *Item) error {
 	var state [3]int64
 	if err := r.Scan(
 		&it.ID, &it.LibraryID, &it.ParentID, &it.Kind, &it.Title, &it.SortTitle,
-		&it.OriginalTitle, &it.Year, &it.Overview, &it.Tagline, &it.RuntimeMS, &it.Rating,
+		&it.OriginalTitle, &it.Year, &it.ReleaseDate, &it.Overview, &it.Tagline, &it.RuntimeMS, &it.Rating,
 		&it.ContentRating, &it.PosterPath, &it.BackdropPath,
 		&it.Provider, &it.ProviderID, &it.MetadataStatus, &it.MatchConfidence,
 		&it.SeasonNumber, &it.EpisodeNumber, &it.EpisodeEnd, &added, &updated, &locked, &hidden,
@@ -554,7 +555,7 @@ type ItemPatch struct {
 
 var lockableFields = map[string]bool{
 	"title": true, "original_title": true, "overview": true, "tagline": true,
-	"year": true, "rating": true, "content_rating": true, "genres": true,
+	"year": true, "release_date": true, "rating": true, "content_rating": true, "genres": true,
 	"poster": true, "backdrop": true, "cast": true, "crew": true,
 }
 
@@ -832,7 +833,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Item, er
 		var st [3]int64
 		if err := rows.Scan(
 			&it.ID, &it.LibraryID, &it.ParentID, &it.Kind, &it.Title, &it.SortTitle,
-			&it.OriginalTitle, &it.Year, &it.Overview, &it.Tagline, &it.RuntimeMS, &it.Rating,
+			&it.OriginalTitle, &it.Year, &it.ReleaseDate, &it.Overview, &it.Tagline, &it.RuntimeMS, &it.Rating,
 			&it.ContentRating, &it.PosterPath, &it.BackdropPath,
 			&it.Provider, &it.ProviderID, &it.MetadataStatus, &it.MatchConfidence,
 			&it.SeasonNumber, &it.EpisodeNumber, &it.EpisodeEnd, &added, &updated, &locked, &hidden,

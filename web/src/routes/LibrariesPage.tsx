@@ -19,7 +19,7 @@ export function LibrariesPage() {
   const libs = useQuery({ queryKey: ['libraries'], queryFn: api.libraries });
   const jobs = useQuery({
     queryKey: ['jobs'],
-    queryFn: () => api.jobs(15),
+    queryFn: () => api.jobs(100),
     refetchInterval: (query) => {
       const list = query.state.data?.jobs ?? [];
       return list.some((j) => j.status === 'running' || j.status === 'queued') ? 1000 : false;
@@ -95,8 +95,6 @@ export function LibrariesPage() {
   if (libs.isLoading) return <Loading />;
   if (libs.isError) return <ErrorState error={libs.error} />;
 
-  const activeJob = jobs.data?.jobs.find((j) => j.status === 'running' || j.status === 'queued');
-
   return (
     <div className="mx-auto max-w-5xl px-6 py-7 lg:px-8">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -106,13 +104,18 @@ export function LibrariesPage() {
             Read-only sources. Files are indexed in place and never modified.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAdd((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-lg bg-progress/90 px-3.5 py-2 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
-        >
-          <Plus className="size-4" aria-hidden /> Add library
-        </button>
+        <div className="flex items-center gap-2">
+          <Link to="/tasks" className="rounded-lg border border-hairline px-3 py-1.5 text-[12px] text-fg-muted hover:border-hairline-strong hover:text-fg">
+            All tasks
+          </Link>
+          <button
+            type="button"
+            onClick={() => setShowAdd((v) => !v)}
+            className="inline-flex items-center gap-2 rounded-lg bg-progress/90 px-3.5 py-2 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
+          >
+            <Plus className="size-4" aria-hidden /> Add library
+          </button>
+        </div>
       </header>
 
       {showAdd ? (
@@ -315,6 +318,25 @@ export function LibrariesPage() {
                 </div>
               </form>
             ) : null}
+
+            {(() => {
+              const libJobs = (jobs.data?.jobs ?? []).filter(
+                (j) => j.libraryId === lib.id && (j.status === 'queued' || j.status === 'running' || j.status === 'failed'),
+              );
+              if (libJobs.length === 0) return null;
+              return (
+                <div className="mt-3 overflow-hidden rounded-lg border border-hairline bg-surface-2/40">
+                  <p className="border-b border-hairline px-3 py-1.5 text-[10.5px] uppercase tracking-wide text-fg-dim">
+                    Outstanding tasks
+                  </p>
+                  <div className="divide-y divide-hairline">
+                    {libJobs.map((job) => (
+                      <JobRow key={job.id} job={job} active={job.status === 'running' || job.status === 'queued'} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ))}
 
@@ -327,16 +349,6 @@ export function LibrariesPage() {
         ) : null}
       </div>
 
-      <section className="mt-8">
-        <h2 className="mb-2 text-[13.5px] font-semibold text-fg-heading">Background tasks</h2>
-        {activeJob ? <JobRow job={activeJob} active /> : null}
-        <div className="space-y-1.5">
-          {(jobs.data?.jobs ?? []).filter((j) => j.status !== 'running' && j.status !== 'queued').map((job) => (
-            <JobRow key={job.id} job={job} />
-          ))}
-        </div>
-        {(jobs.data?.jobs ?? []).length === 0 ? <p className="text-[12px] text-fg-dim">No tasks yet.</p> : null}
-      </section>
     </div>
   );
 }
@@ -349,7 +361,7 @@ function JobRow({ job, active = false }: { job: Job; active?: boolean }) {
         ? 'text-active'
         : 'text-progress';
   return (
-    <div className="rounded-lg border border-hairline bg-surface px-3 py-2">
+    <div className="px-3 py-2">
       <div className="flex items-start justify-between gap-3 text-[12px]">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className={`shrink-0 font-medium ${statusColor}`}>{job.status}</span>

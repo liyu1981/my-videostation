@@ -56,6 +56,8 @@ export function PlayerModal() {
   const hideTimer = useRef<number | null>(null);
   const lastSaved = useRef(0);
   const resumedFor = useRef<number | null>(null);
+  // Opening the player pushes one history entry, so the browser Back button closes it.
+  const historyPushed = useRef(false);
 
   const playback = useQuery({
     queryKey: ['playback', player?.itemId ?? 0],
@@ -87,11 +89,40 @@ export function PlayerModal() {
     [player, qc],
   );
 
-  const close = useCallback(() => {
+  const saveNow = useCallback(() => {
     const v = videoRef.current;
     if (v && v.currentTime > 2) save(v.currentTime * 1000, (v.duration || 0) * 1000, false);
+  }, [save]);
+
+  const close = useCallback(() => {
+    if (historyPushed.current) {
+      // popstate handler closes the player (and saves progress).
+      window.history.back();
+      return;
+    }
+    saveNow();
     setPlayer(null);
-  }, [save, setPlayer]);
+  }, [saveNow, setPlayer]);
+
+  // Push a history entry when the player opens; Back then closes the player.
+  useEffect(() => {
+    if (!player) return;
+    if (!historyPushed.current) {
+      window.history.pushState({ ...(window.history.state ?? {}), mvsPlayer: true }, '');
+      historyPushed.current = true;
+    }
+  }, [player]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      if (!historyPushed.current) return;
+      historyPushed.current = false;
+      saveNow();
+      setPlayer(null);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [saveNow, setPlayer]);
 
   const poke = useCallback(() => {
     setControlsVisible(true);

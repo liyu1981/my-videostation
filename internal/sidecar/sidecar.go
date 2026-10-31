@@ -26,6 +26,7 @@ type Meta struct {
 	Overview      string
 	Certification string
 	Year          int
+	ReleaseDate   string
 	Rating        float64
 	RuntimeMS     int64
 	Genres        []string
@@ -85,6 +86,7 @@ func Load(videoPath, cacheDir string) *Result {
 			Tagline:       showNFO.Tagline,
 			Certification: showNFO.Certification,
 			Year:          showNFO.Year,
+			ReleaseDate:   showNFO.ReleaseDate,
 			Rating:        showNFO.Rating,
 			Genres:        showNFO.Genres,
 			Cast:          showNFO.Cast,
@@ -157,6 +159,7 @@ func merge(n *nfo.Meta, v *vsmeta.Meta, cacheDir string) *Meta {
 		m.Overview = v.Overview
 		m.Certification = v.Certification
 		m.Year = v.Year
+		m.ReleaseDate = v.ReleaseDate
 		m.Rating = v.Rating
 		m.Genres = v.Genres
 		m.Cast = v.Cast
@@ -181,6 +184,9 @@ func merge(n *nfo.Meta, v *vsmeta.Meta, cacheDir string) *Meta {
 		m.Certification = first(n.Certification, m.Certification)
 		if n.Year > 0 {
 			m.Year = n.Year
+		}
+		if n.ReleaseDate != "" {
+			m.ReleaseDate = n.ReleaseDate
 		}
 		if n.Rating > 0 {
 			m.Rating = n.Rating

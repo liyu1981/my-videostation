@@ -5,19 +5,26 @@ import { useAtom } from 'jotai';
 import {
   ArrowLeft,
   Bookmark,
+  Calendar,
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  Film,
   Heart,
+  Info,
   ListPlus,
   MoreHorizontal,
   Pencil,
   Play,
   RefreshCw,
   SearchCheck,
+  Star,
+  Volume2,
+  X,
 } from 'lucide-react';
 import { api, type Item } from '../lib/api';
-import { audioSummary, episodeLabel, formatClock, resolutionLabel } from '../lib/format';
+import { audioSummary, episodeLabel, formatClock, formatReleaseDate, resolutionLabel } from '../lib/format';
 import { playerAtom } from '../atoms/ui';
 import { ErrorState, Loading } from '../components/State';
 import { MediaInfoPanel } from '../components/MediaInfo';
@@ -36,6 +43,7 @@ export function DetailPage() {
   const [seasonId, setSeasonId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
 
   const item = useQuery({ queryKey: ['item', id], queryFn: () => api.item(id), enabled: id > 0 });
   const neighbors = useQuery({
@@ -189,6 +197,17 @@ export function DetailPage() {
           </div>
 
           <div className="relative flex items-center gap-1">
+            {detail.files.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setMediaInfoOpen(true)}
+                aria-label="View media info"
+                title="View media info"
+                className="grid size-8 place-items-center rounded-lg text-fg-muted hover:bg-surface-2 hover:text-fg"
+              >
+                <Info className="size-4" aria-hidden />
+              </button>
+            ) : null}
             {detail.locked ? (
               <span className="rounded-full border border-hairline px-2 py-0.5 text-[10.5px] text-fg-dim">Locked</span>
             ) : null}
@@ -214,6 +233,11 @@ export function DetailPage() {
                   {detail.providerId ? (
                     <MenuItem onClick={() => { setMenuOpen(false); refreshMeta.mutate(); }} icon={<RefreshCw className="size-3.5" aria-hidden />}>
                       Refresh metadata
+                    </MenuItem>
+                  ) : null}
+                  {detail.files.length > 0 ? (
+                    <MenuItem onClick={() => { setMenuOpen(false); setMediaInfoOpen(true); }} icon={<Info className="size-3.5" aria-hidden />}>
+                      View media info
                     </MenuItem>
                   ) : null}
                   <MenuItem
@@ -301,30 +325,50 @@ export function DetailPage() {
             </h1>
             {detail.tagline ? <p className="mt-1 text-[15px] text-fg-muted">{detail.tagline}</p> : null}
 
-            {/* info bar */}
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13.5px] text-fg-muted">
-                {detail.year ? <span>{detail.year}</span> : <span>{new Date(detail.addedAt).getFullYear()}</span>}
-                {detail.rating ? (
-                  <span className="flex items-center gap-1 text-rating" aria-label={`${detail.rating.toFixed(1)} of 10`}>
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <span key={i} className={i < Math.round(detail.rating! / 2) ? 'opacity-100' : 'opacity-25'}>★</span>
-                    ))}
-                  </span>
-                ) : null}
-                {detail.runtimeMs ? <span>{formatClock(detail.runtimeMs)}</span> : null}
-                {isEpisode ? <span>{episodeLabel(detail.seasonNumber, detail.episodeNumber, detail.episodeEnd)}</span> : null}
-                {detail.contentRating ? (
-                  <span className="rounded-sm border border-white/40 px-1.5 py-px text-[12px]">{detail.contentRating}</span>
-                ) : null}
-              </div>
+            {/* info line: date · stars · duration · codecs · age classification */}
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[15px] text-fg-muted">
+              <span className="flex items-center gap-1.5">
+                <Calendar className="size-4 text-fg-dim" aria-hidden />
+                {detail.releaseDate ? formatReleaseDate(detail.releaseDate) : detail.year || new Date(detail.addedAt).getFullYear()}
+              </span>
+              {detail.rating ? (
+                <span className="flex items-center gap-0.5" aria-label={`${detail.rating.toFixed(1)} of 10`}>
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <Star
+                      key={i}
+                      className={['size-4', i < Math.round(detail.rating! / 2) ? 'fill-rating text-rating' : 'text-white/20'].join(' ')}
+                      aria-hidden
+                    />
+                  ))}
+                </span>
+              ) : null}
+              {detail.runtimeMs ? (
+                <span className="flex items-center gap-1.5">
+                  <Clock className="size-4 text-fg-dim" aria-hidden />
+                  {formatClock(detail.runtimeMs)}
+                </span>
+              ) : null}
+              {isEpisode ? (
+                <span className="rounded-sm border border-white/25 px-2 py-0.5 text-[13px]">
+                  {episodeLabel(detail.seasonNumber, detail.episodeNumber, detail.episodeEnd)}
+                </span>
+              ) : null}
               {file ? (
-                <div className="flex items-center gap-2 text-[12px] text-fg-muted">
-                  <span>{resolutionLabel(file.width, file.height)}</span>
-                  <span className="text-fg-dim">·</span>
-                  <span>{audioSummary(file)}</span>
-                  {file.hdr ? <span className="rounded-sm border border-white/30 px-1.5 py-px text-[11px]">{file.hdr}</span> : null}
-                </div>
+                <span className="flex items-center gap-1.5">
+                  <Film className="size-4 text-fg-dim" aria-hidden />
+                  {[resolutionLabel(file.width, file.height), file.videoCodec?.toUpperCase(), file.hdr].filter(Boolean).join(' · ')}
+                </span>
+              ) : null}
+              {file ? (
+                <span className="flex items-center gap-1.5">
+                  <Volume2 className="size-4 text-fg-dim" aria-hidden />
+                  {audioSummary(file)}
+                </span>
+              ) : null}
+              {detail.contentRating ? (
+                <span className="ml-auto rounded-sm border border-white/50 px-2 py-0.5 text-[12.5px] font-medium text-fg">
+                  {certLabel(detail.contentRating)}
+                </span>
               ) : null}
             </div>
 
@@ -441,13 +485,6 @@ export function DetailPage() {
           </section>
         ) : null}
 
-        {detail.files.length > 0 ? (
-          <section className="mt-9">
-            <h2 className="mb-3 text-[17px] font-semibold text-fg-heading">Media info</h2>
-            <MediaInfoPanel files={detail.files} />
-          </section>
-        ) : null}
-
         {detail.extras.length > 0 ? (
           <section className="mt-9">
             <h2 className="mb-3 text-[17px] font-semibold text-fg-heading">Extras</h2>
@@ -485,8 +522,40 @@ export function DetailPage() {
         <ChevronRight className="size-5" aria-hidden />
       </button>
 
+      {mediaInfoOpen ? <MediaInfoDialog title={detail.title} files={detail.files} onClose={() => setMediaInfoOpen(false)} /> : null}
       {editing ? <EditDialog item={detail} onClose={() => setEditing(false)} /> : null}
       {identifying ? <IdentifyDialog item={detail} onClose={() => setIdentifying(false)} /> : null}
+    </div>
+  );
+}
+
+function certLabel(value: string): string {
+  const part = value.includes(':') ? value.split(':').pop()! : value;
+  return part.replace(/^rated\s+/i, '').trim();
+}
+
+function MediaInfoDialog({ title, files, onClose }: { title: string; files: import('../lib/api').MediaFile[]; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:items-center">
+      <div className="w-full max-w-3xl rounded-[var(--radius-panel)] border border-hairline bg-surface shadow-2xl">
+        <header className="flex items-center justify-between border-b border-hairline px-5 py-3.5">
+          <div>
+            <h2 className="text-[14px] font-semibold">Media info</h2>
+            <p className="truncate text-[11.5px] text-fg-dim">{title}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-fg-dim hover:bg-surface-2 hover:text-fg">
+            <X className="size-4" aria-hidden />
+          </button>
+        </header>
+        <div className="max-h-[70vh] overflow-y-auto p-4">
+          <MediaInfoPanel files={files} />
+        </div>
+        <footer className="flex justify-end border-t border-hairline px-5 py-3">
+          <button type="button" onClick={onClose} className="rounded-lg border border-hairline px-3.5 py-1.5 text-[12.5px] text-fg-muted hover:text-fg">
+            Close
+          </button>
+        </footer>
+      </div>
     </div>
   );
 }

@@ -629,12 +629,18 @@ each job is pruned to its newest 50,000 lines when it finishes; the API/UI fetch
 
 | Item | Status |
 |---|---|
+| Header | ✅ Video Station layout: logo block exactly as wide as the rail (240 px), home button immediately after it (x=248), then the search field; settings + current user menu on the right; the header sits above page content (z-index) so its dropdowns are never covered by the hero; navigation rail below the header |
 | Detail layout | ✅ Video-Station structure: **backdrop covers the whole page** (not a top band), 270×388 poster with 76 px play button and 3 px progress line, yellow Unwatched chip, icon actions, 36 px title, tagline, info bar (year/stars/clock duration/certification + resolution/audio badges), bold-label definition rows, summary with View all, bottom-corner prev/next arrows, overflow menu (edit/identify/refresh/watched) |
 | Shows & episodes | ✅ season bar with red active tab, 180×120 landscape episode cards; episode pages reuse the layout with `SxxEyy`; episode titles that look like filenames/release tags are repaired to "Episode N" (including when a Jellyfin `.nfo` contains a filename as its title) |
-| Player | ✅ custom control bar: prev/next item, ±10 s, play/pause, volume slider, clock, subtitle menu, audio-track list (informational until M5), speed menu, fullscreen, buffered bar, auto-hide (cursor hidden), big pause overlay, next-up prompt, keyboard shortcuts |
+| Player | ✅ browser Back closes the player (opening pushes one history entry; X/Esc use the same entry); custom control bar: prev/next item, ±10 s, play/pause, volume slider, clock, subtitle menu, audio-track list (informational until M5), speed menu, fullscreen, buffered bar, auto-hide (cursor hidden), big pause overlay, next-up prompt, keyboard shortcuts |
 | Unsupported codecs | ✅ explicit error panel + download link instead of a silent black screen (Chromium cannot demux MKV/XviD; H.264 needs proprietary codecs) |
 | Loading polish | ✅ blurred poster placeholder behind hero/detail backdrops so images never "pop in" onto an empty page; backdrop fades in on load |
 | API | ✅ `/items/{id}/neighbors`, audio tracks in `/items/{id}/playback` |
+| Detail info line | ✅ 15 px iconised row: release date (calendar), star rating, clock duration, video codec (film), audio codec (volume), age-classification chip on the right |
+| Release date | ✅ migration 0008 `media_items.release_date`, imported from `.vsmeta` field 6 and NFO `<premiered>`/`<aired>`, surfaced by the API and UI |
+| Media info | ✅ removed from the page body; opened as a dialog from the top-right info button or the overflow menu (VS behaviour) |
+| Per-library tasks | ✅ migration 0009 `jobs.library_id`; the Libraries page shows an **Outstanding tasks** section inside each library card (queued / running / failed) with progress and expandable/copyable messages; the global list was removed in favour of an "All tasks" link |
+| Browse toolbar | ✅ reduced to VS parity: category dropdown (Recently Added/Watched/Released/All), sort dropdown, thumbnail/tile/list switch, selection mode; genre/year/watched/folder filters and the local filter box removed |
 
 ### Deviations (see `docs/adr/0001-m0-m1-decisions.md`)
 

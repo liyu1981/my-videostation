@@ -9,6 +9,7 @@ import (
 type Job struct {
 	ID         int64      `json:"id"`
 	Type       string     `json:"type"`
+	LibraryID  int64      `json:"libraryId,omitempty"`
 	Status     string     `json:"status"`
 	Progress   float64    `json:"progress"`
 	Message    string     `json:"message,omitempty"`
@@ -19,12 +20,12 @@ type Job struct {
 	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 }
 
-const jobColumns = `id, type, status, progress, message, error, payload, created_at, started_at, finished_at`
+const jobColumns = `id, type, library_id, status, progress, message, error, payload, created_at, started_at, finished_at`
 
 func scanJob(r rowScanner, j *Job) error {
 	var created string
 	var started, finished, payload *string
-	if err := r.Scan(&j.ID, &j.Type, &j.Status, &j.Progress, &j.Message, &j.Error,
+	if err := r.Scan(&j.ID, &j.Type, &j.LibraryID, &j.Status, &j.Progress, &j.Message, &j.Error,
 		&payload, &created, &started, &finished); err != nil {
 		return err
 	}
@@ -43,14 +44,14 @@ func scanJob(r rowScanner, j *Job) error {
 	return nil
 }
 
-// CreateJob inserts a queued job.
-func (s *Store) CreateJob(ctx context.Context, typ, payload string) (*Job, error) {
+// CreateJob inserts a queued job, optionally scoped to a library.
+func (s *Store) CreateJob(ctx context.Context, typ, payload string, libraryID int64) (*Job, error) {
 	if payload == "" {
 		payload = "{}"
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO jobs (type, status, payload, created_at) VALUES (?, 'queued', ?, ?)`,
-		typ, payload, now())
+		`INSERT INTO jobs (type, library_id, status, payload, created_at) VALUES (?, ?, 'queued', ?, ?)`,
+		typ, libraryID, payload, now())
 	if err != nil {
 		return nil, wrap("create job", err)
 	}

@@ -362,6 +362,7 @@ type LocalMetadata struct {
 	Overview      string
 	Certification string
 	Year          int
+	ReleaseDate   string
 	Rating        float64
 	RuntimeMS     int64
 	Genres        []string
@@ -429,6 +430,9 @@ func applyLocalMeta(ctx context.Context, tx *sql.Tx, itemID int64, m *LocalMetad
 	}
 	if !locks["year"] && m.Year > 0 {
 		add("year", m.Year)
+	}
+	if !locks["release_date"] && m.ReleaseDate != "" {
+		add("release_date", m.ReleaseDate)
 	}
 	if !locks["rating"] && m.Rating > 0 {
 		add("rating", m.Rating)

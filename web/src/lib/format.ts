@@ -29,6 +29,13 @@ export function formatBytes(bytes?: number): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+export function formatReleaseDate(value?: string): string {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
 export function formatDate(iso?: string): string {
   if (!iso) return '';
   const d = new Date(iso);
