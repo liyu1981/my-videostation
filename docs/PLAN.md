@@ -532,7 +532,7 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 | Cast/crew/genres/certification | ✅ applied transactionally; crew roles mapped to director/writer |
 | Locks | ✅ automatic enrichment skips locked fields; manual match overrides (explicit user choice) |
 | DB authority | ✅ local `.vsmeta` > `.nfo` applied at import; user edits and TMDb matches set `metadata_status = manual` and rescans never revert them |
-| Identify UI | ✅ nested **Search from Video Info Plugin** dialog inside Edit video info: title search, **language picker** (remembered in `localStorage`, default `en-US`), results table (Poster / Title / Release date / Source / Summary), row select + OK; "Needs attention" row on Home and per-library counts. The default search language setting was removed from Settings. |
+| Identify UI | ✅ nested **Search from Video Info Plugin** dialog inside Edit video info: title search, **language picker** (remembered in `localStorage`, default `en-US`), results table (Poster / Title / Release date / Source / Summary), row select + OK. Manual searches are deliberately broad (the item's stored year is **not** applied implicitly), so re-searching an already-matched item still lists all provider results for a manual change; "Needs attention" row on Home and per-library counts. The default search language setting was removed from Settings. |
 | Settings UI | ✅ TMDB key (masked) and certification region; the default search language was removed (per-search language picker, remembered) |
 
 ### M2 — known limitations

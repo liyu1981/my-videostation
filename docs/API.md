@@ -39,7 +39,7 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | POST | `/items/{id}/progress` | `{positionMs, durationMs, played}` (upsert) |
 | GET | `/settings` | Provider settings (API key is never returned) |
 | PUT | `/settings` | `{tmdbApiKey?, language?, region?}` (empty key clears it) |
-| GET | `/items/{id}/matches?q=&year=&language=` | Provider candidates, best first; `language` overrides the provider search language (default `en-US`). For episodes the query searches **TV shows** (default: the parent show's title) |
+| GET | `/items/{id}/matches?q=&year=&language=` | Provider candidates, best first; `language` overrides the provider search language (default `en-US`). For episodes the query searches **TV shows** (default: the parent show's title). `year` is only applied when explicitly passed; the item's stored year is not used implicitly |
 | POST | `/items/{id}/match` | `{providerId, language?, season?, episode?}` — manual match; `language` fetches the provider details in that language (overrides locks). For episodes `providerId` is the **show id**; optional `season`/`episode` select which episode to fetch (default: the item's numbers) |
 | POST | `/items/{id}/refresh?language=` | Re-fetch from the stored provider id (respects locks); optional language override. Episodes use their stored show id + season/episode |
 | GET | `/items/{id}/duplicate` | Another same-title item in the library (`{item}`), or `{}` (movies, home videos and shows) |

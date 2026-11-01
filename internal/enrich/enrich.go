@@ -143,18 +143,14 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 		if query == "" {
 			query = show.Title
 		}
-		if year == 0 {
-			year = show.Year
-		}
 	} else if item.Kind != store.KindMovie && item.Kind != store.KindShow {
 		return nil, metadata.ErrUnsupportedKind
 	}
 	if query == "" {
 		query = item.Title
 	}
-	if year == 0 {
-		year = item.Year
-	}
+	// Manual searches are deliberately broad: do not filter by the item's stored
+	// year, otherwise re-searching a matched item returns only that year's results.
 	var candidates []metadata.Candidate
 	if lp, ok := provider.(metadata.LanguageProvider); ok && language != "" {
 		if searchTV {
