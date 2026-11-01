@@ -9,6 +9,28 @@ MyVideoStation currently does not**, so gaps are deliberate rather than accident
   and should be confirmed against a real DSM before we invest in parity work.
 - Keep this file updated whenever a gap is closed, accepted, or re-scoped.
 
+## Tracker map
+
+| document | what it answers |
+|---|---|
+| `docs/GAPS.md` (this file) | Which Video Station behaviours are missing/partial, why, and what closes each one |
+| `docs/PLAN.md` | Architecture, data model, API sketch, milestones M0–M7, open decisions |
+| `docs/UI-PROBE.md` | Verified Video Station design tokens, layout metrics, component specs, parity checklist |
+| `docs/API.md` | The `/api/v1` HTTP contract |
+| `docs/adr/` | Decisions (e.g. ADR 0002: provider plugins deferred) |
+
+Rules:
+
+- **One row per gap**, stable id (`GAP-nnn`), never reused.
+- When a gap closes, mark it `CLOSED` (strike through the description) and update the
+  matching `PLAN.md`/`UI-PROBE.md` row in the same change.
+- New scope or phase changes go to `PLAN.md`; design-token/component changes go to
+  `UI-PROBE.md`; deliberate non-goals stay here with a workaround note.
+- `GAP-NEVER` rows are **deliberate non-goals**; they have no planned work and are not
+  part of the dependency graph.
+
+Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
+
 ---
 
 ## Legend
@@ -52,9 +74,138 @@ library-side (DVR/TV recording). That matches the agreed priority: management
 (M1–M3) first, with playback/client parity debt paid in M4–M7. Nothing S1 in M1–M3
 remains unaddressed by the plan.
 
+## 2. Dependency map (open gaps)
+
+`A --> B` means **A depends on B**: B must land (or at least be understood) before A can
+be completed faithfully. Dotted arrows are shared infrastructure or parity-completeness
+dependencies, not hard blockers. The graph covers the buildable open gaps
+(`GAP-LATER`/`GAP-UNDECIDED`); `GAP-NEVER` non-goals, `PLANNED`, `ADV` and `CLOSED` rows
+are excluded (they have no planned work or are already done).
+
+```mermaid
+flowchart TB
+  subgraph Library["Library & metadata"]
+    direction TB
+    G1["GAP-001 network/cloud sources"]
+    G2["GAP-002 real-time watching"]
+    G3["GAP-003 ISO/disc playback"]
+    G5["GAP-005 indexing rules"]
+    G6["GAP-006 thumbnails"]
+    G7["GAP-007 scrub previews"]
+    G8["GAP-008 VS DB import"]
+    G10["GAP-010 provider plugins"]
+    G11["GAP-011 trailers"]
+    G12["GAP-012 subtitle search"]
+
+    G3 --> G16
+    G7 --> G16
+    G7 -.-> G6
+    G11 -.-> G10
+  end
+
+  subgraph Playback["Playback & transcoding"]
+    direction TB
+    G16["GAP-016 transcode / codecs"]
+    G17["GAP-017 subtitle SMI/sync"]
+    G18["GAP-018 image subtitles"]
+    G19["GAP-019 play-all/shuffle"]
+    G20["GAP-020 offline conversion"]
+    G22["GAP-022 casting"]
+    G24["GAP-024 audio switching"]
+    G25["GAP-025 bandwidth limits"]
+    G65["GAP-065 screenshots"]
+
+    G18 --> G16
+    G20 --> G16
+    G24 --> G16
+    G22 -.-> G16
+    G65 -.-> G16
+    G25 -.-> G40
+  end
+
+  subgraph Users["Users & security"]
+    direction TB
+    G40["GAP-040 identity (OIDC/LDAP)"]
+    G41["GAP-041 2FA / sessions"]
+    G42["GAP-042 parental controls"]
+    G43["GAP-043 library permissions"]
+    G44["GAP-044 audit log"]
+    G45["GAP-045 share links"]
+
+    G41 -.-> G40
+    G42 --> G40
+    G43 --> G40
+    G44 -.-> G40
+    G45 -.-> G41
+    G45 -.-> G25
+  end
+
+  subgraph Ops["Admin, ops, i18n"]
+    direction TB
+    G50["GAP-050 backup/restore"]
+    G51["GAP-051 notifications"]
+    G53["GAP-053 i18n"]
+    G54["GAP-054 HW transcoding"]
+    G55["GAP-055 cache management"]
+
+    G54 --> G16
+    G55 -.-> G6
+    G55 -.-> G16
+  end
+
+  %% layout-only links keep the clusters stacked
+  G12 ~~~ G16
+  G65 ~~~ G40
+  G45 ~~~ G50
+  G55 ~~~ G16
+```
+
+### Dependency lookup table
+
+Read `Depends on` as "must land first". `soft` means shared infrastructure or
+parity-completeness, not a hard feature blocker.
+
+| gap | depends on | kind | note |
+|---|---|---|---|
+| GAP-001 | — | — | storage abstraction; host mounts today |
+| GAP-002 | — | — | fsnotify opt-in; shares indexing work with GAP-005 |
+| GAP-003 | GAP-016 | hard | disc/ISO playback needs the transcode pipeline |
+| GAP-005 | — | — | globs, min-size and exclusion rules |
+| GAP-006 | — | — | thumbnail worker; GAP-055 depends on it |
+| GAP-007 | GAP-016, GAP-006 | hard / soft | sprites need ffmpeg; shares the thumbnail pipeline |
+| GAP-008 | — | — | VS database importer; `.vsmeta` is already imported |
+| GAP-010 | — | — | provider interface/registry in place; plugin UX is GAP-064 (non-goal) |
+| GAP-011 | GAP-010 | soft | provider trailer keys |
+| GAP-012 | — | — | OpenSubtitles policy/API and rate limits |
+| GAP-016 | — | — | core transcode/codec pipeline |
+| GAP-017 | — | — | SMI plus per-playback sync/styling |
+| GAP-018 | GAP-016 | hard | image subtitles need burn-in/transcode |
+| GAP-019 | — | — | player queue state machine |
+| GAP-020 | GAP-016 | hard | offline conversion writes new files |
+| GAP-022 | GAP-016 | soft | casting needs HLS/transcode for many codecs |
+| GAP-024 | GAP-016 | hard | audio switching restarts the HLS session |
+| GAP-025 | GAP-040 | soft | per-user limits need users/sessions |
+| GAP-040 | — | — | OIDC/LDAP identity |
+| GAP-041 | GAP-040 | soft | 2FA/session management on top of identity |
+| GAP-042 | GAP-040 | hard | per-user rating ceiling |
+| GAP-043 | GAP-040 | hard | per-library permissions |
+| GAP-044 | GAP-040 | soft | audit log needs users |
+| GAP-045 | GAP-041, GAP-025 | soft | signed links plus rate limits |
+| GAP-050 | — | — | DB/art/watch-state backup |
+| GAP-051 | — | — | webhook/SMTP on the job queue |
+| GAP-053 | — | — | i18n scaffolding |
+| GAP-054 | GAP-016 | hard | HW accel plugs into the transcode pipeline |
+| GAP-055 | GAP-006, GAP-016 | soft | cache UI needs thumbnails/transcodes |
+| GAP-065 | GAP-016 | soft | ffmpeg screenshot |
+
+Non-goals (not in the graph): GAP-004 (TV recording), GAP-021 (ISO/3D), GAP-023 (DLNA),
+GAP-030 (mobile apps), GAP-031 (TV apps), GAP-032 (remote access), GAP-052 (DSM package),
+GAP-060 (DSM apps), GAP-061 (cloud sync), GAP-062 (DSM SSO), GAP-063 (DSM cloud sources),
+GAP-064 (plugin marketplace), GAP-066 (voice).
+
 ---
 
-## 2. Library & indexing
+## 3. Library & indexing
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
@@ -68,11 +219,11 @@ remains unaddressed by the plan.
 | GAP-008 | Import/migration from an existing Video Station library | N/A (VS is the source) | `GAP-UNDECIDED` | S2 | post-M3 | **[verify]** storage is believed to be PostgreSQL. **`.vsmeta` sidecars are now imported natively**, so titles/plots/art work without the VS database; a DB importer would only add watch state and library paths. |
 | GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; cloud sources need host mounts (GAP-001). |
 
-## 3. Metadata
+## 4. Metadata
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
-| GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. **M2 ships TMDB behind a provider interface** (plugin UX and extra providers still missing). |
+| GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. **M2 ships TMDb behind a provider interface; the provider registry, provider-aware search/match/refresh, `item_provider_ids` and the search-dialog provider selector plumbing are now in place** (only TMDb is registered; plugin UX and extra providers are still missing — TheTVDB was deferred, see ADR 0002). |
 | GAP-011 | Trailer playback (YouTube) | VS fetches and plays trailers | `GAP-LATER` | S3 | M7 | Requires provider trailer keys + an embed/privacy decision (no third-party iframe by default). |
 | GAP-012 | Online subtitle search & download | VS has a "Search for subtitles" flow with Language / File name / Source columns | `GAP-UNDECIDED` | S2 | M6 | **[confirmed]** dialog captured; no provider configured on this instance ("No match found"). OpenSubtitles needs an account/API key + rate limits, and this is copyright-sensitive — decide policy explicitly. |
 | GAP-013 | Metadata language/region per library | VS selects scraper language per library | `PLANNED` | S3 | M1 | Already in the plan (`libraries.language` + provider language param); listed to confirm parity intent rather than claim a gap. |
@@ -80,7 +231,7 @@ remains unaddressed by the plan.
 | GAP-064 | Third-party scraper/plugin marketplace | VS exposes a metadata plugin system (install/search plugins, per-type ordering) | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch}` + Settings › Video Info Plugin. We expose a Go provider interface + config instead of a sandboxed plugin runtime. Revisit only if third-party providers become a real demand. |
 | GAP-067 | Per-item poster/backdrop from URL or media folder | Edit dialog offers Original / Enter URL / Select from folders / Select | `CLOSED` | S3 | M2 | Implemented: URL download + cache (`POST /items/{id}/art`), and sidecar art discovery on scan. Folder picker UI is still a dropdown-less URL field. |
 
-## 4. Playback & transcoding
+## 5. Playback & transcoding
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
@@ -97,7 +248,7 @@ remains unaddressed by the plan.
 | GAP-026 | Resume playback across devices | VS syncs position per DSM user | `CLOSED` | S3 | M4 | Implemented: `/items/{id}/playback` returns `resumeMs`, the player seeks and saves progress. Works per user record (single user until M6). |
 | GAP-065 | Capture a frame/screenshot during playback | VS can save a still from the player | `GAP-LATER` | S3 | M7 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Trivial once we have an ffmpeg worker; needs a storage policy (write to `/data`, never the media folder). |
 
-## 5. Clients & remote access
+## 6. Clients & remote access
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
@@ -105,7 +256,7 @@ remains unaddressed by the plan.
 | GAP-031 | Native TV apps | DS video on Apple TV / Android TV / Fire TV / Roku **[verify]** | `GAP-NEVER` (v1) | S1 | — | Mitigation: browser on TV, or expose a Jellyfin-compatible API later so existing TV clients work. The latter is the pragmatic path — worth an ADR. |
 | GAP-032 | Zero-config remote access (QuickConnect / DDNS + relay) | VS works outside the LAN with no setup via QuickConnect relay | `GAP-NEVER` | S1 | — | We require the user to provide connectivity: Tailscale/WireGuard, Cloudflare Tunnel, or a reverse proxy. Running a relay is a hosted-service commitment. Document recipes instead. |
 
-## 6. Users, security, permissions
+## 7. Users, security, permissions
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
@@ -116,7 +267,7 @@ remains unaddressed by the plan.
 | GAP-044 | Audit/activity log (logins, playback, admin actions) | VS surfaces DSM logs and per-user history | `GAP-LATER` | S3 | M6 | We have `slog`; a queryable `events` table is the parity item. |
 | GAP-045 | Public share links with expiry | VS shares videos/collections via link | `GAP-LATER` | S2 | M6 | Already planned (signed, expiring tokens). Must be rate-limited and revocable. |
 
-## 7. Admin, ops, i18n
+## 8. Admin, ops, i18n
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
@@ -127,7 +278,7 @@ remains unaddressed by the plan.
 | GAP-054 | Hardware transcoding breadth + autodetect | VS supports Intel QSV on many models; newer DSM gates HEVC/AAC behind Advanced Media Extensions | `GAP-LATER` | S2 | M5/M7 | We detect VA-API/QSV/NVENC at startup and fall back to CPU. **Advantage**: no Synology account or AME license needed. |
 | GAP-055 | Cache/thumbnail store management UI | VS shows cache size and offers rebuild/clear | `GAP-LATER` | S3 | M3 | Needed because art + transcodes can grow to many GB; include a size cap early. |
 
-## 8. Integrations
+## 9. Integrations
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
@@ -138,7 +289,7 @@ remains unaddressed by the plan.
 
 ---
 
-## 9. Where MyVideoStation is already ahead (`ADV`)
+## 10. Where MyVideoStation is already ahead (`ADV`)
 
 | ID | Advantage | Why it matters |
 |---|---|---|
@@ -155,7 +306,7 @@ remains unaddressed by the plan.
 
 ---
 
-## 10. Verification backlog (things to confirm before committing work)
+## 11. Verification backlog (things to confirm before committing work)
 
 Status after the live probe (`UI-PROBE.md`) — the probe confirmed 9 behaviours via the
 public stylesheet and the unauth API inventory; deeper items still need a DSM session.
@@ -171,7 +322,7 @@ public stylesheet and the unauth API inventory; deeper items still need a DSM se
 6. **[open]** Whether VS keeps watch state across re-indexing/file moves (informs re-link UX).
 7. **[open]** DS video/VS offline-download semantics (container limits, DRM).
 
-## 10b. Probe evidence pointers
+## 11b. Probe evidence pointers
 
 | Claim | Evidence |
 |---|---|
@@ -188,7 +339,7 @@ public stylesheet and the unauth API inventory; deeper items still need a DSM se
 | Thumbnail quality settings | `SYNO.Core.MediaIndexing.ThumbnailQuality` |
 | Voice assistants | `SYNO.VideoStation2.VoiceAssistant`, `Setting.VoiceAssistant` |
 
-## 11. Gap policy (proposed)
+## 12. Gap policy (proposed)
 
 - **Management parity is non-negotiable**: no S1/S2 gap may remain open in library,
   metadata, or organization once M3 is declared done.
@@ -199,7 +350,7 @@ public stylesheet and the unauth API inventory; deeper items still need a DSM se
 - Anything with an unresolved product question lives in §12 (Decisions needed) of
   `PLAN.md`, not silently in code.
 
-## 12. Open decisions raised by this register
+## 13. Open decisions raised by this register
 
 | # | Question | Default proposal |
 |---|---|---|
