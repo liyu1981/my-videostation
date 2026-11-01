@@ -100,3 +100,10 @@ export function kindLabel(kind: string): string {
       return 'Library';
   }
 }
+
+/** "US:R / US:Rated R" -> "R" (Video Station-style age chip). */
+export function certLabel(value?: string): string {
+  if (!value) return '';
+  const part = value.includes(':') ? value.split(':').pop()! : value;
+  return part.replace(/^rated\s+/i, '').trim();
+}

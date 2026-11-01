@@ -90,10 +90,13 @@ testdata/           parser corpus and generated sample media
   titles, editions, folders as fallback — 34-case test corpus.
 - **Probing**: ffprobe (container, duration, resolution, codecs, HDR, audio/subtitle tracks);
   graceful degradation when ffprobe is absent.
-- **Library UI**: Video-Station-style home (inset animated poster-strip hero with a large
-  poster, compact poster rows with paging), continue-watching, **fixed-size 120 px poster grid** (posters never stretch
-  to fill the page), tile/list views, sort, per-library filter, pagination, global FTS5
-  search, show → season → episode navigation.
+- **Library UI**: Video-Station-style header (logo block as wide as the rail, home, search,
+  user, settings), an inset **"bookshelf" hero** (`<poster> | <bg>`: a full-height poster
+  next to a fixed 16:9 backdrop with a left-dark mask, bottom-aligned title/stars/runtime/
+  age chip, and a ring-shaped shelf of full-height poster spines; each slide is an
+  already-expanded poster + backdrop block, and clicking a spine simply slides that block
+  into the poster slot), continue-watching, **fixed-size 120 px poster grid** (posters never stretch to fill the page), thumbnail/tile/list views, category + sort
+  dropdowns, pagination, global FTS5 search, show → season → episode navigation.
 - **Item UI (VS parity)**: 270×388 poster with 76 px play overlay, unwatched chip + action
   icons, 36 px title, tagline, iconised info line (release date · stars · clock duration ·
   video codec · audio codec) with an age-classification chip, definition rows (genre/cast/

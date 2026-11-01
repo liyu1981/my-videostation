@@ -1,72 +1,171 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useAtom } from 'jotai';
-import { ChevronLeft, ChevronRight, Play, Star } from 'lucide-react';
+import { Play, Star } from 'lucide-react';
 import type { Item } from '../lib/api';
-import { formatRuntime, posterGradient } from '../lib/format';
+import { certLabel, formatClock, posterGradient } from '../lib/format';
 import { playerAtom } from '../atoms/ui';
 
 const AUTOPLAY_MS = 8000;
-const TRANSITION_MS = 700;
+const TRANSITION_MS = 650;
+const EASE = 'cubic-bezier(0.45, 0, 0.25, 1)';
+
+type Rect = { x: number; y: number; w: number; h: number };
+type Promote = {
+  item: Item; // clicked title: its block is already expanded, it only moves
+  oldItem: Item; // previously expanded title, slides out left
+  from: Rect; // expanded block at the clicked spine's position (relative to the hero)
+  to: Rect; // expanded poster slot (relative to the hero)
+  heroW: number; // hero width, so the moving backdrop aligns exactly at the end
+  phase: 'start' | 'move';
+};
 
 /**
- * Video-Station-style hero with a ReactBits-inspired carousel feel:
- * slide + crossfade between backdrops, ken-burns drift, staggered blur/rise text,
- * autoplay progress bars, drag/swipe, hover pause and reduced-motion support.
+ * Video-Station-style hero: full-bleed backdrop, a full-height expanded poster on
+ * the left, and a "bookshelf" of tightly packed full-height poster spines on the
+ * right. The shelf is a ring (three copies) and glides one spine per change.
+ *
+ * Clicking a spine runs the two-phase VS motion: first the clicked spine expands
+ * in place while the old poster collapses in place, then the expanded poster flies
+ * left into the poster slot while the shelf glides and the ring rotates.
  */
 export function HomeHero({ items }: { items: Item[] }) {
   const slides = useMemo(() => dedupe(items).slice(0, 10), [items]);
+  const count = slides.length;
   const [index, setIndex] = useState(0);
   const [prev, setPrev] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [shelfOffset, setShelfOffset] = useState(1);
+  const [shelfAnimate, setShelfAnimate] = useState(true);
+  const [promote, setPromote] = useState<Promote | null>(null);
+  const heroRef = useRef<HTMLElement>(null);
+  const posterRef = useRef<HTMLDivElement>(null);
   const dragX = useRef<number | null>(null);
   const dragged = useRef(false);
+  const suppressClick = useRef(false);
+  const snapTimer = useRef<number | null>(null);
+  const promoteTimers = useRef<number[]>([]);
   const [, setPlayer] = useAtom(playerAtom);
-  const navigate = useNavigate();
   const reduced = usePrefersReducedMotion();
 
   useEffect(() => {
-    if (index >= slides.length) setIndex(0);
-  }, [index, slides.length]);
+    if (index >= count) setIndex(0);
+  }, [index, count]);
 
-  // Autoplay restarts on every slide change (and when hover/drag pauses).
+  // Autoplay restarts on every slide change (and when hover/drag/promote pauses).
   useEffect(() => {
-    if (paused || dragging || reduced || slides.length < 2) return;
-    const id = window.setTimeout(() => {
-      setPrev(index);
-      setIndex((index + 1) % slides.length);
-    }, AUTOPLAY_MS);
+    if (paused || dragging || reduced || count < 2 || promote) return;
+    const id = window.setTimeout(() => goTo((index + 1) % count), AUTOPLAY_MS);
     return () => window.clearTimeout(id);
-  }, [index, paused, dragging, reduced, slides.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, paused, dragging, reduced, count, promote]);
 
-  // Drop the outgoing layer once its fade-out finishes.
+  // Drop the outgoing backdrop layer once its fade-out finishes.
   useEffect(() => {
     if (prev === null) return;
     const id = window.setTimeout(() => setPrev(null), TRANSITION_MS + 50);
     return () => window.clearTimeout(id);
   }, [prev]);
 
-  if (slides.length === 0) return null;
+  useEffect(() => () => {
+    if (snapTimer.current) window.clearTimeout(snapTimer.current);
+    for (const t of promoteTimers.current) window.clearTimeout(t);
+  }, []);
+
+  if (count === 0) return null;
 
   const item = slides[index]!;
   const previous = prev !== null ? slides[prev] : undefined;
-  const upcoming = [...slides.slice(index + 1), ...slides.slice(0, index)].slice(0, 2);
+  const sliver = count > 1 ? slides[(index - 1 + count) % count]! : undefined;
   const stars = item.rating ? Math.round(item.rating / 2) : 0;
+  const cert = certLabel(item.contentRating);
+  // Three copies keep the ring populated even at the wrap-around offset.
+  const shelf = count > 1 ? [...slides, ...slides, ...slides] : slides;
 
-  const go = (delta: number) => {
-    const next = (index + delta + slides.length) % slides.length;
-    if (next === index) return;
+  /** Change slide; the shelf glides one spine left (with a snap on wrap-around). */
+  function goTo(next: number, force = false) {
+    if (count < 2 || next === index) return;
+    if (promote && !force) return;
     setPrev(index);
+
+    // Forward wrap: glide one extra spine, then snap back a full cycle.
+    if (next === 0 && index === count - 1) {
+      if (reduced) {
+        setShelfAnimate(false);
+        setShelfOffset(1);
+        setIndex(0);
+        return;
+      }
+      setShelfAnimate(true);
+      setShelfOffset(count + 1);
+      setIndex(0);
+      if (snapTimer.current) window.clearTimeout(snapTimer.current);
+      snapTimer.current = window.setTimeout(() => {
+        setShelfAnimate(false);
+        setShelfOffset(1);
+        requestAnimationFrame(() => requestAnimationFrame(() => setShelfAnimate(true)));
+        snapTimer.current = null;
+      }, TRANSITION_MS + 40);
+      return;
+    }
+
+    // Backward wrap: jump to the far end without a long right-to-left sweep.
+    if (next === count - 1 && index === 0) {
+      setShelfAnimate(false);
+      setShelfOffset(count);
+      setIndex(count - 1);
+      requestAnimationFrame(() => requestAnimationFrame(() => setShelfAnimate(true)));
+      return;
+    }
+
+    setShelfAnimate(!reduced);
+    setShelfOffset(next + 1);
     setIndex(next);
-  };
+  }
+
+  /** The clicked block is already expanded; we only move it to the poster slot. */
+  function promoteSpine(target: Item, el: HTMLElement) {
+    if (count < 2 || promote) return;
+    const targetIndex = slides.findIndex((s) => s.id === target.id);
+    if (targetIndex < 0 || targetIndex === index) return;
+    const hero = heroRef.current;
+    const slot = posterRef.current;
+    if (!hero || !slot || reduced) {
+      goTo(targetIndex);
+      return;
+    }
+    const hr = hero.getBoundingClientRect();
+    const fr = el.getBoundingClientRect();
+    const sr = slot.getBoundingClientRect();
+    // The clicked poster is already expanded (poster width), centred on its spine.
+    const from: Rect = {
+      x: fr.left - hr.left + fr.width / 2 - sr.width / 2,
+      y: fr.top - hr.top,
+      w: sr.width,
+      h: sr.height,
+    };
+    const to: Rect = { x: sr.left - hr.left, y: sr.top - hr.top, w: sr.width, h: sr.height };
+
+    setPromote({ item: target, oldItem: item, from, to, heroW: hr.width, phase: 'start' });
+    setPrev(index);
+    // Backdrop/title/shelf change now; the moving block lands on the final backdrop.
+    goTo(targetIndex, true);
+
+    const raf = requestAnimationFrame(() => {
+      setPromote((p) => (p ? { ...p, phase: 'move' } : p));
+    });
+    const t = window.setTimeout(() => setPromote(null), TRANSITION_MS + 120);
+    promoteTimers.current.push(raf, t);
+  }
 
   const rise = (delay: number) =>
     reduced ? undefined : { animation: `hero-rise 620ms cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms both` };
 
   return (
     <section
-      className="hero-height group relative mx-6 mt-6 touch-pan-y overflow-hidden rounded-xl border border-hairline bg-black lg:mx-8"
+      ref={heroRef}
+      className="hero-height hero-carousel group relative mx-6 mt-6 touch-pan-y overflow-hidden rounded-xl bg-black lg:mx-8"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onPointerDown={(e) => {
@@ -76,7 +175,6 @@ export function HomeHero({ items }: { items: Item[] }) {
       }}
       onPointerMove={(e) => {
         if (dragX.current === null || dragged.current) return;
-        // Only start a drag after real movement, so clicks on arrows/buttons work.
         if (Math.abs(e.clientX - dragX.current) < 14) return;
         dragged.current = true;
         setDragging(true);
@@ -93,212 +191,289 @@ export function HomeHero({ items }: { items: Item[] }) {
         dragX.current = null;
         dragged.current = false;
         setDragging(false);
-        if (wasDragged && Math.abs(dx) > 60) go(dx < 0 ? 1 : -1);
+        if (wasDragged) {
+          suppressClick.current = true;
+          window.setTimeout(() => {
+            suppressClick.current = false;
+          }, 0);
+          if (Math.abs(dx) > 60) goTo((index + (dx < 0 ? 1 : -1) + count) % count);
+        }
       }}
       onPointerCancel={() => {
         dragX.current = null;
         dragged.current = false;
         setDragging(false);
       }}
+      onClickCapture={(e) => {
+        if (!suppressClick.current) return;
+        suppressClick.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
       aria-roledescription="carousel"
       aria-label="Featured"
     >
-      <div className="flex h-full">
-        {/* poster (full hero height, like VS) */}
-        <Link
-          key={`poster-${item.id}`}
-          to="/items/$itemId"
-          params={{ itemId: String(item.id) }}
-          className="hidden h-full shrink-0 border-r border-white/10 sm:block"
-          style={{
-            aspectRatio: '2 / 3',
-            ...(reduced ? {} : { animation: `hero-poster-in 640ms cubic-bezier(0.22, 1, 0.36, 1) both` }),
-          }}
-          aria-label={item.title}
-        >
-          <PosterArt item={item} />
-        </Link>
-
-        {/* active backdrop + text */}
-        <div className="relative min-w-0 flex-1 overflow-hidden">
-          {previous ? (
-            <div
-              key={`out-${previous.id}`}
-              className="absolute inset-0"
-              style={reduced ? { opacity: 0 } : { animation: `hero-slide-out ${TRANSITION_MS}ms cubic-bezier(0.4, 0, 1, 1) both` }}
-              aria-hidden
-            >
-              <Backdrop item={previous} zoom={false} reduced={reduced} />
-            </div>
-          ) : null}
-
+      {/* backdrop block: fixed 16:9, to the right of the poster */}
+      <div
+        className="absolute top-0 bottom-0 z-0 overflow-hidden"
+        style={{ left: 'calc(3rem + var(--poster-w))', aspectRatio: '16 / 9', height: '100%' }}
+      >
+        {previous ? (
           <div
-            key={`in-${item.id}`}
+            key={`out-${previous.id}`}
             className="absolute inset-0"
-            style={reduced ? undefined : { animation: `hero-slide-in ${TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) both` }}
-          >
-            <Backdrop item={item} zoom reduced={reduced} />
-            <div className="absolute inset-0 bg-gradient-to-r from-bg/90 via-bg/45 to-bg/10" />
-            <div className="absolute inset-0 bg-gradient-to-t from-bg/95 via-bg/15 to-bg/25" />
-          </div>
-
-          <div
-            key={`text-${item.id}`}
-            className="relative flex h-full flex-col justify-end px-5 pb-6 sm:px-6 lg:pb-8"
-          >
-            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-progress" style={rise(40)}>
-              {item.kind === 'show' ? 'TV Show' : item.kind === 'home_video' ? 'Home Video' : 'Movie'}
-              {item.year ? ` · ${item.year}` : ''}
-            </p>
-            <h1
-              className="line-clamp-2 text-[26px] font-semibold leading-[1.12] tracking-tight text-fg-heading sm:text-[30px] lg:text-[36px] xl:text-[40px]"
-              style={rise(110)}
-            >
-              {item.title}
-            </h1>
-            {item.tagline ? (
-              <p className="mt-1 line-clamp-1 text-[13px] italic text-fg-muted" style={rise(180)}>
-                {item.tagline}
-              </p>
-            ) : null}
-
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-fg-muted" style={rise(240)}>
-              {item.rating ? (
-                <span className="flex items-center gap-0.5" aria-label={`${item.rating.toFixed(1)} out of 10`}>
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <Star
-                      key={i}
-                      className={['size-3.5', i < stars ? 'fill-rating text-rating' : 'text-white/25'].join(' ')}
-                      aria-hidden
-                    />
-                  ))}
-                </span>
-              ) : null}
-              {item.runtimeMs ? <span>{formatRuntime(item.runtimeMs)}</span> : null}
-              {item.contentRating ? (
-                <span className="rounded-sm border border-white/40 px-1.5 py-px text-[11px]">{item.contentRating}</span>
-              ) : null}
-              {item.played ? <span className="rounded bg-white/10 px-2 py-0.5 text-[11px]">Watched</span> : null}
-            </div>
-
-            {item.overview ? (
-              <p className="mt-2 line-clamp-2 max-w-xl text-[12.5px] leading-relaxed text-fg-muted" style={rise(300)}>
-                {item.overview}
-              </p>
-            ) : null}
-
-            <div className="mt-3.5 flex items-center gap-2" style={rise(360)}>
-              {item.fileCount > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setPlayer({ itemId: item.id, title: item.title })}
-                  className="inline-flex items-center gap-2 rounded-lg bg-progress/90 px-3.5 py-1.5 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
-                >
-                  <Play className="size-3.5" aria-hidden /> Play
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => void navigate({ to: '/items/$itemId', params: { itemId: String(item.id) } })}
-                className="rounded-lg border border-hairline-strong bg-black/25 px-3.5 py-1.5 text-[12.5px] text-fg backdrop-blur hover:border-white/30 hover:bg-black/45"
-              >
-                More info
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* upcoming posters, clipped by the strip (VS-style) */}
-        {upcoming.length > 0 ? (
-          <div
-            className="relative hidden h-full shrink-0 overflow-hidden md:block"
-            style={{ width: 'clamp(140px, 24%, 340px)' }}
+            style={reduced ? { opacity: 0 } : { animation: `hero-fade-out ${TRANSITION_MS}ms ease-out both` }}
             aria-hidden
           >
-            <div className="absolute inset-y-0 left-0 flex h-full">
-              {upcoming.map((s2) => (
-                <button
-                  key={s2.id}
-                  type="button"
-                  onClick={() => {
-                    setPrev(index);
-                    setIndex(slides.findIndex((x) => x.id === s2.id));
-                  }}
-                  tabIndex={-1}
-                  className="relative h-full shrink-0 opacity-70 transition-opacity duration-300 hover:opacity-100"
-                  style={{ aspectRatio: '2 / 3' }}
-                >
-                  <PosterArt item={s2} />
-                  <span className="absolute inset-0 bg-gradient-to-r from-black/50 to-transparent" />
-                </button>
-              ))}
-            </div>
-            <span className="pointer-events-none absolute inset-y-0 left-0 z-10 w-20 bg-gradient-to-r from-bg/80 to-transparent" />
+            <Backdrop item={previous} zoom={false} reduced={reduced} />
           </div>
         ) : null}
+        <div
+          key={`in-${item.id}`}
+          className="absolute inset-0"
+          style={reduced ? undefined : { animation: `hero-fade-in ${TRANSITION_MS}ms ease-out both` }}
+        >
+          <Backdrop item={item} zoom reduced={reduced} />
+        </div>
+        <div className="absolute inset-0 bg-black/15" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/25 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
       </div>
 
-      {/* arrows + autoplay bars */}
-      {slides.length > 1 ? (
-        <>
-          <button
-            type="button"
-            onClick={() => go(-1)}
-            aria-label="Previous"
-            className="absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/40 p-2 text-fg opacity-0 backdrop-blur transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
+      {/* hint of the previous poster at the far left, like a ring */}
+      {sliver?.posterUrl ? (
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 hidden w-12 overflow-hidden opacity-90 sm:block" aria-hidden>
+          <img src={sliver.posterUrl} alt="" className="h-full w-full object-cover object-left" />
+          <span className="absolute inset-0 bg-gradient-to-r from-black/35 via-transparent to-black/10" />
+        </div>
+      ) : null}
+
+      {/* expanded poster: full hero height, no top/bottom gap */}
+      <div
+        ref={posterRef}
+        className="group/poster absolute left-12 top-0 z-10 hidden h-full sm:block"
+        style={{ width: 'var(--poster-w)', opacity: promote ? 0 : 1 }}
+      >
+        <div className="relative h-full overflow-hidden rounded-[5px] shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-white/10">
+          {previous ? (
+            <div
+              key={`poster-out-${previous.id}`}
+              className="absolute inset-0"
+              style={reduced ? { opacity: 0 } : { animation: `hero-fade-out 420ms ease-out both` }}
+              aria-hidden
+            >
+              <PosterArt item={previous} />
+            </div>
+          ) : null}
+          <div
+            key={`poster-in-${item.id}`}
+            className="absolute inset-0"
+            style={reduced ? undefined : { animation: `hero-fade-in 420ms ease-out both` }}
           >
-            <ChevronLeft className="size-5" aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={() => go(1)}
-            aria-label="Next"
-            className="absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/40 p-2 text-fg opacity-0 backdrop-blur transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
+            <PosterArt item={item} />
+          </div>
+          <Link
+            to="/items/$itemId"
+            params={{ itemId: String(item.id) }}
+            className="absolute inset-0"
+            aria-label={item.title}
+          />
+          <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+          {item.fileCount > 0 ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setPlayer({ itemId: item.id, title: item.title });
+              }}
+              className="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 rounded-md bg-black/65 px-2.5 py-1.5 text-[11.5px] font-medium text-fg opacity-0 backdrop-blur transition-opacity hover:bg-black/85 focus-visible:opacity-100 group-hover/poster:opacity-100"
+            >
+              <Play className="size-3 fill-current" aria-hidden /> Play
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* title / rating, bottom-aligned in the backdrop area */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] flex">
+        <div className="hidden shrink-0 sm:block" style={{ width: 'calc(3rem + var(--poster-w) + 1.5rem)' }} />
+        <Link
+          to="/items/$itemId"
+          params={{ itemId: String(item.id) }}
+          className="pointer-events-auto min-w-0 flex-1 pb-7 pl-4 pr-4 sm:pl-0 sm:pr-6"
+          aria-label={`${item.title} details`}
+        >
+          <h1
+            key={`title-${item.id}`}
+            className="line-clamp-2 text-[24px] font-semibold leading-tight tracking-tight text-fg-heading drop-shadow-[0_2px_12px_rgba(0,0,0,0.65)] sm:text-[27px] xl:text-[30px]"
+            style={rise(60)}
           >
-            <ChevronRight className="size-5" aria-hidden />
-          </button>
-          <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-black/35 px-2 py-1.5 backdrop-blur">
-            {slides.map((s, i) => (
+            {item.title}
+            {item.year ? <span className="ml-2 font-normal text-fg-muted">({item.year})</span> : null}
+          </h1>
+          <div className="mt-2 flex items-end justify-between gap-4" style={rise(140)}>
+            <span className="flex items-center gap-0.5" aria-label={item.rating ? `${item.rating.toFixed(1)} out of 10` : 'Not rated'}>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <Star
+                  key={i}
+                  className={['size-4', i < stars ? 'fill-rating text-rating' : 'text-white/30'].join(' ')}
+                  aria-hidden
+                />
+              ))}
+            </span>
+            <span className="flex shrink-0 items-center gap-3 text-[13px] text-fg-muted">
+              {item.runtimeMs ? <span className="tabular-nums">{formatClock(item.runtimeMs)}</span> : null}
+              {cert ? (
+                <span className="border border-white/60 px-2 py-0.5 text-[11px] leading-none tracking-wide text-fg">{cert}</span>
+              ) : null}
+            </span>
+          </div>
+        </Link>
+        <div
+          className="hidden shrink-0 lg:block"
+          style={{
+            width: 'max(calc(100% - 3rem - var(--poster-w) - var(--bg-w)), calc(2 * var(--spine-w)))',
+          }}
+        />
+      </div>
+
+      {/* bookshelf of upcoming posters (ring) */}
+      {count > 1 ? (
+        <div
+          className="hero-shelf absolute inset-y-0 right-0 z-10 hidden overflow-hidden lg:block"
+          style={{ left: 'min(calc(3rem + var(--poster-w) + var(--bg-w)), calc(100% - 2 * var(--spine-w)))' }}
+          aria-label="More featured titles"
+        >
+          <div
+            className="absolute inset-y-0 left-0 flex h-full will-change-transform"
+            style={{
+              transform: `translateX(calc(var(--spine-w) * -${shelfOffset}))`,
+              transition: shelfAnimate && !reduced ? `transform ${TRANSITION_MS}ms ${EASE}` : 'none',
+            }}
+          >
+            {shelf.map((s, i) => (
               <button
-                key={s.id}
+                key={`${s.id}-${i}`}
                 type="button"
-                onClick={() => {
-                  if (i === index) return;
-                  setPrev(index);
-                  setIndex(i);
-                }}
-                aria-label={`Slide ${i + 1}`}
-                aria-current={i === index}
-                className="h-[3px] w-6 overflow-hidden rounded-full bg-white/25"
+                onClick={(e) => promoteSpine(s, e.currentTarget)}
+                title={s.title}
+                aria-label={`Featured: ${s.title}`}
+                className="group/spine relative h-full shrink-0 overflow-hidden border-r border-black/60"
+                style={{ width: 'var(--spine-w)' }}
               >
-                {i === index ? (
-                  <span
-                    key={`bar-${index}-${paused || dragging}`}
-                    className="block h-full origin-left rounded-full bg-progress"
-                    style={
-                      reduced
-                        ? { transform: 'scaleX(1)' }
-                        : {
-                            animation: `hero-bar ${AUTOPLAY_MS}ms linear both`,
-                            animationPlayState: paused || dragging ? 'paused' : 'running',
-                          }
-                    }
-                  />
-                ) : null}
+                <PosterArt item={s} />
+                <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-black/10 transition-opacity duration-300 group-hover/spine:opacity-0" />
               </button>
             ))}
           </div>
+          <span className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-black/60 to-transparent" />
+        </div>
+      ) : null}
+
+      {/* two-phase promotion clones */}
+      {promote ? (
+        <>
+          {/* old block: below the shelf/sliver so the sliver (previous item) stays correct */}
+          <div className="pointer-events-none absolute inset-0 z-[4]" aria-hidden>
+            <div className="absolute overflow-hidden" style={bgCloneStyle(promote, 'old')}>
+              <Backdrop item={promote.oldItem} zoom={false} reduced={reduced} />
+              <div className="absolute inset-0 bg-black/15" />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/25 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+            </div>
+          </div>
+          <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
+            <CloneArt item={promote.oldItem} style={posterCloneStyle(promote, 'old')} />
+          </div>
+
+          {/* new block: bg under the shelf, poster above everything */}
+          <div className="pointer-events-none absolute inset-0 z-[6]" aria-hidden>
+            <div className="absolute overflow-hidden" style={bgCloneStyle(promote, 'new')}>
+              <Backdrop item={promote.item} zoom reduced={reduced} />
+              <div className="absolute inset-0 bg-black/15" />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/25 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+            </div>
+          </div>
+          <div className="pointer-events-none absolute inset-0 z-30" aria-hidden>
+            <CloneArt item={promote.item} style={posterCloneStyle(promote, 'new')} />
+          </div>
         </>
+      ) : null}
+
+      {/* autoplay progress bars */}
+      {count > 1 ? (
+        <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-black/35 px-2 py-1.5 backdrop-blur">
+          {slides.map((s, i) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => goTo(i)}
+              aria-label={`Slide ${i + 1}`}
+              aria-current={i === index}
+              className="h-[3px] w-6 overflow-hidden rounded-full bg-white/25"
+            >
+              {i === index ? (
+                <span
+                  key={`bar-${index}-${paused || dragging}`}
+                  className="block h-full origin-left rounded-full bg-progress"
+                  style={
+                    reduced
+                      ? { transform: 'scaleX(1)' }
+                      : {
+                          animation: `hero-bar ${AUTOPLAY_MS}ms linear both`,
+                          animationPlayState: paused || dragging ? 'paused' : 'running',
+                        }
+                  }
+                />
+              ) : null}
+            </button>
+          ))}
+        </div>
       ) : null}
     </section>
   );
+}
+
+function posterLeft(p: Promote, which: 'old' | 'new'): number {
+  const distance = p.from.x - p.to.x;
+  if (which === 'old') return p.phase === 'move' ? p.to.x - distance : p.to.x;
+  return p.phase === 'move' ? p.to.x : p.from.x;
+}
+
+function posterCloneStyle(p: Promote, which: 'old' | 'new'): CSSProperties {
+  return {
+    left: posterLeft(p, which),
+    top: p.to.y,
+    width: p.to.w,
+    height: p.to.h,
+    opacity: which === 'old' && p.phase === 'move' ? 0 : 1,
+    transition: p.phase === 'move' ? `left ${TRANSITION_MS}ms ${EASE}, opacity ${TRANSITION_MS}ms linear` : 'none',
+  };
+}
+
+function bgCloneStyle(p: Promote, which: 'old' | 'new'): CSSProperties {
+  return {
+    left: posterLeft(p, which) + p.to.w,
+    top: p.to.y,
+    height: p.to.h,
+    aspectRatio: '16 / 9',
+    transition: p.phase === 'move' ? `left ${TRANSITION_MS}ms ${EASE}` : 'none',
+  };
+}
+
+function CloneArt({ item, style }: { item: Item; style: CSSProperties }) {
+  const className =
+    'absolute rounded-[5px] object-cover shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-white/10';
+  if (item.posterUrl) return <img src={item.posterUrl} alt="" className={className} style={style} />;
+  return <div className={className} style={{ ...style, background: posterGradient(item.title) }} />;
 }
 
 function Backdrop({ item, zoom, reduced }: { item: Item; zoom: boolean; reduced: boolean }) {
   if (item.backdropUrl) {
     return (
       <div className="relative h-full w-full">
-        {/* instant placeholder so the hero never looks empty while the backdrop loads */}
         {item.posterUrl ? (
           <img src={item.posterUrl} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.45]" />
         ) : (

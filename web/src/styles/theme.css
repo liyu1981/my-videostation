@@ -129,6 +129,43 @@
   }
 }
 
+/* Bookshelf metrics: spine width and the full-height expanded poster width. */
+.hero-carousel {
+  --spine-w: 76px;
+  --poster-w: 256px; /* 0.8 x hero height (320) */
+  --bg-w: calc(var(--poster-w) * 20 / 9); /* 16:9 backdrop at hero height */
+}
+@media (min-width: 640px) {
+  .hero-carousel {
+    --spine-w: 76px;
+    --poster-w: 304px; /* 380 */
+  }
+}
+@media (min-width: 1024px) {
+  .hero-carousel {
+    --spine-w: 80px;
+    --poster-w: 336px; /* 420 */
+  }
+}
+@media (min-width: 1280px) {
+  .hero-carousel {
+    --spine-w: 86px;
+    --poster-w: 376px; /* 470 */
+  }
+}
+@media (min-width: 1536px) {
+  .hero-carousel {
+    --spine-w: 90px;
+    --poster-w: 400px; /* 500 */
+  }
+}
+@media (min-width: 1800px) {
+  .hero-carousel {
+    --spine-w: 96px;
+    --poster-w: 432px; /* 540 */
+  }
+}
+
 /* Hero carousel animations (pattern inspired by ReactBits' Carousel: slide,
    staggered text reveal, ken-burns backdrop, progress bars). */
 @keyframes hero-kenburns {
@@ -187,14 +224,25 @@
     filter: blur(0);
   }
 }
+/* The expanded poster slides in from the shelf (right) when a spine is picked. */
 @keyframes hero-poster-in {
   from {
-    opacity: 0;
-    transform: translateY(18px) scale(0.97);
+    opacity: 0.25;
+    transform: translateX(50%) scale(0.99);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateX(0) scale(1);
+  }
+}
+@keyframes hero-poster-out {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-32%) scale(0.99);
   }
 }
 @keyframes hero-bar {

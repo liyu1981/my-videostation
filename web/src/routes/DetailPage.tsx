@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, type Item } from '../lib/api';
-import { audioSummary, episodeLabel, formatClock, formatReleaseDate, resolutionLabel } from '../lib/format';
+import { audioSummary, certLabel, episodeLabel, formatClock, formatReleaseDate, resolutionLabel } from '../lib/format';
 import { playerAtom } from '../atoms/ui';
 import { ErrorState, Loading } from '../components/State';
 import { MediaInfoPanel } from '../components/MediaInfo';
@@ -527,11 +527,6 @@ export function DetailPage() {
       {identifying ? <IdentifyDialog item={detail} onClose={() => setIdentifying(false)} /> : null}
     </div>
   );
-}
-
-function certLabel(value: string): string {
-  const part = value.includes(':') ? value.split(':').pop()! : value;
-  return part.replace(/^rated\s+/i, '').trim();
 }
 
 function MediaInfoDialog({ title, files, onClose }: { title: string; files: import('../lib/api').MediaFile[]; onClose: () => void }) {
