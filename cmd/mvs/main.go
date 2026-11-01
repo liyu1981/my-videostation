@@ -86,6 +86,11 @@ func run() error {
 	providers := metadata.NewRegistry()
 	providers.Register("tmdb", providerFactory)
 	cacheDir := filepath.Join(cfg.DataDir, "cache")
+	if n, err := st.RebaseCachePaths(ctx, cacheDir); err != nil {
+		log.Warn("cached artwork path repair failed", "err", err)
+	} else if n > 0 {
+		log.Info("re-pointed cached artwork paths", "count", n)
+	}
 	enricher := enrich.NewWithRegistry(st, providers, cacheDir, log)
 	ffmpegPath := media.DetectFFmpeg("")
 	if ffmpegPath == "" {

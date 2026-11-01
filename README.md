@@ -241,6 +241,13 @@ Design vocabulary is inspired by Synology Video Station; no Synology code, asset
 or icons are used. Icons come from [Lucide](https://lucide.dev) (ISC); fonts will be
 Apache/OFL-licensed (Inter/Roboto).
 
+## Backup
+
+The whole state is the data directory (`mvs.db` + `cache/`). Stop the server and
+copy it, or take an online `sqlite3 .backup` snapshot; restore to the same path.
+Docker volume, path-move caveats and verification are in
+[`docs/BACKUP.md`](docs/BACKUP.md).
+
 ## Releases
 
 Pushing a `v*` tag runs the release workflow:
