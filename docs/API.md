@@ -45,6 +45,7 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | GET | `/items/{id}/duplicate` | Another same-title item in the library (`{item}`), or `{}` (movies, home videos and shows) |
 | POST | `/items/{id}/merge` | `{fromId}` — move the other item's files/credits/locks/progress into this item, then delete it; for shows, seasons/episodes are merged by season/episode number |
 | POST | `/items/{id}/keep-separate` | `{otherId}` — mark both items so scans never auto-merge them |
+| POST | `/items/{id}/apply-local` | `{sourceId}` — copy another same-kind item's metadata (title/overview/tagline/date/rating/artwork/genres/cast) onto this item; used by "Select from existing videos" |
 | POST | `/items/{id}/art` | `{kind:"poster"|"backdrop", url}` — download + cache artwork; an empty `url` clears it |
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |

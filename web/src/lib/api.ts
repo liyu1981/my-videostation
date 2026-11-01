@@ -330,6 +330,8 @@ export const api = {
   matches: (id: number, q?: string, year?: number, language?: string) =>
     request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year, language })}`),
   duplicate: (id: number) => request<{ item?: Item }>(`/items/${id}/duplicate`),
+  applyLocal: (id: number, sourceId: number) =>
+    request<ItemDetail>(`/items/${id}/apply-local`, { method: 'POST', body: JSON.stringify({ sourceId }) }),
   mergeItems: (id: number, fromId: number) =>
     request<ItemDetail>(`/items/${id}/merge`, { method: 'POST', body: JSON.stringify({ fromId }) }),
   keepSeparate: (id: number, otherId: number) =>

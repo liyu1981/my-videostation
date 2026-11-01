@@ -259,3 +259,73 @@ func boolInt(v bool) int {
 	}
 	return 0
 }
+
+// CopyMetadata copies provider/local metadata (text, artwork paths, genres and
+// credits) from sourceID onto targetID. Files, progress and collections stay put.
+// Used by the edit dialog's "Select from existing videos".
+func (s *Store) CopyMetadata(ctx context.Context, targetID, sourceID int64) error {
+	if targetID == sourceID {
+		return nil
+	}
+	src, err := s.GetItem(ctx, sourceID)
+	if err != nil {
+		return err
+	}
+	tgt, err := s.GetItem(ctx, targetID)
+	if err != nil {
+		return err
+	}
+	if src.Kind != tgt.Kind {
+		return wrap("copy metadata", fmt.Errorf("source and target must share kind"))
+	}
+	people, err := s.ItemPeople(ctx, sourceID)
+	if err != nil {
+		return err
+	}
+	var cast, crew []Person
+	for _, p := range people {
+		if p.Role == "cast" {
+			cast = append(cast, p)
+		} else {
+			crew = append(crew, p)
+		}
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrap("begin copy metadata", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE media_items SET
+			title = ?, sort_title = ?, original_title = ?, year = ?, release_date = ?,
+			overview = ?, tagline = ?, rating = ?, content_rating = ?, runtime_ms = ?,
+			poster_path = ?, backdrop_path = ?, provider = ?, provider_id = ?,
+			metadata_status = 'manual', match_confidence = 1, updated_at = ?
+		WHERE id = ?`,
+		src.Title, sortTitle(src.Title), nullStr(src.OriginalTitle), nullInt(src.Year), nullStr(src.ReleaseDate),
+		nullStr(src.Overview), nullStr(src.Tagline), src.Rating, nullStr(src.ContentRating), src.RuntimeMS,
+		nullStr(src.PosterPath), nullStr(src.BackdropPath), nullStr(src.Provider), nullStr(src.ProviderID),
+		now(), targetID); err != nil {
+		return wrap("copy metadata fields", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM item_genres WHERE item_id = ?`, targetID); err != nil {
+		return wrap("copy genres clear", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO item_genres (item_id, genre_id)
+		SELECT ?, genre_id FROM item_genres WHERE item_id = ?`, targetID, sourceID); err != nil {
+		return wrap("copy genres", err)
+	}
+	if err := replaceCredits(ctx, tx, targetID, "cast", cast); err != nil {
+		return err
+	}
+	if err := replaceCredits(ctx, tx, targetID, "crew", crew); err != nil {
+		return err
+	}
+	if err := refreshFTS(ctx, tx, targetID); err != nil {
+		return err
+	}
+	return wrap("commit copy metadata", tx.Commit())
+}

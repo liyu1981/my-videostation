@@ -115,7 +115,9 @@ testdata/           parser corpus and generated sample media
   artwork caching under `<data>/cache`, a Video-Station-style **Edit video info** dialog
   (tabs, chip editors, nested TMDb search with a remembered language picker; episodes
   search the show and match by season/episode, including stills), a
-  "Needs attention" queue, refresh that never overwrites locked fields, and a merge/keep
+  "Needs attention" queue, **Select from existing videos** (copy metadata from another
+  item in the library when TMDb has no result), refresh that never overwrites locked fields,
+  and a merge/keep
   prompt when an edit or match collides with an existing same-title item (movies merge
   files, shows merge seasons/episodes).
 - **Local sidecars**: reads Jellyfin/Kodi `.nfo` (movie/tvshow/episode, local art, cast,

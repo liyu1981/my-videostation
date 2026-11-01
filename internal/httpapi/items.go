@@ -372,3 +372,39 @@ func (s *Server) handleKeepSeparate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
+
+type applyLocalInput struct {
+	SourceID int64 `json:"sourceId"`
+}
+
+func (s *Server) handleApplyLocal(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	var in applyLocalInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body: "+err.Error())
+		return
+	}
+	if in.SourceID == 0 || in.SourceID == id {
+		writeError(w, http.StatusBadRequest, "bad_request", "sourceId is required")
+		return
+	}
+	if err := s.store.CopyMetadata(r.Context(), id, in.SourceID); err != nil {
+		s.fail(w, err)
+		return
+	}
+	it, err := s.store.GetItem(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	detail, err := s.itemDetail(r.Context(), it)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}

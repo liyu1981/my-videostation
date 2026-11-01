@@ -62,6 +62,7 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   const [tab, setTab] = useState<Tab>('info');
   const [base, setBase] = useState<ItemDetail>(item);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
   const [duplicate, setDuplicate] = useState<Item | null>(null);
   const [mergeBusy, setMergeBusy] = useState(false);
   const [mergeError, setMergeError] = useState('');
@@ -244,6 +245,15 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                   ) : (
                     <span className="text-[11.5px] text-fg-dim">Metadata search is available for movies and TV shows.</span>
                   )}
+                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' ? (
+                    <button
+                      type="button"
+                      onClick={() => setLocalOpen(true)}
+                      className="rounded-md border border-hairline-strong bg-surface-2 px-3 py-1.5 text-[12px] text-fg hover:bg-surface-3"
+                    >
+                      Select from existing videos
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={reset}
@@ -363,6 +373,18 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
             )}
         </Dialog>
       </form>
+
+      {localOpen ? (
+        <LocalSearchDialog
+          item={base}
+          onClose={() => setLocalOpen(false)}
+          onApplied={(d) => {
+            applyDetail(d);
+            setLocalOpen(false);
+            void qc.invalidateQueries({ queryKey: ['item'] });
+          }}
+        />
+      ) : null}
 
       {searchOpen ? (
         <SearchPluginDialog
@@ -588,6 +610,147 @@ function ArtPanel({
         </p>
       </div>
     </div>
+  );
+}
+
+function LocalSearchDialog({
+  item,
+  onClose,
+  onApplied,
+}: {
+  item: ItemDetail;
+  onClose: () => void;
+  onApplied: (d: ItemDetail) => void;
+}) {
+  const [query, setQuery] = useState(item.title);
+  const [searchFor, setSearchFor] = useState(item.title);
+  const [selected, setSelected] = useState<number | null>(null);
+
+  const results = useQuery({
+    queryKey: ['local-search', item.libraryId, searchFor],
+    queryFn: () => api.search(searchFor, 60),
+    enabled: searchFor.trim().length > 0,
+    retry: false,
+  });
+
+  const apply = useMutation({
+    mutationFn: (sourceId: number) => api.applyLocal(item.id, sourceId),
+    onSuccess: (d) => onApplied(d),
+  });
+
+  const candidates = (results.data?.items ?? []).filter(
+    (c) => c.kind === item.kind && c.id !== item.id && c.libraryId === item.libraryId,
+  );
+  const selectedItem = candidates.find((c) => c.id === selected) ?? null;
+
+  return (
+    <Dialog
+      title="Select from existing videos"
+      onClose={onClose}
+      z={50}
+      overlay="bg-black/60"
+      size="max-w-4xl"
+      footer={
+        <>
+          <p className="text-[11px] text-fg-dim">Copies title, overview, genres, cast and artwork from the selected item.</p>
+          <div className="flex items-center gap-2">
+            <DialogButton onClick={onClose}>Cancel</DialogButton>
+            <DialogButton
+              variant="primary"
+              disabled={!selectedItem || apply.isPending}
+              onClick={() => selectedItem && apply.mutate(selectedItem.id)}
+            >
+              {apply.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
+              Apply
+            </DialogButton>
+          </div>
+        </>
+      }
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          const q = query.trim();
+          if (!q) return;
+          if (q === searchFor) void results.refetch();
+          else setSearchFor(q);
+        }}
+        className="flex items-center gap-2 border-b border-hairline px-5 py-3"
+      >
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-dim" aria-hidden />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search your library…"
+            aria-label="Search your library"
+            className="h-9 w-full rounded-md border border-hairline-strong bg-surface-2 pl-8 pr-3 text-[12.5px] text-fg outline-none placeholder:text-fg-dim"
+          />
+        </div>
+        <button
+          type="submit"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#2f7de1] px-3.5 text-[12.5px] font-medium text-white hover:bg-[#3b8bea]"
+        >
+          <Search className="size-3.5" aria-hidden /> Search
+        </button>
+      </form>
+
+      {apply.isError ? <p className="px-5 py-2 text-[12px] text-active">{(apply.error as Error).message}</p> : null}
+
+      <div className="max-h-[52vh] overflow-y-auto">
+        {results.isFetching ? (
+          <p className="px-4 py-8 text-center text-[12.5px] text-fg-dim">Searching…</p>
+        ) : candidates.length === 0 ? (
+          <p className="px-4 py-8 text-center text-[12.5px] text-fg-dim">No matching {item.kind === 'episode' ? 'episodes' : item.kind === 'show' ? 'TV shows' : 'movies'} in this library.</p>
+        ) : (
+          <table className="w-full text-left text-[12px]">
+            <thead>
+              <tr className="border-b border-hairline text-[11px] uppercase tracking-wide text-fg-dim">
+                <th className="w-14 px-4 py-2 font-medium">Art</th>
+                <th className="px-3 py-2 font-medium">Title</th>
+                <th className="w-24 px-3 py-2 font-medium">Year</th>
+                <th className="px-3 py-2 font-medium">Summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map((c) => (
+                <tr
+                  key={c.id}
+                  onClick={() => setSelected(c.id)}
+                  onDoubleClick={() => apply.mutate(c.id)}
+                  className={['cursor-pointer border-b border-hairline/60', selected === c.id ? 'bg-active/10' : 'hover:bg-surface-2'].join(' ')}
+                >
+                  <td className="px-4 py-1.5">
+                    <div className="h-[54px] w-9 overflow-hidden rounded bg-surface-3">
+                      {c.posterUrl || c.backdropUrl ? (
+                        <img src={c.posterUrl || c.backdropUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center text-fg-dim">
+                          <ImageIcon className="size-3.5" aria-hidden />
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className="font-medium text-fg">{c.title}</span>
+                    {c.kind === 'episode' ? (
+                      <span className="ml-2 text-fg-dim">
+                        {c.seasonNumber ? `S${String(c.seasonNumber).padStart(2, '0')}` : ''}
+                        {c.episodeNumber ? `E${String(c.episodeNumber).padStart(2, '0')}` : ''}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-fg-muted">{c.year ?? '—'}</td>
+                  <td className="px-3 py-2 text-fg-muted">
+                    <span className="line-clamp-1">{c.overview || '—'}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </Dialog>
   );
 }
 
