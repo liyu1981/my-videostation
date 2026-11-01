@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/liyu1981/myvideostation/internal/media"
@@ -516,9 +515,7 @@ func (sc *Scanner) discover(ctx context.Context, root string) ([]foundFile, erro
 			rel = name
 		}
 		f := foundFile{path: path, rel: rel, root: root, size: st.Size(), mtime: st.ModTime().Unix()}
-		if sys, ok := st.Sys().(*syscall.Stat_t); ok {
-			f.inode = int64(sys.Ino)
-		}
+		f.inode = inodeOf(st)
 		out = append(out, f)
 		return nil
 	})

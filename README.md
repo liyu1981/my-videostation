@@ -240,3 +240,18 @@ Until decided, treat the repository as all-rights-reserved.
 Design vocabulary is inspired by Synology Video Station; no Synology code, assets, fonts,
 or icons are used. Icons come from [Lucide](https://lucide.dev) (ISC); fonts will be
 Apache/OFL-licensed (Inter/Roboto).
+
+## Releases
+
+Pushing a `v*` tag runs the release workflow:
+
+- cross-compiled, statically linked binaries with the SPA embedded for
+  `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` and `windows/amd64`
+  (archives + `checksums.txt` on the GitHub Release);
+- a multi-arch Alpine image pushed to
+  `ghcr.io/liyu1981/my-videostation` (`<version>`, `<major>.<minor>`, `latest`).
+
+```bash
+docker run --rm -p 6500:6500 -v /path/to/data:/data \
+  ghcr.io/liyu1981/my-videostation:latest
+```
