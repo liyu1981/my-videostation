@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -129,7 +130,23 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 	if err != nil {
 		return nil, err
 	}
-	if item.Kind != store.KindMovie && item.Kind != store.KindShow {
+	searchTV := item.Kind == store.KindShow
+	if item.Kind == store.KindEpisode {
+		show, err := s.showForEpisode(ctx, item)
+		if err != nil {
+			return nil, err
+		}
+		if show == nil {
+			return nil, metadata.ErrNoMatch
+		}
+		searchTV = true
+		if query == "" {
+			query = show.Title
+		}
+		if year == 0 {
+			year = show.Year
+		}
+	} else if item.Kind != store.KindMovie && item.Kind != store.KindShow {
 		return nil, metadata.ErrUnsupportedKind
 	}
 	if query == "" {
@@ -140,12 +157,12 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 	}
 	var candidates []metadata.Candidate
 	if lp, ok := provider.(metadata.LanguageProvider); ok && language != "" {
-		if item.Kind == store.KindShow {
+		if searchTV {
 			candidates, err = lp.SearchTVLang(ctx, query, year, language)
 		} else {
 			candidates, err = lp.SearchMoviesLang(ctx, query, year, language)
 		}
-	} else if item.Kind == store.KindShow {
+	} else if searchTV {
 		candidates, err = provider.SearchTV(ctx, query, year)
 	} else {
 		candidates, err = provider.SearchMovies(ctx, query, year)
@@ -164,7 +181,7 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 
 // Match applies a user-chosen provider id (manual identification). language
 // selects the provider details language ("" = configured default).
-func (s *Service) Match(ctx context.Context, itemID int64, providerID string, language string) error {
+func (s *Service) Match(ctx context.Context, itemID int64, providerID string, language string, season, episode int) error {
 	provider, err := s.factory(ctx)
 	if err != nil {
 		return err
@@ -172,6 +189,26 @@ func (s *Service) Match(ctx context.Context, itemID int64, providerID string, la
 	item, err := s.store.GetItem(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if item.Kind == store.KindEpisode {
+		show, err := s.showForEpisode(ctx, item)
+		if err != nil {
+			return err
+		}
+		if show == nil {
+			return metadata.ErrNoMatch
+		}
+		if season <= 0 {
+			season = item.SeasonNumber
+		}
+		if episode <= 0 {
+			episode = item.EpisodeNumber
+		}
+		d, err := s.episodeDetails(ctx, provider, item, providerID, language, season, episode)
+		if err != nil {
+			return err
+		}
+		return s.apply(ctx, item, provider, d, "manual", 1, nil)
 	}
 	if item.Kind != store.KindMovie && item.Kind != store.KindShow {
 		return metadata.ErrUnsupportedKind
@@ -188,6 +225,16 @@ func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, ite
 	item, err := s.store.GetItem(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if item.Kind == store.KindEpisode {
+		if item.ProviderID == "" {
+			return metadata.ErrNoMatch
+		}
+		d, err := s.episodeDetails(ctx, provider, item, item.ProviderID, language, item.SeasonNumber, item.EpisodeNumber)
+		if err != nil {
+			return err
+		}
+		return s.apply(ctx, item, provider, d, item.MetadataStatus, item.MatchConfidence, nil)
 	}
 	if item.Kind != store.KindMovie && item.Kind != store.KindShow {
 		return metadata.ErrNoMatch
@@ -247,6 +294,57 @@ func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, ite
 		return err
 	}
 	return s.apply(ctx, item, provider, details, "matched", bestScore, locks)
+}
+
+// episodeDetails fetches one episode from the provider (showID is the TMDb show id).
+func (s *Service) episodeDetails(ctx context.Context, provider metadata.Provider, item *store.Item, showID, language string, season, episode int) (*metadata.Details, error) {
+	ep, ok := provider.(metadata.EpisodeProvider)
+	if !ok {
+		return nil, metadata.ErrUnsupportedKind
+	}
+	ed, err := ep.EpisodeLang(ctx, showID, season, episode, language)
+	if err != nil {
+		return nil, err
+	}
+	return &metadata.Details{
+		Candidate: metadata.Candidate{
+			ProviderID:  showID,
+			Title:       ed.Title,
+			Overview:    ed.Overview,
+			Rating:      ed.Rating,
+			BackdropURL: ed.StillURL,
+			Year:        yearOfDate(ed.AirDate),
+			MediaType:   "tv",
+		},
+		ReleaseDate: ed.AirDate,
+		RuntimeMS:   ed.RuntimeMS,
+	}, nil
+}
+
+// showForEpisode walks episode -> season -> show.
+func (s *Service) showForEpisode(ctx context.Context, item *store.Item) (*store.Item, error) {
+	if item.Kind != store.KindEpisode || item.ParentID == 0 {
+		return nil, nil
+	}
+	season, err := s.store.GetItem(ctx, item.ParentID)
+	if err != nil {
+		return nil, err
+	}
+	if season.Kind != store.KindSeason || season.ParentID == 0 {
+		return nil, nil
+	}
+	return s.store.GetItem(ctx, season.ParentID)
+}
+
+func yearOfDate(date string) int {
+	if len(date) < 4 {
+		return 0
+	}
+	y, err := strconv.Atoi(date[:4])
+	if err != nil || y < 1800 {
+		return 0
+	}
+	return y
 }
 
 func (s *Service) details(ctx context.Context, provider metadata.Provider, item *store.Item, providerID string) (*metadata.Details, error) {
@@ -318,6 +416,9 @@ func (s *Service) apply(ctx context.Context, item *store.Item, provider metadata
 	}
 	if !locked("content_rating") && d.ContentRating != "" {
 		e.ContentRating = strPtr(d.ContentRating)
+	}
+	if !locked("release_date") && d.ReleaseDate != "" {
+		e.ReleaseDate = strPtr(d.ReleaseDate)
 	}
 	if d.RuntimeMS > 0 {
 		e.RuntimeMS = int64Ptr(d.RuntimeMS)

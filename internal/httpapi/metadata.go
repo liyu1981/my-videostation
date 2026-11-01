@@ -104,6 +104,8 @@ func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
 type matchInput struct {
 	ProviderID string `json:"providerId"`
 	Language   string `json:"language"`
+	Season     int    `json:"season"`
+	Episode    int    `json:"episode"`
 }
 
 func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +127,7 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "metadata_not_configured", "metadata provider is not configured")
 		return
 	}
-	if err := s.enricher.Match(r.Context(), id, in.ProviderID, in.Language); err != nil {
+	if err := s.enricher.Match(r.Context(), id, in.ProviderID, in.Language, in.Season, in.Episode); err != nil {
 		s.failMetadata(w, err)
 		return
 	}

@@ -279,14 +279,17 @@ type fileDTO struct {
 
 type itemDetailDTO struct {
 	itemDTO
-	Genres        []string       `json:"genres"`
-	People        []store.Person `json:"people"`
-	Files         []fileDTO      `json:"files"`
-	Locks         []string       `json:"locks"`
-	Children      []itemDTO      `json:"children"`
-	Extras        []itemDTO      `json:"extras"`
-	CollectionIDs []int64        `json:"collectionIds"`
-	LibraryName   string         `json:"libraryName,omitempty"`
+	Genres          []string       `json:"genres"`
+	People          []store.Person `json:"people"`
+	Files           []fileDTO      `json:"files"`
+	Locks           []string       `json:"locks"`
+	Children        []itemDTO      `json:"children"`
+	Extras          []itemDTO      `json:"extras"`
+	CollectionIDs   []int64        `json:"collectionIds"`
+	LibraryName     string         `json:"libraryName,omitempty"`
+	ShowTitle       string         `json:"showTitle,omitempty"`
+	ShowPosterURL   string         `json:"showPosterUrl,omitempty"`
+	ShowBackdropURL string         `json:"showBackdropUrl,omitempty"`
 }
 
 func (s *Server) itemDTO(it store.Item) itemDTO {
@@ -336,6 +339,16 @@ func (s *Server) itemDetail(ctx context.Context, it *store.Item) (*itemDetailDTO
 	}
 	if extras, err := s.store.ListExtras(ctx, it.ID); err == nil && len(extras) > 0 {
 		d.Extras = s.itemDTOs(extras)
+	}
+	if it.Kind == store.KindEpisode && it.ParentID > 0 {
+		if season, err := s.store.GetItem(ctx, it.ParentID); err == nil && season.ParentID > 0 {
+			if show, err := s.store.GetItem(ctx, season.ParentID); err == nil {
+				d.ShowTitle = show.Title
+				showDTO := s.itemDTO(*show)
+				d.ShowPosterURL = showDTO.PosterURL
+				d.ShowBackdropURL = showDTO.BackdropURL
+			}
+		}
 	}
 	if it.Kind == store.KindShow || it.Kind == store.KindSeason {
 		kind := store.KindSeason

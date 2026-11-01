@@ -49,10 +49,27 @@ type Details struct {
 	Candidate
 	Tagline       string
 	ContentRating string
+	ReleaseDate   string
 	RuntimeMS     int64
 	Genres        []string
 	Cast          []Credit
 	Crew          []Credit
+}
+
+// EpisodeDetails is provider metadata for one episode.
+type EpisodeDetails struct {
+	Title     string
+	Overview  string
+	AirDate   string
+	Rating    float64
+	RuntimeMS int64
+	StillURL  string
+}
+
+// EpisodeProvider is implemented by providers that can fetch an episode by the
+// show id + season/episode numbers.
+type EpisodeProvider interface {
+	EpisodeLang(ctx context.Context, showID string, season, episode int, language string) (*EpisodeDetails, error)
 }
 
 // Provider is implemented by TMDB (and by test doubles).

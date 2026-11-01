@@ -20,6 +20,7 @@ type Enrichment struct {
 	Tagline       *string
 	Rating        *float64
 	ContentRating *string
+	ReleaseDate   *string
 	RuntimeMS     *int64
 	Genres        []string
 	Cast          []Person
@@ -63,6 +64,9 @@ func (s *Store) ApplyEnrichment(ctx context.Context, itemID int64, e Enrichment)
 	}
 	if e.ContentRating != nil {
 		add("content_rating", *e.ContentRating)
+	}
+	if e.ReleaseDate != nil {
+		add("release_date", nullStr(*e.ReleaseDate))
 	}
 	if e.RuntimeMS != nil {
 		add("runtime_ms", *e.RuntimeMS)

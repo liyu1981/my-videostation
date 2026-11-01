@@ -105,7 +105,9 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   const reset = () => applyDetail(base);
 
   const finish = () => {
-    void qc.invalidateQueries({ queryKey: ['item', item.id] });
+    // Invalidate every item query: an episode edit must refresh the season/show
+    // episode cards (their art URLs are versioned by updatedAt).
+    void qc.invalidateQueries({ queryKey: ['item'] });
     void qc.invalidateQueries({ queryKey: ['browse'] });
     void qc.invalidateQueries({ queryKey: ['home'] });
     void qc.invalidateQueries({ queryKey: ['search'] });
@@ -113,6 +115,7 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   };
 
   const checkDuplicate = async () => {
+    void qc.invalidateQueries({ queryKey: ['item'] });
     try {
       const res = await api.duplicate(item.id);
       if (res.item) {
@@ -230,7 +233,7 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
             {tab === 'info' ? (
               <div className="p-5">
                 <div className="mb-4 flex flex-wrap items-center gap-2">
-                  {item.kind === 'movie' || item.kind === 'show' ? (
+                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' ? (
                     <button
                       type="button"
                       onClick={() => setSearchOpen(true)}
@@ -251,13 +254,13 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                 </div>
 
                 <div className="grid grid-cols-1 gap-x-4 gap-y-2.5 sm:grid-cols-[118px_1fr] sm:items-center">
-                  <Field label="Title">
+                  <Field label={item.kind === 'episode' ? 'Episode title' : 'Title'}>
                     <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} />
                   </Field>
                   <Field label="Tagline">
                     <input value={tagline} onChange={(e) => setTagline(e.target.value)} className={inputClass} />
                   </Field>
-                  <Field label="Release date">
+                  <Field label={item.kind === 'episode' ? 'Air date' : 'Release date'}>
                     <div className="relative">
                       <input
                         type="date"
@@ -364,11 +367,13 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
       {searchOpen ? (
         <SearchPluginDialog
           item={base}
+          query={base.kind === 'episode' ? base.showTitle || base.title : base.title}
+          episode={base.kind === 'episode'}
           onClose={() => setSearchOpen(false)}
           onMatched={(d) => {
             applyDetail(d);
             setSearchOpen(false);
-            void qc.invalidateQueries({ queryKey: ['item', item.id] });
+            void qc.invalidateQueries({ queryKey: ['item'] });
             void checkDuplicate();
           }}
         />
@@ -588,19 +593,25 @@ function ArtPanel({
 
 function SearchPluginDialog({
   item,
+  query: initialQuery,
+  episode = false,
   onClose,
   onMatched,
 }: {
   item: ItemDetail;
+  query: string;
+  episode?: boolean;
   onClose: () => void;
   onMatched: (d: ItemDetail) => void;
 }) {
-  const [query, setQuery] = useState(item.title);
+  const [query, setQuery] = useState(initialQuery);
   const [language, setLanguage] = useState(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem(LANG_KEY) : null;
     return saved && LANGUAGES.some(([v]) => v === saved) ? saved : 'en-US';
   });
-  const [searchFor, setSearchFor] = useState({ q: item.title, language });
+  const [searchFor, setSearchFor] = useState({ q: initialQuery, language });
+  const [season, setSeason] = useState(item.seasonNumber ? String(item.seasonNumber) : '');
+  const [episodeNo, setEpisodeNo] = useState(item.episodeNumber ? String(item.episodeNumber) : '');
   const [selected, setSelected] = useState<string | null>(null);
 
   const matches = useQuery({
@@ -611,7 +622,14 @@ function SearchPluginDialog({
   });
 
   const match = useMutation({
-    mutationFn: (c: Candidate) => api.match(item.id, c.providerId, searchFor.language),
+    mutationFn: (c: Candidate) =>
+      api.match(
+        item.id,
+        c.providerId,
+        searchFor.language,
+        episode ? Number(season) || undefined : undefined,
+        episode ? Number(episodeNo) || undefined : undefined,
+      ),
     onSuccess: (d) => onMatched(d),
   });
 
@@ -683,6 +701,32 @@ function SearchPluginDialog({
               </button>
             ) : null}
           </div>
+          {episode ? (
+            <>
+              <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
+                S
+                <input
+                  type="number"
+                  min={1}
+                  value={season}
+                  onChange={(e) => setSeason(e.target.value)}
+                  aria-label="Season number"
+                  className="h-9 w-16 rounded-md border border-hairline-strong bg-surface-2 px-2 text-[12.5px] text-fg outline-none"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
+                E
+                <input
+                  type="number"
+                  min={1}
+                  value={episodeNo}
+                  onChange={(e) => setEpisodeNo(e.target.value)}
+                  aria-label="Episode number"
+                  className="h-9 w-16 rounded-md border border-hairline-strong bg-surface-2 px-2 text-[12.5px] text-fg outline-none"
+                />
+              </label>
+            </>
+          ) : null}
           <label className="flex items-center gap-2 text-[12px] text-fg-muted">
             Language:
             <select
@@ -708,6 +752,11 @@ function SearchPluginDialog({
             <Search className="size-3.5" aria-hidden /> Search
           </button>
         </form>
+        {episode ? (
+          <p className="border-b border-hairline px-5 py-2 text-[11.5px] text-fg-dim">
+            Select the TV show — the episode is fetched for season {season || '—'} / episode {episodeNo || '—'}.
+          </p>
+        ) : null}
 
         <div className="max-h-[52vh] overflow-y-auto">
           {matches.isFetching ? (

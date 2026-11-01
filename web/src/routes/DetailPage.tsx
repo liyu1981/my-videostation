@@ -21,7 +21,7 @@ import {
   Star,
   Volume2,
 } from 'lucide-react';
-import { api, type Item } from '../lib/api';
+import { api, type Item, type ItemDetail } from '../lib/api';
 import { audioSummary, certLabel, episodeLabel, formatClock, formatReleaseDate, resolutionLabel } from '../lib/format';
 import { playerAtom } from '../atoms/ui';
 import { ErrorState, Loading } from '../components/State';
@@ -36,10 +36,17 @@ export function DetailPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [, setPlayer] = useAtom(playerAtom);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<ItemDetail | null>(null);
   const [seasonId, setSeasonId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const openEpisodeEdit = async (id: number) => {
+    try {
+      setEditing(await api.item(id));
+    } catch {
+      /* ignore */
+    }
+  };
   const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
 
   const item = useQuery({ queryKey: ['item', id], queryFn: () => api.item(id), enabled: id > 0 });
@@ -122,7 +129,14 @@ export function DetailPage() {
   const detail = item.data!;
   const playable = detail.files.find((f) => !f.missing);
   const file = detail.files.find((f) => !f.missing);
-  const episodes: Item[] = isShow ? (seasonDetail.data?.children ?? []) : detail.children;
+  const rawEpisodes: Item[] = isShow ? (seasonDetail.data?.children ?? []) : detail.children;
+  // Episode lists are ordered by episode number (the API returns them by title).
+  const episodes = [...rawEpisodes].sort(
+    (a, b) =>
+      (a.episodeNumber ?? 0) - (b.episodeNumber ?? 0) ||
+      (a.seasonNumber ?? 0) - (b.seasonNumber ?? 0) ||
+      a.title.localeCompare(b.title),
+  );
   const isEpisode = detail.kind === 'episode';
 
   const favoritesId = collections.data?.collections.find((c) => c.systemKey === 'favorites')?.id ?? 0;
@@ -156,12 +170,18 @@ export function DetailPage() {
       {/* backdrop covers the whole page, like Video Station */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         {/* instant blurred poster so the page never renders empty */}
-        {detail.posterUrl ? (
-          <img src={detail.posterUrl} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.35]" />
+        {(detail.kind === 'episode' ? detail.showPosterUrl || detail.posterUrl : detail.posterUrl) ? (
+          <img
+            src={(detail.kind === 'episode' ? detail.showPosterUrl || detail.posterUrl : detail.posterUrl)!}
+            alt=""
+            className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.35]"
+          />
         ) : (
           <div className="absolute inset-0 bg-surface" />
         )}
-        {detail.backdropUrl ? <BackdropImage src={detail.backdropUrl} cover /> : null}
+        {(detail.kind === 'episode' ? detail.showBackdropUrl || detail.backdropUrl : detail.backdropUrl) ? (
+          <BackdropImage src={(detail.kind === 'episode' ? detail.showBackdropUrl || detail.backdropUrl : detail.backdropUrl)!} cover />
+        ) : null}
         {/* overall dim + left-to-right scrim so text stays readable over the art */}
         <div className="absolute inset-0 bg-bg/40" />
         <div className="absolute inset-0 bg-gradient-to-r from-bg/95 via-bg/50 to-bg/10" />
@@ -221,7 +241,7 @@ export function DetailPage() {
               <>
                 <button type="button" className="fixed inset-0 z-30 cursor-default" aria-hidden onClick={() => setMenuOpen(false)} />
                 <div className="absolute right-0 top-full z-40 mt-1 w-56 rounded-lg border border-hairline bg-surface-2 p-1 shadow-2xl">
-                  <MenuItem onClick={() => { setMenuOpen(false); setEditing(true); }} icon={<Pencil className="size-3.5" aria-hidden />}>
+                  <MenuItem onClick={() => { setMenuOpen(false); setEditing(detail); }} icon={<Pencil className="size-3.5" aria-hidden />}>
                     Edit video info
                   </MenuItem>
                   {detail.providerId ? (
@@ -248,9 +268,15 @@ export function DetailPage() {
 
         {/* poster + info */}
         <div className="mt-4 flex flex-col gap-7 sm:flex-row sm:gap-8">
-          <div className="w-full shrink-0 sm:w-[270px]">
-            <div className="group relative w-full sm:w-[270px]">
-              <div className="relative w-full overflow-hidden rounded-sm border border-white/15 sm:w-[270px]" style={{ aspectRatio: '2 / 3' }}>
+          <div className={['w-full shrink-0', detail.kind === 'episode' ? 'sm:w-[400px]' : 'sm:w-[270px]'].join(' ')}>
+            <div className={['group relative w-full', detail.kind === 'episode' ? 'sm:w-[400px]' : 'sm:w-[270px]'].join(' ')}>
+              <div
+                className={[
+                  'relative w-full overflow-hidden rounded-sm border border-white/15',
+                  detail.kind === 'episode' ? 'sm:w-[400px]' : 'sm:w-[270px]',
+                ].join(' ')}
+                style={{ aspectRatio: detail.kind === 'episode' ? '16 / 9' : '2 / 3' }}
+              >
                 <Artwork item={detail} />
                 {playable ? (
                   <button
@@ -305,7 +331,7 @@ export function DetailPage() {
                   >
                     <ListPlus className="size-4" aria-hidden />
                   </ActionIcon>
-                  <ActionIcon label="Edit video info" onClick={() => setEditing(true)}>
+                  <ActionIcon label="Edit video info" onClick={() => setEditing(detail)}>
                     <Pencil className="size-4" aria-hidden />
                   </ActionIcon>
                 </div>
@@ -461,7 +487,7 @@ export function DetailPage() {
             {episodes.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-4">
                 {episodes.map((e) => (
-                  <EpisodeCard key={e.id} item={e} />
+                  <EpisodeCard key={e.id} item={e} onEdit={() => void openEpisodeEdit(e.id)} />
                 ))}
               </div>
             ) : null}
@@ -473,7 +499,7 @@ export function DetailPage() {
             <h2 className="mb-3 text-[17px] font-semibold text-fg-heading">Episodes</h2>
             <div className="flex flex-wrap gap-4">
               {episodes.map((e) => (
-                <EpisodeCard key={e.id} item={e} />
+                <EpisodeCard key={e.id} item={e} onEdit={() => void openEpisodeEdit(e.id)} />
               ))}
             </div>
           </section>
@@ -517,7 +543,7 @@ export function DetailPage() {
       </button>
 
       {mediaInfoOpen ? <MediaInfoDialog title={detail.title} files={detail.files} onClose={() => setMediaInfoOpen(false)} /> : null}
-      {editing ? <EditVideoInfoDialog item={detail} onClose={() => setEditing(false)} /> : null}
+      {editing ? <EditVideoInfoDialog item={editing} onClose={() => setEditing(null)} /> : null}
     </div>
   );
 }
@@ -604,7 +630,7 @@ function MenuItem({ icon, children, onClick }: { icon: React.ReactNode; children
   );
 }
 
-function EpisodeCard({ item }: { item: Item }) {
+function EpisodeCard({ item, onEdit }: { item: Item; onEdit?: () => void }) {
   return (
     <Link to="/items/$itemId" params={{ itemId: String(item.id) }} className="group w-[180px] shrink-0">
       <div className="relative aspect-video overflow-hidden rounded-sm border border-white/15 bg-surface-2">
@@ -613,6 +639,20 @@ function EpisodeCard({ item }: { item: Item }) {
           <span className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[9.5px] text-fg">Watched</span>
         ) : null}
         <div className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20" />
+        {onEdit ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onEdit();
+            }}
+            aria-label={`Edit ${item.title}`}
+            className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <Pencil className="size-3.5" aria-hidden />
+          </button>
+        ) : null}
         <span className="absolute bottom-1.5 right-1.5 grid size-7 place-items-center rounded-full bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
           <Play className="ml-0.5 size-3.5 text-white" aria-hidden />
         </span>

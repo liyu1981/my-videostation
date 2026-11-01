@@ -113,7 +113,8 @@ testdata/           parser corpus and generated sample media
   message when the browser cannot decode the file (transcoding lands in M5).
 - **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
   artwork caching under `<data>/cache`, a Video-Station-style **Edit video info** dialog
-  (tabs, chip editors, nested TMDb search with a remembered language picker), a
+  (tabs, chip editors, nested TMDb search with a remembered language picker; episodes
+  search the show and match by season/episode, including stills), a
   "Needs attention" queue, refresh that never overwrites locked fields, and a merge/keep
   prompt when an edit or match collides with an existing same-title item (movies merge
   files, shows merge seasons/episodes).

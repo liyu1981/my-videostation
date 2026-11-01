@@ -96,6 +96,9 @@ export interface ItemDetail extends Item {
   extras: Item[];
   collectionIds: number[];
   libraryName?: string;
+  showTitle?: string;
+  showPosterUrl?: string;
+  showBackdropUrl?: string;
 }
 
 export interface LibraryPath {
@@ -331,8 +334,11 @@ export const api = {
     request<ItemDetail>(`/items/${id}/merge`, { method: 'POST', body: JSON.stringify({ fromId }) }),
   keepSeparate: (id: number, otherId: number) =>
     request<{ ok: boolean }>(`/items/${id}/keep-separate`, { method: 'POST', body: JSON.stringify({ otherId }) }),
-  match: (id: number, providerId: string, language?: string) =>
-    request<ItemDetail>(`/items/${id}/match`, { method: 'POST', body: JSON.stringify({ providerId, language }) }),
+  match: (id: number, providerId: string, language?: string, season?: number, episode?: number) =>
+    request<ItemDetail>(`/items/${id}/match`, {
+      method: 'POST',
+      body: JSON.stringify({ providerId, language, season, episode }),
+    }),
   refreshMetadata: (id: number, language?: string) =>
     request<ItemDetail>(`/items/${id}/refresh${qs({ language })}`, { method: 'POST' }),
   setArt: (id: number, kind: 'poster' | 'backdrop', url: string) =>

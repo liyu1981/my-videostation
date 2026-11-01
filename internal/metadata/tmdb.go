@@ -303,7 +303,8 @@ func (t *TMDB) detailsLang(ctx context.Context, path string, mediaType string, l
 			Popularity:    d.Popularity,
 			MediaType:     mediaType,
 		},
-		Tagline: d.Tagline,
+		Tagline:     d.Tagline,
+		ReleaseDate: date,
 	}
 	out.RuntimeMS = int64(d.Runtime) * 60_000
 	if mediaType == "tv" && len(d.EpisodeRuns) > 0 {
@@ -336,6 +337,36 @@ func (t *TMDB) Movie(ctx context.Context, id string) (*Details, error) {
 // TV implements Provider.
 func (t *TMDB) TV(ctx context.Context, id string) (*Details, error) {
 	return t.details(ctx, "/tv/"+url.PathEscape(id), "tv")
+}
+
+type tmdbEpisode struct {
+	Name        string  `json:"name"`
+	Overview    string  `json:"overview"`
+	AirDate     string  `json:"air_date"`
+	VoteAverage float64 `json:"vote_average"`
+	Runtime     int     `json:"runtime"`
+	StillPath   string  `json:"still_path"`
+}
+
+// EpisodeLang fetches one episode of a show in a specific language.
+func (t *TMDB) EpisodeLang(ctx context.Context, showID string, season, episode int, language string) (*EpisodeDetails, error) {
+	params := url.Values{}
+	if language != "" {
+		params.Set("language", language)
+	}
+	path := "/tv/" + url.PathEscape(showID) + "/season/" + strconv.Itoa(season) + "/episode/" + strconv.Itoa(episode)
+	var e tmdbEpisode
+	if err := t.get(ctx, path, params, &e); err != nil {
+		return nil, err
+	}
+	return &EpisodeDetails{
+		Title:     e.Name,
+		Overview:  e.Overview,
+		AirDate:   e.AirDate,
+		Rating:    e.VoteAverage,
+		RuntimeMS: int64(e.Runtime) * 60_000,
+		StillURL:  t.image(e.StillPath, "w1280"),
+	}, nil
 }
 
 // MovieLang fetches movie details in a specific language ("" = configured default).

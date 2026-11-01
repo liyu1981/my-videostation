@@ -30,6 +30,18 @@ export function Artwork({ item, className = '' }: { item: Item; className?: stri
       />
     );
   }
+  // Episodes often have only a 16:9 still (stored as the backdrop).
+  if (item.backdropUrl) {
+    return (
+      <img
+        src={item.backdropUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className={`h-full w-full object-cover ${className}`}
+      />
+    );
+  }
   return (
     <div
       className={`flex h-full w-full items-center justify-center ${className}`}
