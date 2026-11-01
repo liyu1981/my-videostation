@@ -511,7 +511,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 | Extras indexing | ✅ trailers/featurettes hidden from browse, attached to the folder's item |
 | Multi-episode files | ✅ `episode_end` recorded and shown as `S01E01-E02` |
 | Multi-file movies | ✅ `CD1`/`CD2`/`Part 1`/`Disc 2` markers are stripped so the files share one identity; the DB stores them as one item with multiple `media_files`. A scan also merges pre-existing part duplicates (same title/year + part-marked files), and `keep_separate` opts a pair out (verified: 非诚勿扰 CD1+CD2 collapsed to one item with both files) |
-| Duplicate prompt | ✅ saving metadata or applying a TMDb match checks for another same-title item and offers **Merge** (move its files into this item) or **Keep separate** (both entries, scans won't auto-merge) |
+| Duplicate prompt | ✅ saving metadata or applying a TMDb match checks for another same-title item and offers **Merge** or **Keep separate**. Works for movies/home videos (files are moved) and **shows** (seasons/episodes are merged by number); migration 0011 drops the old unique show-title index so the match can apply before the prompt |
 | Dialog chrome | ✅ every dialog uses the shared Video-Station-style shell (red top rule, centred red title, tab bar, square corners, blue primary action) |
 | Probe performance | ✅ 4-way parallel ffprobe, sequential batched writes |
 | Home | ✅ continue watching, recently added, per-library shelves |

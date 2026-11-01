@@ -17,8 +17,9 @@ const (
 
 // Errors returned by providers and the enrichment service.
 var (
-	ErrNotConfigured = errors.New("metadata provider is not configured")
-	ErrNoMatch       = errors.New("no confident metadata match")
+	ErrNotConfigured   = errors.New("metadata provider is not configured")
+	ErrNoMatch         = errors.New("no confident metadata match")
+	ErrUnsupportedKind = errors.New("metadata matching is only available for movies and shows")
 )
 
 // Candidate is a search result.

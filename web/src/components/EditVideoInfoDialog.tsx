@@ -230,13 +230,17 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
             {tab === 'info' ? (
               <div className="p-5">
                 <div className="mb-4 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSearchOpen(true)}
-                    className="rounded-md border border-hairline-strong bg-surface-2 px-3 py-1.5 text-[12px] text-fg hover:bg-surface-3"
-                  >
-                    Search from Video Info Plugin
-                  </button>
+                  {item.kind === 'movie' || item.kind === 'show' ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearchOpen(true)}
+                      className="rounded-md border border-hairline-strong bg-surface-2 px-3 py-1.5 text-[12px] text-fg hover:bg-surface-3"
+                    >
+                      Search from Video Info Plugin
+                    </button>
+                  ) : (
+                    <span className="text-[11.5px] text-fg-dim">Metadata search is available for movies and TV shows.</span>
+                  )}
                   <button
                     type="button"
                     onClick={reset}

@@ -226,6 +226,8 @@ func (s *Server) failMetadata(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "metadata_not_configured", "set a TMDB API key in Settings first")
 	case errors.Is(err, metadata.ErrNoMatch):
 		writeError(w, http.StatusNotFound, "no_match", "no confident metadata match found")
+	case errors.Is(err, metadata.ErrUnsupportedKind):
+		writeError(w, http.StatusBadRequest, "unsupported_kind", "metadata search is only available for movies and TV shows")
 	case strings.Contains(msg, "status 401"), strings.Contains(strings.ToLower(msg), "invalid api key"):
 		writeError(w, http.StatusBadGateway, "metadata_auth_failed", "TMDB rejected the API key — check Settings")
 	case strings.Contains(msg, "status 429"):
@@ -234,7 +236,11 @@ func (s *Server) failMetadata(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "the provider has no record with that id")
 	default:
 		s.log.Error("metadata request failed", "err", err)
-		writeError(w, http.StatusBadGateway, "metadata_unavailable", "metadata provider request failed")
+		detail := msg
+		if len(detail) > 200 {
+			detail = detail[:200]
+		}
+		writeError(w, http.StatusBadGateway, "metadata_unavailable", "metadata provider request failed: "+detail)
 	}
 }
 

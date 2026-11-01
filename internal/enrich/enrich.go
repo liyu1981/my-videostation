@@ -129,6 +129,9 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 	if err != nil {
 		return nil, err
 	}
+	if item.Kind != store.KindMovie && item.Kind != store.KindShow {
+		return nil, metadata.ErrUnsupportedKind
+	}
 	if query == "" {
 		query = item.Title
 	}
@@ -169,6 +172,9 @@ func (s *Service) Match(ctx context.Context, itemID int64, providerID string, la
 	item, err := s.store.GetItem(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if item.Kind != store.KindMovie && item.Kind != store.KindShow {
+		return metadata.ErrUnsupportedKind
 	}
 	details, err := s.detailsLang(ctx, provider, item, providerID, language)
 	if err != nil {

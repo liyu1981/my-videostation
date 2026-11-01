@@ -24,17 +24,27 @@ func (s *Store) FindDuplicateLeaf(ctx context.Context, id int64) (*Item, error) 
 		}
 		return nil, wrap("duplicate load", err)
 	}
-	if kind != KindMovie && kind != KindHomeVideo {
+	if kind != KindMovie && kind != KindHomeVideo && kind != KindShow {
 		return nil, nil
 	}
 	var dupID int64
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id FROM media_items
-		WHERE library_id = ? AND kind = ? AND id != ? AND keep_separate = 0
-		  AND lower(trim(title)) = lower(trim(?))
-		  AND (COALESCE(year,0) = ? OR COALESCE(year,0) = 0 OR ? = 0)
-		ORDER BY CASE metadata_status WHEN 'manual' THEN 0 WHEN 'matched' THEN 1 ELSE 2 END, id
-		LIMIT 1`, libraryID, kind, id, title, year, year).Scan(&dupID)
+	var err error
+	if kind == KindShow {
+		err = s.db.QueryRowContext(ctx, `
+			SELECT id FROM media_items
+			WHERE library_id = ? AND kind = 'show' AND id != ? AND keep_separate = 0
+			  AND lower(trim(title)) = lower(trim(?))
+			ORDER BY CASE metadata_status WHEN 'manual' THEN 0 WHEN 'matched' THEN 1 ELSE 2 END, id
+			LIMIT 1`, libraryID, id, title).Scan(&dupID)
+	} else {
+		err = s.db.QueryRowContext(ctx, `
+			SELECT id FROM media_items
+			WHERE library_id = ? AND kind = ? AND id != ? AND keep_separate = 0
+			  AND lower(trim(title)) = lower(trim(?))
+			  AND (COALESCE(year,0) = ? OR COALESCE(year,0) = 0 OR ? = 0)
+			ORDER BY CASE metadata_status WHEN 'manual' THEN 0 WHEN 'matched' THEN 1 ELSE 2 END, id
+			LIMIT 1`, libraryID, kind, id, title, year, year).Scan(&dupID)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -67,6 +77,9 @@ func (s *Store) MergeItems(ctx context.Context, intoID, fromID int64) error {
 	}
 	if into.LibraryID != from.LibraryID || into.Kind != from.Kind {
 		return wrap("merge", fmt.Errorf("items must share library and kind"))
+	}
+	if into.Kind == KindShow {
+		return s.mergeShows(ctx, intoID, fromID)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)

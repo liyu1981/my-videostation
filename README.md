@@ -115,7 +115,8 @@ testdata/           parser corpus and generated sample media
   artwork caching under `<data>/cache`, a Video-Station-style **Edit video info** dialog
   (tabs, chip editors, nested TMDb search with a remembered language picker), a
   "Needs attention" queue, refresh that never overwrites locked fields, and a merge/keep
-  prompt when an edit or match collides with an existing same-title item.
+  prompt when an edit or match collides with an existing same-title item (movies merge
+  files, shows merge seasons/episodes).
 - **Local sidecars**: reads Jellyfin/Kodi `.nfo` (movie/tvshow/episode, local art, cast,
   unique ids) and Synology `.vsmeta` (protobuf; embedded poster/backdrop) — **vsmeta wins
   over NFO field-by-field** (Video Station's priority). Imported items are marked `local`;

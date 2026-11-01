@@ -73,33 +73,57 @@ func (t *TMDB) get(ctx context.Context, path string, params url.Values, dst any)
 	}
 	u := t.baseURL + path + "?" + params.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/json")
-	// v4 tokens are JWTs; v3 keys go in the query string.
-	if strings.Count(t.apiKey, ".") == 2 {
-		req.Header.Set("Authorization", "Bearer "+t.apiKey)
-	} else {
-		q := req.URL.Query()
-		q.Set("api_key", t.apiKey)
-		req.URL.RawQuery = q.Encode()
+	build := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		// v4 tokens are JWTs; v3 keys go in the query string.
+		if strings.Count(t.apiKey, ".") == 2 {
+			req.Header.Set("Authorization", "Bearer "+t.apiKey)
+		} else {
+			q := req.URL.Query()
+			q.Set("api_key", t.apiKey)
+			req.URL.RawQuery = q.Encode()
+		}
+		return req, nil
 	}
 
-	res, err := t.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("tmdb %s: %w", path, err)
+	// Retry transient TMDb failures (429/5xx/network) with a short backoff; a
+	// flaky provider response should not surface as a 502 in the edit dialog.
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * 400 * time.Millisecond):
+			}
+		}
+		req, err := build()
+		if err != nil {
+			return err
+		}
+		res, err := t.client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("tmdb %s: %w", path, err)
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+		res.Body.Close()
+		if res.StatusCode == http.StatusOK {
+			if err := json.Unmarshal(body, dst); err != nil {
+				return fmt.Errorf("tmdb %s: decode: %w", path, err)
+			}
+			return nil
+		}
+		lastErr = fmt.Errorf("tmdb %s: status %d: %s", path, res.StatusCode, strings.TrimSpace(string(body[:min(len(body), 512)])))
+		if res.StatusCode != http.StatusTooManyRequests && res.StatusCode < 500 {
+			break
+		}
 	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, 512))
-		return fmt.Errorf("tmdb %s: status %d: %s", path, res.StatusCode, strings.TrimSpace(string(body)))
-	}
-	if err := json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(dst); err != nil {
-		return fmt.Errorf("tmdb %s: decode: %w", path, err)
-	}
-	return nil
+	return lastErr
 }
 
 type tmdbSearch struct {
@@ -248,7 +272,11 @@ func (t *TMDB) details(ctx context.Context, path string, mediaType string) (*Det
 func (t *TMDB) detailsLang(ctx context.Context, path string, mediaType string, language string) (*Details, error) {
 	var d tmdbDetails
 	params := url.Values{}
-	params.Set("append_to_response", "credits,release_dates,content_ratings")
+	appendTo := "credits,release_dates,content_ratings"
+	if mediaType == "tv" {
+		appendTo = "credits,content_ratings"
+	}
+	params.Set("append_to_response", appendTo)
 	if language != "" {
 		params.Set("language", language)
 	}
