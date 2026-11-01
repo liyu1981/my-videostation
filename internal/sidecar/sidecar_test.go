@@ -54,7 +54,7 @@ func writeFile(t *testing.T, path string, data []byte) {
 	}
 }
 
-func TestLoadMergesNFOOverVSMeta(t *testing.T) {
+func TestLoadPrefersVSMetaOverNFO(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "cache")
 	video := filepath.Join(dir, "Movie (2021)", "Movie.mkv")
@@ -68,14 +68,14 @@ func TestLoadMergesNFOOverVSMeta(t *testing.T) {
 		t.Fatal("no file metadata")
 	}
 	m := res.File
-	if m.Title != "NFO Title" {
-		t.Errorf("title = %q, want NFO title", m.Title)
+	if m.Title != "VS Title" {
+		t.Errorf("title = %q, want vsmeta title", m.Title)
 	}
-	if m.Overview != "NFO plot." {
-		t.Errorf("overview = %q", m.Overview)
+	if m.Overview != "VS overview." {
+		t.Errorf("overview = %q, want vsmeta overview", m.Overview)
 	}
-	if len(m.Genres) != 1 || m.Genres[0] != "History" {
-		t.Errorf("genres = %v", m.Genres)
+	if len(m.Genres) == 0 || m.Genres[0] != "Drama" {
+		t.Errorf("genres = %v, want vsmeta genres", m.Genres)
 	}
 	if m.Year != 2021 {
 		t.Errorf("year = %d", m.Year)
@@ -97,7 +97,7 @@ func TestLoadMergesNFOOverVSMeta(t *testing.T) {
 	}
 }
 
-func TestLoadPrefersNFOArtwork(t *testing.T) {
+func TestLoadPrefersVSMetaArtwork(t *testing.T) {
 	dir := t.TempDir()
 	video := filepath.Join(dir, "M", "M.mkv")
 	writeFile(t, video, []byte("video"))
@@ -110,8 +110,8 @@ func TestLoadPrefersNFOArtwork(t *testing.T) {
 	if res == nil || res.File == nil || res.File.PosterPath == "" {
 		t.Fatal("no metadata")
 	}
-	if filepath.Base(res.File.PosterPath) != "poster.jpg" {
-		t.Errorf("poster = %q, want local NFO thumb", res.File.PosterPath)
+	if filepath.Base(res.File.PosterPath) == "poster.jpg" {
+		t.Errorf("poster = %q, want the cached vsmeta poster", res.File.PosterPath)
 	}
 }
 

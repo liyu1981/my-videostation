@@ -1,7 +1,8 @@
 // Package sidecar discovers and merges local metadata files (.nfo and .vsmeta).
 //
-// Precedence: Jellyfin/Kodi .nfo wins field-by-field over Synology .vsmeta. Embedded
-// .vsmeta artwork is used when the NFO has no local artwork.
+// Precedence: Synology .vsmeta wins field-by-field over Jellyfin/Kodi .nfo (the
+// opposite of Kodi, matching Video Station). Embedded .vsmeta artwork wins over
+// local NFO artwork; NFO values are used only when .vsmeta has no value.
 package sidecar
 
 import (
@@ -150,75 +151,87 @@ func findShowNFO(videoPath string) *nfo.Meta {
 func merge(n *nfo.Meta, v *vsmeta.Meta, cacheDir string) *Meta {
 	m := &Meta{ProviderIDs: map[string]string{}}
 	sources := []string{}
-
 	if v != nil {
 		sources = append(sources, "vsmeta")
-		m.Title = v.Title
-		m.OriginalTitle = v.OriginalTitle
-		m.Tagline = v.Tagline
-		m.Overview = v.Overview
-		m.Certification = v.Certification
-		m.Year = v.Year
-		m.ReleaseDate = v.ReleaseDate
-		m.Rating = v.Rating
-		m.Genres = v.Genres
-		m.Cast = v.Cast
-		m.Directors = v.Directors
-		m.Writers = v.Writers
-		for k, val := range v.ProviderIDs {
-			m.ProviderIDs[k] = val
-		}
-		poster, posterErr := v.Poster()
-		m.PosterPath = cacheEmbedded(poster, posterErr, v.PosterHash, cacheDir)
-		backdrop, backdropErr := v.Backdrop()
-		m.BackdropPath = cacheEmbedded(backdrop, backdropErr, v.BackdropHash, cacheDir)
 	}
-
 	if n != nil {
 		sources = append(sources, "nfo")
-		m.Title = first(n.Title, m.Title)
-		m.OriginalTitle = first(n.OriginalTitle, m.OriginalTitle)
-		m.SortTitle = first(n.SortTitle, m.SortTitle)
-		m.Overview = first(n.Overview, m.Overview)
-		m.Tagline = first(n.Tagline, m.Tagline)
-		m.Certification = first(n.Certification, m.Certification)
-		if n.Year > 0 {
-			m.Year = n.Year
-		}
-		if n.ReleaseDate != "" {
-			m.ReleaseDate = n.ReleaseDate
-		}
-		if n.Rating > 0 {
-			m.Rating = n.Rating
-		}
-		if n.RuntimeMS > 0 {
-			m.RuntimeMS = n.RuntimeMS
-		}
-		if len(n.Genres) > 0 {
-			m.Genres = n.Genres
-		}
-		if len(n.Cast) > 0 {
-			m.Cast = n.Cast
-		}
-		if len(n.Directors) > 0 {
-			m.Directors = n.Directors
-		}
-		if len(n.Writers) > 0 {
-			m.Writers = n.Writers
-		}
+	}
+
+	// NFO is the base layer.
+	if n != nil {
+		m.Title = n.Title
+		m.OriginalTitle = n.OriginalTitle
+		m.SortTitle = n.SortTitle
+		m.Overview = n.Overview
+		m.Tagline = n.Tagline
+		m.Certification = n.Certification
+		m.Year = n.Year
+		m.ReleaseDate = n.ReleaseDate
+		m.Rating = n.Rating
+		m.RuntimeMS = n.RuntimeMS
+		m.Genres = n.Genres
+		m.Cast = n.Cast
+		m.Directors = n.Directors
+		m.Writers = n.Writers
 		for k, val := range n.ProviderIDs {
 			m.ProviderIDs[k] = val
 		}
-		if n.PosterPath != "" {
-			m.PosterPath = n.PosterPath
+		m.PosterPath = n.PosterPath
+		m.BackdropPath = n.BackdropPath
+	}
+
+	// .vsmeta has priority over .nfo, field by field.
+	if v != nil {
+		m.Title = first(v.Title, m.Title)
+		m.OriginalTitle = first(v.OriginalTitle, m.OriginalTitle)
+		m.Overview = first(v.Overview, m.Overview)
+		m.Tagline = first(v.Tagline, m.Tagline)
+		m.Certification = first(v.Certification, m.Certification)
+		if v.Year > 0 {
+			m.Year = v.Year
 		}
-		if n.BackdropPath != "" {
-			m.BackdropPath = n.BackdropPath
+		if v.ReleaseDate != "" {
+			m.ReleaseDate = v.ReleaseDate
+		}
+		if v.Rating > 0 {
+			m.Rating = v.Rating
+		}
+		if len(v.Genres) > 0 {
+			m.Genres = v.Genres
+		}
+		if len(v.Cast) > 0 {
+			m.Cast = v.Cast
+		}
+		if len(v.Directors) > 0 {
+			m.Directors = v.Directors
+		}
+		if len(v.Writers) > 0 {
+			m.Writers = v.Writers
+		}
+		for k, val := range v.ProviderIDs {
+			m.ProviderIDs[k] = val
+		}
+		if p := cacheEmbeddedPoster(v, cacheDir); p != "" {
+			m.PosterPath = p
+		}
+		if b := cacheEmbeddedBackdrop(v, cacheDir); b != "" {
+			m.BackdropPath = b
 		}
 	}
 
 	m.Source = strings.Join(sources, "+")
 	return m
+}
+
+func cacheEmbeddedPoster(v *vsmeta.Meta, cacheDir string) string {
+	data, err := v.Poster()
+	return cacheEmbedded(data, err, v.PosterHash, cacheDir)
+}
+
+func cacheEmbeddedBackdrop(v *vsmeta.Meta, cacheDir string) string {
+	data, err := v.Backdrop()
+	return cacheEmbedded(data, err, v.BackdropHash, cacheDir)
 }
 
 // cacheEmbedded writes an embedded image to the cache and returns its path.

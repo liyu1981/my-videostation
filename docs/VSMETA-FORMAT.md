@@ -81,15 +81,15 @@ the hash stored in field 18 of the sample.
 
 `internal/sidecar` merges sidecars for one video file:
 
-1. `.nfo` (Jellyfin/Kodi style) — **highest priority**, field by field.
-2. `.vsmeta` — fills the gaps; embedded poster/backdrop are written to
-   `<data>/cache/images/vsmeta-<md5>.<ext>` (content-addressed, reused across scans).
+1. `.vsmeta` — **highest priority**, field by field (Video Station's own sidecar).
+2. `.nfo` (Jellyfin/Kodi style) — fills the gaps; embedded vsmeta poster/backdrop are written
+   to `<data>/cache/images/vsmeta-<md5>.<ext>` (content-addressed, reused across scans).
 
 Local metadata is stored on the item with `provider = "nfo" | "vsmeta" | "nfo+vsmeta"` and
 `metadata_status = "local"`. Consequences:
 
 - automatic TMDB matching skips these items (`local` is not `unmatched`);
-- a manual **Identify** still overrides them;
+- a manual **Identify** / TMDb match still overrides them, and a rescan does not revert it;
 - per-field locks still win;
 - re-scans are idempotent — item identity follows the file path, so sidecar titles and user
   renames do not create duplicates.

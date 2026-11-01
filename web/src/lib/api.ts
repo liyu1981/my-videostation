@@ -231,9 +231,11 @@ export interface ItemPatch {
   overview?: string;
   tagline?: string;
   contentRating?: string;
+  releaseDate?: string;
   year?: number;
   rating?: number;
   genres?: string[];
+  cast?: { name: string; character?: string }[];
   locked?: boolean;
   locks?: string[];
 }
@@ -322,11 +324,17 @@ export const api = {
   settings: () => request<Settings>('/settings'),
   saveSettings: (body: { tmdbApiKey?: string; language?: string; region?: string }) =>
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(body) }),
-  matches: (id: number, q?: string, year?: number) =>
-    request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year })}`),
-  match: (id: number, providerId: string) =>
-    request<ItemDetail>(`/items/${id}/match`, { method: 'POST', body: JSON.stringify({ providerId }) }),
-  refreshMetadata: (id: number) => request<ItemDetail>(`/items/${id}/refresh`, { method: 'POST' }),
+  matches: (id: number, q?: string, year?: number, language?: string) =>
+    request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year, language })}`),
+  duplicate: (id: number) => request<{ item?: Item }>(`/items/${id}/duplicate`),
+  mergeItems: (id: number, fromId: number) =>
+    request<ItemDetail>(`/items/${id}/merge`, { method: 'POST', body: JSON.stringify({ fromId }) }),
+  keepSeparate: (id: number, otherId: number) =>
+    request<{ ok: boolean }>(`/items/${id}/keep-separate`, { method: 'POST', body: JSON.stringify({ otherId }) }),
+  match: (id: number, providerId: string, language?: string) =>
+    request<ItemDetail>(`/items/${id}/match`, { method: 'POST', body: JSON.stringify({ providerId, language }) }),
+  refreshMetadata: (id: number, language?: string) =>
+    request<ItemDetail>(`/items/${id}/refresh${qs({ language })}`, { method: 'POST' }),
   setArt: (id: number, kind: 'poster' | 'backdrop', url: string) =>
     request<ItemDetail>(`/items/${id}/art`, { method: 'POST', body: JSON.stringify({ kind, url }) }),
   enrichLibrary: (id: number) => request<Job>(`/libraries/${id}/enrich`, { method: 'POST' }),

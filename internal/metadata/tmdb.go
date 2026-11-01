@@ -68,7 +68,9 @@ func (t *TMDB) get(ctx context.Context, path string, params url.Values, dst any)
 	if params == nil {
 		params = url.Values{}
 	}
-	params.Set("language", t.language)
+	if params.Get("language") == "" {
+		params.Set("language", t.language)
+	}
 	u := t.baseURL + path + "?" + params.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -119,8 +121,16 @@ type tmdbSearch struct {
 
 // SearchMovies implements Provider.
 func (t *TMDB) SearchMovies(ctx context.Context, query string, year int) ([]Candidate, error) {
+	return t.SearchMoviesLang(ctx, query, year, "")
+}
+
+// SearchMoviesLang searches movies in a specific language ("" = configured default).
+func (t *TMDB) SearchMoviesLang(ctx context.Context, query string, year int, language string) ([]Candidate, error) {
 	params := url.Values{}
 	params.Set("query", query)
+	if language != "" {
+		params.Set("language", language)
+	}
 	params.Set("include_adult", "false")
 	if year > 0 {
 		params.Set("year", strconv.Itoa(year))
@@ -149,8 +159,16 @@ func (t *TMDB) SearchMovies(ctx context.Context, query string, year int) ([]Cand
 
 // SearchTV implements Provider.
 func (t *TMDB) SearchTV(ctx context.Context, query string, year int) ([]Candidate, error) {
+	return t.SearchTVLang(ctx, query, year, "")
+}
+
+// SearchTVLang searches shows in a specific language ("" = configured default).
+func (t *TMDB) SearchTVLang(ctx context.Context, query string, year int, language string) ([]Candidate, error) {
 	params := url.Values{}
 	params.Set("query", query)
+	if language != "" {
+		params.Set("language", language)
+	}
 	params.Set("include_adult", "false")
 	if year > 0 {
 		params.Set("first_air_date_year", strconv.Itoa(year))
@@ -224,9 +242,16 @@ type tmdbDetails struct {
 }
 
 func (t *TMDB) details(ctx context.Context, path string, mediaType string) (*Details, error) {
+	return t.detailsLang(ctx, path, mediaType, "")
+}
+
+func (t *TMDB) detailsLang(ctx context.Context, path string, mediaType string, language string) (*Details, error) {
 	var d tmdbDetails
 	params := url.Values{}
 	params.Set("append_to_response", "credits,release_dates,content_ratings")
+	if language != "" {
+		params.Set("language", language)
+	}
 	if err := t.get(ctx, path, params, &d); err != nil {
 		return nil, err
 	}
@@ -283,6 +308,16 @@ func (t *TMDB) Movie(ctx context.Context, id string) (*Details, error) {
 // TV implements Provider.
 func (t *TMDB) TV(ctx context.Context, id string) (*Details, error) {
 	return t.details(ctx, "/tv/"+url.PathEscape(id), "tv")
+}
+
+// MovieLang fetches movie details in a specific language ("" = configured default).
+func (t *TMDB) MovieLang(ctx context.Context, id string, language string) (*Details, error) {
+	return t.detailsLang(ctx, "/movie/"+url.PathEscape(id), "movie", language)
+}
+
+// TVLang fetches show details in a specific language ("" = configured default).
+func (t *TMDB) TVLang(ctx context.Context, id string, language string) (*Details, error) {
+	return t.detailsLang(ctx, "/tv/"+url.PathEscape(id), "tv", language)
 }
 
 func certification(mediaType string, d tmdbDetails, region string) string {

@@ -254,7 +254,7 @@ export function HomeHero({ items }: { items: Item[] }) {
         className="group/poster absolute left-12 top-0 z-10 hidden h-full sm:block"
         style={{ width: 'var(--poster-w)', opacity: promote ? 0 : 1 }}
       >
-        <div className="relative h-full overflow-hidden rounded-[5px] shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-white/10">
+        <div className="relative h-full overflow-hidden rounded-[2px] shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-white/10">
           {previous ? (
             <div
               key={`poster-out-${previous.id}`}
@@ -465,7 +465,7 @@ function bgCloneStyle(p: Promote, which: 'old' | 'new'): CSSProperties {
 
 function CloneArt({ item, style }: { item: Item; style: CSSProperties }) {
   const className =
-    'absolute rounded-[5px] object-cover shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-white/10';
+    'absolute rounded-[2px] object-cover shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-white/10';
   if (item.posterUrl) return <img src={item.posterUrl} alt="" className={className} style={style} />;
   return <div className={className} style={{ ...style, background: posterGradient(item.title) }} />;
 }

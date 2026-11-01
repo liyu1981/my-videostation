@@ -18,18 +18,16 @@ import {
   Pencil,
   Play,
   RefreshCw,
-  SearchCheck,
   Star,
   Volume2,
-  X,
 } from 'lucide-react';
 import { api, type Item } from '../lib/api';
 import { audioSummary, certLabel, episodeLabel, formatClock, formatReleaseDate, resolutionLabel } from '../lib/format';
 import { playerAtom } from '../atoms/ui';
 import { ErrorState, Loading } from '../components/State';
 import { MediaInfoPanel } from '../components/MediaInfo';
-import { EditDialog } from '../components/EditDialog';
-import { IdentifyDialog } from '../components/IdentifyDialog';
+import { Dialog, DialogButton } from '../components/Dialog';
+import { EditVideoInfoDialog } from '../components/EditVideoInfoDialog';
 import { Artwork, progressPercent } from '../components/Poster';
 
 export function DetailPage() {
@@ -39,7 +37,6 @@ export function DetailPage() {
   const navigate = useNavigate();
   const [, setPlayer] = useAtom(playerAtom);
   const [editing, setEditing] = useState(false);
-  const [identifying, setIdentifying] = useState(false);
   const [seasonId, setSeasonId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -111,7 +108,7 @@ export function DetailPage() {
   });
 
   const refreshMeta = useMutation({
-    mutationFn: () => api.refreshMetadata(id),
+    mutationFn: () => api.refreshMetadata(id, window.localStorage.getItem('mvs.tmdbLanguage') || 'en-US'),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['item', id] });
       void qc.invalidateQueries({ queryKey: ['browse'] });
@@ -225,10 +222,7 @@ export function DetailPage() {
                 <button type="button" className="fixed inset-0 z-30 cursor-default" aria-hidden onClick={() => setMenuOpen(false)} />
                 <div className="absolute right-0 top-full z-40 mt-1 w-56 rounded-lg border border-hairline bg-surface-2 p-1 shadow-2xl">
                   <MenuItem onClick={() => { setMenuOpen(false); setEditing(true); }} icon={<Pencil className="size-3.5" aria-hidden />}>
-                    Edit metadata
-                  </MenuItem>
-                  <MenuItem onClick={() => { setMenuOpen(false); setIdentifying(true); }} icon={<SearchCheck className="size-3.5" aria-hidden />}>
-                    Identify…
+                    Edit video info
                   </MenuItem>
                   {detail.providerId ? (
                     <MenuItem onClick={() => { setMenuOpen(false); refreshMeta.mutate(); }} icon={<RefreshCw className="size-3.5" aria-hidden />}>
@@ -311,7 +305,7 @@ export function DetailPage() {
                   >
                     <ListPlus className="size-4" aria-hidden />
                   </ActionIcon>
-                  <ActionIcon label="Edit metadata" onClick={() => setEditing(true)}>
+                  <ActionIcon label="Edit video info" onClick={() => setEditing(true)}>
                     <Pencil className="size-4" aria-hidden />
                   </ActionIcon>
                 </div>
@@ -523,35 +517,23 @@ export function DetailPage() {
       </button>
 
       {mediaInfoOpen ? <MediaInfoDialog title={detail.title} files={detail.files} onClose={() => setMediaInfoOpen(false)} /> : null}
-      {editing ? <EditDialog item={detail} onClose={() => setEditing(false)} /> : null}
-      {identifying ? <IdentifyDialog item={detail} onClose={() => setIdentifying(false)} /> : null}
+      {editing ? <EditVideoInfoDialog item={detail} onClose={() => setEditing(false)} /> : null}
     </div>
   );
 }
 
 function MediaInfoDialog({ title, files, onClose }: { title: string; files: import('../lib/api').MediaFile[]; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:items-center">
-      <div className="w-full max-w-3xl rounded-[var(--radius-panel)] border border-hairline bg-surface shadow-2xl">
-        <header className="flex items-center justify-between border-b border-hairline px-5 py-3.5">
-          <div>
-            <h2 className="text-[14px] font-semibold">Media info</h2>
-            <p className="truncate text-[11.5px] text-fg-dim">{title}</p>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-fg-dim hover:bg-surface-2 hover:text-fg">
-            <X className="size-4" aria-hidden />
-          </button>
-        </header>
-        <div className="max-h-[70vh] overflow-y-auto p-4">
-          <MediaInfoPanel files={files} />
+    <Dialog title="Media info" onClose={onClose} footer={
+        <div className="ml-auto">
+          <DialogButton onClick={onClose}>Close</DialogButton>
         </div>
-        <footer className="flex justify-end border-t border-hairline px-5 py-3">
-          <button type="button" onClick={onClose} className="rounded-lg border border-hairline px-3.5 py-1.5 text-[12.5px] text-fg-muted hover:text-fg">
-            Close
-          </button>
-        </footer>
+      }>
+      <div className="p-4">
+        <p className="mb-2 truncate text-[11.5px] text-fg-dim">{title}</p>
+        <MediaInfoPanel files={files} />
       </div>
-    </div>
+    </Dialog>
   );
 }
 

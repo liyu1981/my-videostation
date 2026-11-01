@@ -250,6 +250,11 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 	if err := sc.store.DeleteOrphanItems(ctx, libraryID); err != nil {
 		return stats, err
 	}
+	if merged, err := sc.store.MergePartDuplicates(ctx, libraryID); err != nil {
+		sc.logf("warn", "duplicate part merge failed: %v", err)
+	} else if merged > 0 {
+		sc.logf("info", "merged %d duplicate part item(s)", merged)
+	}
 	for _, p := range lib.Paths {
 		if err := sc.store.MarkScanned(ctx, p.ID); err != nil {
 			return stats, err

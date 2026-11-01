@@ -63,6 +63,20 @@ type Provider interface {
 	TV(ctx context.Context, id string) (*Details, error)
 }
 
+// LanguageProvider is optionally implemented by providers that can search in a
+// caller-specified language (the edit dialog's language picker).
+type LanguageProvider interface {
+	SearchMoviesLang(ctx context.Context, query string, year int, language string) ([]Candidate, error)
+	SearchTVLang(ctx context.Context, query string, year int, language string) ([]Candidate, error)
+}
+
+// LanguageDetailsProvider is optionally implemented by providers that can fetch
+// full details in a caller-specified language.
+type LanguageDetailsProvider interface {
+	MovieLang(ctx context.Context, id string, language string) (*Details, error)
+	TVLang(ctx context.Context, id string, language string) (*Details, error)
+}
+
 // Factory builds a provider from current settings. It returns ErrNotConfigured when
 // no API key has been set.
 type Factory func(ctx context.Context) (Provider, error)

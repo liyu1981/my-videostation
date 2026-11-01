@@ -93,7 +93,7 @@ func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query().Get("q")
-	candidates, err := s.enricher.Search(r.Context(), id, query, intQuery(r, "year", 0))
+	candidates, err := s.enricher.Search(r.Context(), id, query, intQuery(r, "year", 0), r.URL.Query().Get("language"))
 	if err != nil {
 		s.failMetadata(w, err)
 		return
@@ -103,6 +103,7 @@ func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
 
 type matchInput struct {
 	ProviderID string `json:"providerId"`
+	Language   string `json:"language"`
 }
 
 func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +125,7 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "metadata_not_configured", "metadata provider is not configured")
 		return
 	}
-	if err := s.enricher.Match(r.Context(), id, in.ProviderID); err != nil {
+	if err := s.enricher.Match(r.Context(), id, in.ProviderID, in.Language); err != nil {
 		s.failMetadata(w, err)
 		return
 	}
@@ -151,7 +152,7 @@ func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "metadata_not_configured", "metadata provider is not configured")
 		return
 	}
-	if err := s.enricher.EnrichItem(r.Context(), id); err != nil {
+	if err := s.enricher.EnrichItem(r.Context(), id, r.URL.Query().Get("language")); err != nil {
 		s.failMetadata(w, err)
 		return
 	}
@@ -188,13 +189,22 @@ func (s *Server) handleSetArt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "kind must be poster or backdrop")
 		return
 	}
-	if s.enricher == nil {
-		writeError(w, http.StatusServiceUnavailable, "metadata_not_configured", "metadata provider is not configured")
-		return
-	}
-	if err := s.enricher.SetArtFromURL(r.Context(), id, in.Kind, strings.TrimSpace(in.URL)); err != nil {
-		s.fail(w, err)
-		return
+	url := strings.TrimSpace(in.URL)
+	if url == "" {
+		// Clearing the artwork does not need a metadata provider.
+		if err := s.store.SetArt(r.Context(), id, in.Kind, ""); err != nil {
+			s.fail(w, err)
+			return
+		}
+	} else {
+		if s.enricher == nil {
+			writeError(w, http.StatusServiceUnavailable, "metadata_not_configured", "metadata provider is not configured")
+			return
+		}
+		if err := s.enricher.SetArtFromURL(r.Context(), id, in.Kind, url); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	it, err := s.store.GetItem(r.Context(), id)
 	if err != nil {

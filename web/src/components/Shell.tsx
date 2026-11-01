@@ -86,7 +86,7 @@ export function Shell() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search titles, people, overviews…"
             aria-label="Search"
-            className="h-9 w-full rounded-full border border-hairline bg-surface-2 pl-9 pr-3 text-[13px] text-fg outline-none placeholder:text-fg-dim focus:border-hairline-strong focus:bg-surface-3"
+            className="h-9 w-full rounded-[2px] border border-hairline bg-surface-2 pl-9 pr-3 text-[13px] text-fg outline-none placeholder:text-fg-dim focus:border-hairline-strong focus:bg-surface-3"
           />
         </form>
 

@@ -39,10 +39,13 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | POST | `/items/{id}/progress` | `{positionMs, durationMs, played}` (upsert) |
 | GET | `/settings` | Provider settings (API key is never returned) |
 | PUT | `/settings` | `{tmdbApiKey?, language?, region?}` (empty key clears it) |
-| GET | `/items/{id}/matches?q=&year=` | Provider candidates, best first |
-| POST | `/items/{id}/match` | `{providerId}` — manual match (overrides locks) |
-| POST | `/items/{id}/refresh` | Re-fetch from the stored provider id (respects locks) |
-| POST | `/items/{id}/art` | `{kind:"poster"|"backdrop", url}` — download + cache artwork |
+| GET | `/items/{id}/matches?q=&year=&language=` | Provider candidates, best first; `language` overrides the provider search language (default `en-US`) |
+| POST | `/items/{id}/match` | `{providerId, language?}` — manual match; `language` fetches the provider details in that language (overrides locks) |
+| POST | `/items/{id}/refresh?language=` | Re-fetch from the stored provider id (respects locks); optional language override |
+| GET | `/items/{id}/duplicate` | Another same-title leaf item in the library (`{item}`), or `{}` |
+| POST | `/items/{id}/merge` | `{fromId}` — move the other item's files/credits/locks/progress into this item, then delete it |
+| POST | `/items/{id}/keep-separate` | `{otherId}` — mark both items so scans never auto-merge them |
+| POST | `/items/{id}/art` | `{kind:"poster"|"backdrop", url}` — download + cache artwork; an empty `url` clears it |
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
 | GET | `/items/{id}/playback` | Player payload: stream URL, resume position, subtitle tracks, audio tracks, next episode |

@@ -507,9 +507,12 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 | Schema + FTS5 | ✅ single self-referencing `media_items`, `media_files`, people/genres/locks, `media_fts` |
 | Browse UI (grid/list/tile, sort, filter) | ✅ plus pagination, per-library filter, empty/error states |
 | Item detail + technical info | ✅ poster/backdrop, badges, cast/genres, media-info panel (audio/subtitle tracks) |
-| Manual metadata edit + locks | ✅ inline dialog, per-field lock chips, item-wide lock |
+| Manual metadata edit + locks | ✅ Video-Station-style **Edit video info** dialog opened from the detail overflow menu: Video Info / Poster / Backdrop tabs; title/tagline/release date/classification/rating/genre chips/cast chips/summary; Poster & Backdrop tabs with Original / No images / Enter URL; per-field lock chips and item-wide lock under "Keep locked after refresh" |
 | Extras indexing | ✅ trailers/featurettes hidden from browse, attached to the folder's item |
 | Multi-episode files | ✅ `episode_end` recorded and shown as `S01E01-E02` |
+| Multi-file movies | ✅ `CD1`/`CD2`/`Part 1`/`Disc 2` markers are stripped so the files share one identity; the DB stores them as one item with multiple `media_files`. A scan also merges pre-existing part duplicates (same title/year + part-marked files), and `keep_separate` opts a pair out (verified: 非诚勿扰 CD1+CD2 collapsed to one item with both files) |
+| Duplicate prompt | ✅ saving metadata or applying a TMDb match checks for another same-title item and offers **Merge** (move its files into this item) or **Keep separate** (both entries, scans won't auto-merge) |
+| Dialog chrome | ✅ every dialog uses the shared Video-Station-style shell (red top rule, centred red title, tab bar, square corners, blue primary action) |
 | Probe performance | ✅ 4-way parallel ffprobe, sequential batched writes |
 | Home | ✅ continue watching, recently added, per-library shelves |
 | Search | ✅ FTS5 across title/original/overview/people |
@@ -527,8 +530,9 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 | Artwork | ✅ poster/backdrop downloaded to `<data>/cache/images` (content-addressed), URL picker in the edit dialog |
 | Cast/crew/genres/certification | ✅ applied transactionally; crew roles mapped to director/writer |
 | Locks | ✅ automatic enrichment skips locked fields; manual match overrides (explicit user choice) |
-| Identify UI | ✅ search + candidate list + apply; "Needs attention" row on Home and per-library counts |
-| Settings UI | ✅ TMDB key (masked), language, region |
+| DB authority | ✅ local `.vsmeta` > `.nfo` applied at import; user edits and TMDb matches set `metadata_status = manual` and rescans never revert them |
+| Identify UI | ✅ nested **Search from Video Info Plugin** dialog inside Edit video info: title search, **language picker** (remembered in `localStorage`, default `en-US`), results table (Poster / Title / Release date / Source / Summary), row select + OK; "Needs attention" row on Home and per-library counts. The default search language setting was removed from Settings. |
+| Settings UI | ✅ TMDB key (masked) and certification region; the default search language was removed (per-search language picker, remembered) |
 
 ### M2 — known limitations
 

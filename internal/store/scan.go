@@ -385,7 +385,10 @@ func applyLocalMeta(ctx context.Context, tx *sql.Tx, itemID int64, m *LocalMetad
 		itemID).Scan(&locked, &status, &provider, &kind); err != nil {
 		return wrap("local meta load item", err)
 	}
-	if locked != 0 || status == "manual" {
+	// Local sidecars are the import-time source. Once an item was matched from
+	// TMDb ("matched") or edited/identified by the user ("manual"), the DB wins
+	// and a rescan must not revert it.
+	if locked != 0 || status == "manual" || status == "matched" {
 		return nil
 	}
 	locks := map[string]bool{}

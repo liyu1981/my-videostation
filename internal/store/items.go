@@ -546,7 +546,9 @@ type ItemPatch struct {
 	Overview      *string   `json:"overview"`
 	Tagline       *string   `json:"tagline"`
 	ContentRating *string   `json:"contentRating"`
+	ReleaseDate   *string   `json:"releaseDate"`
 	Year          *int      `json:"year"`
+	Cast          *[]Person `json:"cast"`
 	Rating        *float64  `json:"rating"`
 	Genres        *[]string `json:"genres"`
 	Locked        *bool     `json:"locked"`
@@ -571,6 +573,15 @@ func (s *Store) UpdateItem(ctx context.Context, id int64, p ItemPatch) (*Item, e
 	args := []any{}
 	add := func(col string, v any) { sets = append(sets, col+" = ?"); args = append(args, v) }
 
+	// Any metadata edit makes the DB authoritative: a later rescan must not
+	// re-apply local .nfo/.vsmeta over it.
+	if p.Title != nil || p.OriginalTitle != nil || p.Overview != nil || p.Tagline != nil ||
+		p.ContentRating != nil || p.ReleaseDate != nil || p.Year != nil || p.Rating != nil ||
+		p.Genres != nil || p.Cast != nil {
+		add("metadata_status", "manual")
+		add("match_confidence", 1)
+	}
+
 	if p.Title != nil && strings.TrimSpace(*p.Title) != "" {
 		t := strings.TrimSpace(*p.Title)
 		add("title", t)
@@ -587,6 +598,9 @@ func (s *Store) UpdateItem(ctx context.Context, id int64, p ItemPatch) (*Item, e
 	}
 	if p.ContentRating != nil {
 		add("content_rating", strings.TrimSpace(*p.ContentRating))
+	}
+	if p.ReleaseDate != nil {
+		add("release_date", nullStr(strings.TrimSpace(*p.ReleaseDate)))
 	}
 	if p.Year != nil {
 		y := *p.Year
@@ -615,6 +629,12 @@ func (s *Store) UpdateItem(ctx context.Context, id int64, p ItemPatch) (*Item, e
 		if _, err := tx.ExecContext(ctx,
 			"UPDATE media_items SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...); err != nil {
 			return nil, wrap("update item", err)
+		}
+	}
+
+	if p.Cast != nil {
+		if err := replaceCredits(ctx, tx, id, "cast", *p.Cast); err != nil {
+			return nil, err
 		}
 	}
 

@@ -97,6 +97,10 @@ testdata/           parser corpus and generated sample media
   already-expanded poster + backdrop block, and clicking a spine simply slides that block
   into the poster slot), continue-watching, **fixed-size 120 px poster grid** (posters never stretch to fill the page), thumbnail/tile/list views, category + sort
   dropdowns, pagination, global FTS5 search, show → season → episode navigation.
+- **Edit video info (VS parity)**: one overflow-menu entry opens a tabbed dialog
+  (Video Info / Poster / Backdrop) with chip editors, per-field locks, artwork
+  Original / No images / URL, and a nested TMDb search with a remembered language
+  picker.
 - **Item UI (VS parity)**: 270×388 poster with 76 px play overlay, unwatched chip + action
   icons, 36 px title, tagline, iconised info line (release date · stars · clock duration ·
   video codec · audio codec) with an age-classification chip, definition rows (genre/cast/
@@ -108,11 +112,14 @@ testdata/           parser corpus and generated sample media
   overlay, next-up prompt, keyboard shortcuts, browser Back closing the player, and a clear
   message when the browser cannot decode the file (transcoding lands in M5).
 - **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
-  artwork caching under `<data>/cache`, an "Identify" dialog for manual matches, a
-  "Needs attention" queue, and refresh that never overwrites locked fields.
+  artwork caching under `<data>/cache`, a Video-Station-style **Edit video info** dialog
+  (tabs, chip editors, nested TMDb search with a remembered language picker), a
+  "Needs attention" queue, refresh that never overwrites locked fields, and a merge/keep
+  prompt when an edit or match collides with an existing same-title item.
 - **Local sidecars**: reads Jellyfin/Kodi `.nfo` (movie/tvshow/episode, local art, cast,
-  unique ids) and Synology `.vsmeta` (protobuf; embedded poster/backdrop) — NFO wins
-  field-by-field. Imported items are marked `local` and are not auto-overwritten.
+  unique ids) and Synology `.vsmeta` (protobuf; embedded poster/backdrop) — **vsmeta wins
+  over NFO field-by-field** (Video Station's priority). Imported items are marked `local`;
+  TMDb matches and user edits are written to the DB and are never reverted by a rescan.
   Format notes: [`docs/VSMETA-FORMAT.md`](docs/VSMETA-FORMAT.md).
 - **Organisation (M3)**: Favorites / Watchlist / custom collections, selection mode with
   bulk watched + add-to-collection, category presets (added / watched / released / A–Z),

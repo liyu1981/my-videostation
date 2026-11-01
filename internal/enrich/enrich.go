@@ -78,7 +78,7 @@ func (s *Service) EnrichLibrary(ctx context.Context, libraryID int64, report fun
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
-		if err := s.enrichOne(ctx, provider, id, true); err != nil {
+		if err := s.enrichOne(ctx, provider, id, true, ""); err != nil {
 			if err == metadata.ErrNoMatch {
 				stats.Failed++
 			} else {
@@ -95,12 +95,13 @@ func (s *Service) EnrichLibrary(ctx context.Context, libraryID int64, report fun
 }
 
 // EnrichItem refreshes one item from its stored provider id, or matches it if unmatched.
-func (s *Service) EnrichItem(ctx context.Context, itemID int64) error {
+// language selects the provider language ("" = configured default).
+func (s *Service) EnrichItem(ctx context.Context, itemID int64, language string) error {
 	provider, err := s.factory(ctx)
 	if err != nil {
 		return err
 	}
-	return s.enrichOne(ctx, provider, itemID, false)
+	return s.enrichOne(ctx, provider, itemID, false, language)
 }
 
 // SetArtFromURL downloads an image and assigns it as the poster or backdrop.
@@ -119,7 +120,7 @@ func (s *Service) SetArtFromURL(ctx context.Context, itemID int64, kind, url str
 }
 
 // Search returns provider candidates for an item, best first.
-func (s *Service) Search(ctx context.Context, itemID int64, query string, year int) ([]metadata.Candidate, error) {
+func (s *Service) Search(ctx context.Context, itemID int64, query string, year int, language string) ([]metadata.Candidate, error) {
 	provider, err := s.factory(ctx)
 	if err != nil {
 		return nil, err
@@ -135,7 +136,13 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 		year = item.Year
 	}
 	var candidates []metadata.Candidate
-	if item.Kind == store.KindShow {
+	if lp, ok := provider.(metadata.LanguageProvider); ok && language != "" {
+		if item.Kind == store.KindShow {
+			candidates, err = lp.SearchTVLang(ctx, query, year, language)
+		} else {
+			candidates, err = lp.SearchMoviesLang(ctx, query, year, language)
+		}
+	} else if item.Kind == store.KindShow {
 		candidates, err = provider.SearchTV(ctx, query, year)
 	} else {
 		candidates, err = provider.SearchMovies(ctx, query, year)
@@ -152,8 +159,9 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 	return candidates, nil
 }
 
-// Match applies a user-chosen provider id (manual identification).
-func (s *Service) Match(ctx context.Context, itemID int64, providerID string) error {
+// Match applies a user-chosen provider id (manual identification). language
+// selects the provider details language ("" = configured default).
+func (s *Service) Match(ctx context.Context, itemID int64, providerID string, language string) error {
 	provider, err := s.factory(ctx)
 	if err != nil {
 		return err
@@ -162,7 +170,7 @@ func (s *Service) Match(ctx context.Context, itemID int64, providerID string) er
 	if err != nil {
 		return err
 	}
-	details, err := s.details(ctx, provider, item, providerID)
+	details, err := s.detailsLang(ctx, provider, item, providerID, language)
 	if err != nil {
 		return err
 	}
@@ -170,7 +178,7 @@ func (s *Service) Match(ctx context.Context, itemID int64, providerID string) er
 	return s.apply(ctx, item, provider, details, "manual", 1, nil)
 }
 
-func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, itemID int64, _ bool) error {
+func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, itemID int64, _ bool, language string) error {
 	item, err := s.store.GetItem(ctx, itemID)
 	if err != nil {
 		return err
@@ -191,7 +199,7 @@ func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, ite
 
 	// Refresh path: we already know the provider id and the match is trusted.
 	if item.ProviderID != "" && item.Provider != "" && (item.MetadataStatus == "matched" || item.MetadataStatus == "manual") {
-		details, err := s.details(ctx, provider, item, item.ProviderID)
+		details, err := s.detailsLang(ctx, provider, item, item.ProviderID, language)
 		if err != nil {
 			return err
 		}
@@ -199,7 +207,13 @@ func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, ite
 	}
 
 	var candidates []metadata.Candidate
-	if item.Kind == store.KindShow {
+	if lp, ok := provider.(metadata.LanguageProvider); ok && language != "" {
+		if item.Kind == store.KindShow {
+			candidates, err = lp.SearchTVLang(ctx, item.Title, item.Year, language)
+		} else {
+			candidates, err = lp.SearchMoviesLang(ctx, item.Title, item.Year, language)
+		}
+	} else if item.Kind == store.KindShow {
 		candidates, err = provider.SearchTV(ctx, item.Title, item.Year)
 	} else {
 		candidates, err = provider.SearchMovies(ctx, item.Title, item.Year)
@@ -222,7 +236,7 @@ func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, ite
 		return metadata.ErrNoMatch
 	}
 
-	details, err := s.details(ctx, provider, item, best.ProviderID)
+	details, err := s.detailsLang(ctx, provider, item, best.ProviderID, language)
 	if err != nil {
 		return err
 	}
@@ -230,6 +244,18 @@ func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, ite
 }
 
 func (s *Service) details(ctx context.Context, provider metadata.Provider, item *store.Item, providerID string) (*metadata.Details, error) {
+	return s.detailsLang(ctx, provider, item, providerID, "")
+}
+
+func (s *Service) detailsLang(ctx context.Context, provider metadata.Provider, item *store.Item, providerID, language string) (*metadata.Details, error) {
+	if language != "" {
+		if lp, ok := provider.(metadata.LanguageDetailsProvider); ok {
+			if item.Kind == store.KindShow {
+				return lp.TVLang(ctx, providerID, language)
+			}
+			return lp.MovieLang(ctx, providerID, language)
+		}
+	}
 	if item.Kind == store.KindShow {
 		return provider.TV(ctx, providerID)
 	}

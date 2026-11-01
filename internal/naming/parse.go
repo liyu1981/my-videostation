@@ -66,6 +66,8 @@ var (
 	}
 	reParens     = regexp.MustCompile(`\([^)]*\)`)
 	reTrailGroup = regexp.MustCompile(`[\s._-]+[A-Za-z0-9]{2,}$`)
+	// Multi-part movie markers: CD1, Disc 2, Part.1, DVD2…
+	rePartMarker = regexp.MustCompile(`(?i)\b(?:cd|disc|disk|dvd|part)[\s._-]*\d{1,2}\b`)
 	reCJKTags    = regexp.MustCompile(`(?i)(?:国英双语|中英双字|中英字幕|国语中字|国语|粤语|中字|双语|高清|蓝光|完整版|无删减|默认字幕|BD|HD)+$`)
 )
 
@@ -173,6 +175,7 @@ func Parse(libraryType, path string) Result {
 		return Result{Kind: KindUnknown, Title: cleanTitle(stripReleaseTags(clean))}
 	default: // movie
 		clean = reYearGroup.ReplaceAllString(clean, "$1")
+		clean = strings.Join(strings.Fields(rePartMarker.ReplaceAllString(clean, " ")), " ")
 		title := stripReleaseTags(clean)
 		title, year := extractYear(title)
 		title = stripReleaseTags(title)

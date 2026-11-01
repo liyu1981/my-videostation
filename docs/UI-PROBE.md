@@ -330,3 +330,10 @@ share dialog) rather than me writing to the instance.
   licensing), the logo/wordmark, or UI text wholesale.
 - Re-create icons with Lucide (ISC) + custom SVGs; use Inter or Roboto (Apache/OFL);
   ship our own wordmark. Keep *structure and vocabulary*, change *execution*.
+
+## Geometry
+
+Video Station is almost entirely square-cornered: dialogs, buttons, inputs, cards, chips
+and the hero use 1–3 px radii; only avatars, play buttons and progress dots stay circular.
+Our theme follows that (`--radius-card` / `--radius-panel` = 2 px, the `rounded-*`
+utilities are overridden to 1–3 px, `rounded-full` is kept for circles).

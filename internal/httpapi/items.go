@@ -292,3 +292,83 @@ func (s *Server) withinLibrary(r *http.Request, p string) (bool, error) {
 	}
 	return false, nil
 }
+
+func (s *Server) handleItemDuplicate(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	dup, err := s.store.FindDuplicateLeaf(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if dup == nil {
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": dup})
+}
+
+type mergeInput struct {
+	FromID int64 `json:"fromId"`
+}
+
+func (s *Server) handleItemMerge(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	var in mergeInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body: "+err.Error())
+		return
+	}
+	if in.FromID == 0 || in.FromID == id {
+		writeError(w, http.StatusBadRequest, "bad_request", "fromId is required")
+		return
+	}
+	if err := s.store.MergeItems(r.Context(), id, in.FromID); err != nil {
+		s.fail(w, err)
+		return
+	}
+	it, err := s.store.GetItem(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	detail, err := s.itemDetail(r.Context(), it)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+type keepSeparateInput struct {
+	OtherID int64 `json:"otherId"`
+}
+
+func (s *Server) handleKeepSeparate(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	var in keepSeparateInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body: "+err.Error())
+		return
+	}
+	if in.OtherID == 0 || in.OtherID == id {
+		writeError(w, http.StatusBadRequest, "bad_request", "otherId is required")
+		return
+	}
+	if err := s.store.KeepSeparate(r.Context(), id, in.OtherID); err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}

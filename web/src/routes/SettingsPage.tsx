@@ -8,7 +8,6 @@ export function SettingsPage() {
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const [key, setKey] = useState('');
-  const [language, setLanguage] = useState('');
   const [region, setRegion] = useState('');
   const [saved, setSaved] = useState(false);
 
@@ -16,7 +15,6 @@ export function SettingsPage() {
     mutationFn: () =>
       api.saveSettings({
         ...(key.trim() ? { tmdbApiKey: key.trim() } : {}),
-        ...(language.trim() ? { language: language.trim() } : {}),
         ...(region.trim() ? { region: region.trim() } : {}),
       }),
     onSuccess: () => {
@@ -79,15 +77,6 @@ export function SettingsPage() {
               placeholder={settings.data?.metadata.apiKeySet ? '•••••••• (leave blank to keep)' : 'paste your TMDB key'}
               className={inputClass}
               autoComplete="off"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-[12px] text-fg-muted">Metadata language</span>
-            <input
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              placeholder={settings.data?.metadata.language ?? 'en-US'}
-              className={inputClass}
             />
           </label>
           <label className="block">

@@ -23,8 +23,8 @@
   --color-continue: #22b8cf;
   --color-rating: #e6c929;
 
-  --radius-card: 10px;
-  --radius-panel: 14px;
+  --radius-card: 2px;
+  --radius-panel: 2px;
   --radius-pill: 999px;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
@@ -300,4 +300,20 @@
 }
 .player-range-sm {
   height: 3px;
+}
+
+/* Video Station-like geometry: square corners almost everywhere.
+   Circles (rounded-full: avatars, play buttons, progress dots) are kept. */
+.rounded,
+.rounded-sm {
+  border-radius: 1px;
+}
+.rounded-md,
+.rounded-lg {
+  border-radius: 2px;
+}
+.rounded-xl,
+.rounded-2xl,
+.rounded-3xl {
+  border-radius: 3px;
 }

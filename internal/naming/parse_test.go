@@ -166,3 +166,19 @@ func TestSortTitle(t *testing.T) {
 		}
 	}
 }
+
+func TestMultiPartMoviesShareIdentity(t *testing.T) {
+	cases := []string{
+		"/movies/Movie.Name.2010.CD1.mkv",
+		"/movies/Movie.Name.2010.CD2.mkv",
+		"/movies/Movie.Name.2010.Part1.mkv",
+		"/movies/Movie.Name.2010.Part.2.mkv",
+		"/movies/Movie.Name.2010.Disc1.mkv",
+	}
+	for _, path := range cases {
+		got := Parse("movie", path)
+		if got.Kind != KindMovie || got.Title != "Movie Name" || got.Year != 2010 {
+			t.Errorf("%s => %q (%d), want Movie Name (2010)", path, got.Title, got.Year)
+		}
+	}
+}
