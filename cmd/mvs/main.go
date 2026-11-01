@@ -83,8 +83,10 @@ func run() error {
 		region, _, _ := st.Setting(ctx, metadata.SettingRegion)
 		return metadata.NewTMDB(key, language, region), nil
 	}
+	providers := metadata.NewRegistry()
+	providers.Register("tmdb", providerFactory)
 	cacheDir := filepath.Join(cfg.DataDir, "cache")
-	enricher := enrich.New(st, providerFactory, cacheDir, log)
+	enricher := enrich.NewWithRegistry(st, providers, cacheDir, log)
 	ffmpegPath := media.DetectFFmpeg("")
 	if ffmpegPath == "" {
 		log.Warn("ffmpeg not found: embedded subtitle extraction disabled", "hint", "run `pnpm bootstrap`")

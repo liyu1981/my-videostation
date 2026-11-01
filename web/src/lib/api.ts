@@ -170,6 +170,13 @@ export interface Candidate {
   backdropUrl?: string;
   rating?: number;
   mediaType: 'movie' | 'tv';
+  provider?: string;
+}
+
+export interface ProviderInfo {
+  name: string;
+  configured: boolean;
+  kinds: string[];
 }
 
 export interface Collection {
@@ -327,8 +334,9 @@ export const api = {
   settings: () => request<Settings>('/settings'),
   saveSettings: (body: { tmdbApiKey?: string; language?: string; region?: string }) =>
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(body) }),
-  matches: (id: number, q?: string, year?: number, language?: string) =>
-    request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year, language })}`),
+  providers: () => request<{ providers: ProviderInfo[] }>('/providers'),
+  matches: (id: number, q?: string, year?: number, language?: string, provider?: string) =>
+    request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year, language, provider })}`),
   duplicate: (id: number) => request<{ item?: Item }>(`/items/${id}/duplicate`),
   applyLocal: (id: number, sourceId: number) =>
     request<ItemDetail>(`/items/${id}/apply-local`, { method: 'POST', body: JSON.stringify({ sourceId }) }),
@@ -336,10 +344,10 @@ export const api = {
     request<ItemDetail>(`/items/${id}/merge`, { method: 'POST', body: JSON.stringify({ fromId }) }),
   keepSeparate: (id: number, otherId: number) =>
     request<{ ok: boolean }>(`/items/${id}/keep-separate`, { method: 'POST', body: JSON.stringify({ otherId }) }),
-  match: (id: number, providerId: string, language?: string, season?: number, episode?: number) =>
+  match: (id: number, providerId: string, language?: string, season?: number, episode?: number, provider?: string) =>
     request<ItemDetail>(`/items/${id}/match`, {
       method: 'POST',
-      body: JSON.stringify({ providerId, language, season, episode }),
+      body: JSON.stringify({ providerId, provider, language, season, episode }),
     }),
   refreshMetadata: (id: number, language?: string) =>
     request<ItemDetail>(`/items/${id}/refresh${qs({ language })}`, { method: 'POST' }),

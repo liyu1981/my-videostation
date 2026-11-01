@@ -109,7 +109,7 @@ export function SettingsPage() {
               }}
               className="rounded-lg border border-hairline px-3 py-1.5 text-[12px] text-fg-muted hover:border-active/50 hover:text-active"
             >
-              Remove key
+              Remove TMDb key
             </button>
           ) : null}
           {saved ? <span className="text-[11.5px] text-progress">Saved</span> : null}
@@ -119,10 +119,11 @@ export function SettingsPage() {
       <section className="mt-6 rounded-[var(--radius-panel)] border border-hairline bg-surface/60 p-5">
         <h2 className="text-[13.5px] font-semibold">How matching works</h2>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-[12px] text-fg-muted">
-          <li>Title and year from the filename are compared against TMDB search results.</li>
+          <li>Automatic enrichment matches title/year against TMDb.</li>
           <li>Candidates below 55% confidence are rejected and the item is left unmatched.</li>
-          <li>Locked fields (metadata locks) are never overwritten by a refresh.</li>
-          <li>Use “Identify” on an item to pick the right entry manually — that always wins.</li>
+          <li>Locked fields are never overwritten by a refresh; manual matches and edits always win.</li>
+          <li>Use Edit video info to search the provider and pick the right entry manually.</li>
+          <li>Additional metadata providers can be plugged in; the search dialog shows a provider selector when more than one is installed.</li>
         </ol>
       </section>
     </div>

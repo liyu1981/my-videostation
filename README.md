@@ -111,12 +111,15 @@ testdata/           parser corpus and generated sample media
   subtitle menu, audio-track list, speed, fullscreen), buffered progress bar, big pause
   overlay, next-up prompt, keyboard shortcuts, browser Back closing the player, and a clear
   message when the browser cannot decode the file (transcoding lands in M5).
-- **Metadata (M2)**: TMDB matching with confidence scoring, cast/crew/genres/certification,
-  artwork caching under `<data>/cache`, a Video-Station-style **Edit video info** dialog
+- **Metadata (M2)**: TMDb matching with confidence scoring, cast/crew/genres/certification,
+  artwork caching under `<data>/cache`, a provider registry + provider-aware match/refresh
+  APIs and a search-dialog provider selector (ready for future plugins), a
+  Video-Station-style **Edit video info** dialog
   (tabs, chip editors, nested TMDb search with a remembered language picker; episodes
   search the show and match by season/episode, including stills), a
-  "Needs attention" queue, **Select from existing videos** (copy metadata from another
-  item in the library when TMDb has no result), refresh that never overwrites locked fields,
+  "Needs attention" queue, **Select from existing videos** (movies/shows copy a library item;
+  episodes/seasons pick a series and fetch the episode/season from its TMDb match), refresh
+  that never overwrites locked fields,
   and a merge/keep
   prompt when an edit or match collides with an existing same-title item (movies merge
   files, shows merge seasons/episodes).

@@ -43,7 +43,7 @@ plugin marketplace, cloud sync, distributed multi-node.
 |---|---|---|
 | Multiple libraries (Movies / TV / Home video / TV recording) | `libraries` with type + multiple paths | M1 |
 | Scheduled folder indexing | Incremental scanner + persisted job queue + scheduler | M1 |
-| Online metadata scrape (posters, fanart, cast, plot) | Provider layer (TMDB primary, TVDB optional) | M2 |
+| Online metadata scrape (posters, fanart, cast, plot) | Provider layer (TMDb primary; future plugins) | M2 |
 | TV hierarchy Season/Episode, next-up | `shows → seasons → episodes`, auto-advance | M2/M3 |
 | Home videos / personal videos | `kind=home_video`, minimal metadata, date-sorted | M3 |
 | Web playback (HTML5 + transcode for unsupported codecs) | Direct play + HLS transcode on demand | M4/M5 |
@@ -103,7 +103,7 @@ my-video-station/
 │   ├── media/               # ffprobe wrapper, stream model
 │   ├── naming/              # filename/folder parser (pure, heavily tested)
 │   ├── scanner/             # walker, change detection, job orchestration
-│   ├── metadata/            # tmdb, tvdb, nfo providers + matcher
+│   ├── metadata/            # tmdb + provider registry (future plugins) + matcher
 │   ├── library/             # domain services (browse, edit, collections)
 │   ├── playback/            # direct play; transcode/HLS later
 │   ├── auth/                # users, sessions, permissions
@@ -230,7 +230,7 @@ walk (skip @eaDir, #recycle, .hidden, sample/ extras rules)
 Below threshold → item stays `unmatched` and appears in a "Needs attention" queue
 with a manual Identify dialog (search provider by title/year and pick).
 
-**Providers**: TMDB primary (movies+TV), optional TVDB for anime/absolute ordering,
+**Providers**: TMDb primary (movies+TV); future plugins (e.g. TVDB for anime/absolute ordering),
 local `.nfo` reader (Kodi/Jellyfin compatible). Art from provider, or local
 `poster.jpg`/`fanart.jpg`/`season01-poster.jpg` if present.
 
@@ -511,7 +511,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 | Extras indexing | ✅ trailers/featurettes hidden from browse, attached to the folder's item |
 | Multi-episode files | ✅ `episode_end` recorded and shown as `S01E01-E02` |
 | Multi-file movies | ✅ `CD1`/`CD2`/`Part 1`/`Disc 2` markers are stripped so the files share one identity; the DB stores them as one item with multiple `media_files`. A scan also merges pre-existing part duplicates (same title/year + part-marked files), and `keep_separate` opts a pair out (verified: 非诚勿扰 CD1+CD2 collapsed to one item with both files) |
-| Local metadata search | ✅ **Select from existing videos** in Edit video info: FTS search of the same library/kind, select an item and Apply copies its title, overview, tagline, release date, rating, artwork, genres and cast/crew onto the current item (works for movies, shows and episodes when TMDb has no result) |
+| Local metadata search | ✅ **Select from existing videos** in Edit video info. Movies/shows search the same kind and copy metadata (title, overview, tagline, date, rating, artwork, genres, cast/crew). Episodes/seasons search **TV series** in the library; applying uses the series' TMDb match to fetch the episode/season (so a TMDb search by episode title is not needed). Seasons also support the TMDb search dialog (season number) and a season match |
 | Duplicate prompt | ✅ saving metadata or applying a TMDb match checks for another same-title item and offers **Merge** or **Keep separate**. Works for movies/home videos (files are moved) and **shows** (seasons/episodes are merged by number); migration 0011 drops the old unique show-title index so the match can apply before the prompt |
 | Dialog chrome | ✅ every dialog uses the shared Video-Station-style shell (red top rule, centred red title, tab bar, square corners, blue primary action) |
 | Episode editing | ✅ each episode card in the show/season view has a pencil action that opens Edit video info for that episode (Episode title / Air date labels), in addition to the episode detail overflow menu. Episodes also support **Search from Video Info Plugin**: the dialog searches TV shows (default query = show title) with **Season / Episode number inputs** (prefilled from the item) and matches the selected episode, storing title, overview, air date, rating and the TMDb still; Refresh metadata works the same way. Episode lists are sorted by episode number, the episode page uses a **16:9 still** in the artwork slot (not a 2:3 poster) and the **show's backdrop** behind the page, and an episode match invalidates the season/show queries so the card thumbnail refreshes immediately |
@@ -526,7 +526,7 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 
 | Plan item | Status |
 |---|---|
-| Metadata provider | ✅ `internal/metadata` interface + TMDB client (v3 key or v4 token), configurable language/region |
+| Metadata provider | ✅ `internal/metadata` interface + TMDb client (v3 key or v4 token), provider registry, provider-aware search/match/refresh APIs, `item_provider_ids` (migration 0012) and a search-dialog provider selector — the plumbing is ready for future plugins; only TMDb is registered today |
 | Matching | ✅ token-overlap + year + popularity score, 55% threshold, manual override wins |
 | Enrichment | ✅ background `enrich` job per library, per-item refresh, `metadata_status`/`match_confidence` |
 | Artwork | ✅ poster/backdrop downloaded to `<data>/cache/images` (content-addressed), URL picker in the edit dialog |
@@ -537,6 +537,13 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 | Settings UI | ✅ TMDB key (masked) and certification region; the default search language was removed (per-search language picker, remembered) |
 
 ### M2 — known limitations
+
+- **Provider plugins (e.g. TheTVDB)**: deferred. The provider registry, provider-aware
+  search/match/refresh APIs, `item_provider_ids` and the search-dialog provider selector
+  are implemented and ready for a future plugin, but TheTVDB was prototyped and then
+  removed because obtaining an API key is not user-friendly. See
+  [`adr/0002-thetvdb-provider.md`](./adr/0002-thetvdb-provider.md) for the design if it is
+  revisited. Only TMDb is registered today.
 
 - Only TMDB is implemented; TVDB/Douban remain pluggable via the provider interface.
 - Episode-level metadata (titles, stills) is not fetched — shows are enriched at show level.

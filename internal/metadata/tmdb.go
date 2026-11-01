@@ -176,6 +176,7 @@ func (t *TMDB) SearchMoviesLang(ctx context.Context, query string, year int, lan
 			Rating:        r.VoteAverage,
 			Popularity:    r.Popularity,
 			MediaType:     "movie",
+			Provider:      "tmdb",
 		})
 	}
 	return res, nil
@@ -214,6 +215,7 @@ func (t *TMDB) SearchTVLang(ctx context.Context, query string, year int, languag
 			Rating:        r.VoteAverage,
 			Popularity:    r.Popularity,
 			MediaType:     "tv",
+			Provider:      "tmdb",
 		})
 	}
 	return res, nil
@@ -302,6 +304,7 @@ func (t *TMDB) detailsLang(ctx context.Context, path string, mediaType string, l
 			Rating:        d.VoteAverage,
 			Popularity:    d.Popularity,
 			MediaType:     mediaType,
+			Provider:      "tmdb",
 		},
 		Tagline:     d.Tagline,
 		ReleaseDate: date,
@@ -366,6 +369,34 @@ func (t *TMDB) EpisodeLang(ctx context.Context, showID string, season, episode i
 		Rating:    e.VoteAverage,
 		RuntimeMS: int64(e.Runtime) * 60_000,
 		StillURL:  t.image(e.StillPath, "w1280"),
+	}, nil
+}
+
+type tmdbSeason struct {
+	Name        string  `json:"name"`
+	Overview    string  `json:"overview"`
+	AirDate     string  `json:"air_date"`
+	VoteAverage float64 `json:"vote_average"`
+	PosterPath  string  `json:"poster_path"`
+}
+
+// SeasonLang fetches one season of a show in a specific language.
+func (t *TMDB) SeasonLang(ctx context.Context, showID string, season int, language string) (*SeasonDetails, error) {
+	params := url.Values{}
+	if language != "" {
+		params.Set("language", language)
+	}
+	path := "/tv/" + url.PathEscape(showID) + "/season/" + strconv.Itoa(season)
+	var s tmdbSeason
+	if err := t.get(ctx, path, params, &s); err != nil {
+		return nil, err
+	}
+	return &SeasonDetails{
+		Title:     s.Name,
+		Overview:  s.Overview,
+		AirDate:   s.AirDate,
+		Rating:    s.VoteAverage,
+		PosterURL: t.image(s.PosterPath, "w500"),
 	}, nil
 }
 

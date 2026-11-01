@@ -25,21 +25,28 @@ const MinConfidence = 0.55
 
 // Service enriches items and caches artwork under the data dir.
 type Service struct {
-	store    *store.Store
-	factory  metadata.Factory
-	cacheDir string
-	log      *slog.Logger
-	client   *http.Client
+	store     *store.Store
+	providers *metadata.Registry
+	cacheDir  string
+	log       *slog.Logger
+	client    *http.Client
 }
 
-// New creates the service. cacheDir is typically <data>/cache.
+// New creates the service with a single TMDb-compatible provider factory.
 func New(st *store.Store, factory metadata.Factory, cacheDir string, log *slog.Logger) *Service {
+	reg := metadata.NewRegistry()
+	reg.Register("tmdb", factory)
+	return NewWithRegistry(st, reg, cacheDir, log)
+}
+
+// NewWithRegistry creates the service with several metadata providers/plugins.
+func NewWithRegistry(st *store.Store, providers *metadata.Registry, cacheDir string, log *slog.Logger) *Service {
 	return &Service{
-		store:    st,
-		factory:  factory,
-		cacheDir: cacheDir,
-		log:      log,
-		client:   &http.Client{Timeout: 45 * time.Second},
+		store:     st,
+		providers: providers,
+		cacheDir:  cacheDir,
+		log:       log,
+		client:    &http.Client{Timeout: 45 * time.Second},
 	}
 }
 
@@ -61,7 +68,7 @@ func (s *Service) EnrichLibrary(ctx context.Context, libraryID int64, report fun
 	if report == nil {
 		report = func(float64, string) {}
 	}
-	provider, err := s.factory(ctx)
+	provider, err := s.providers.Get(ctx, "")
 	if err != nil {
 		return stats, err
 	}
@@ -95,14 +102,80 @@ func (s *Service) EnrichLibrary(ctx context.Context, libraryID int64, report fun
 	return stats, nil
 }
 
-// EnrichItem refreshes one item from its stored provider id, or matches it if unmatched.
-// language selects the provider language ("" = configured default).
-func (s *Service) EnrichItem(ctx context.Context, itemID int64, language string) error {
-	provider, err := s.factory(ctx)
+// Refresh re-fetches one item from its stored provider id. providerName selects the
+// provider ("" = the item's applied provider, then the default).
+func (s *Service) Refresh(ctx context.Context, itemID int64, language, providerName string) error {
+	item, err := s.store.GetItem(ctx, itemID)
 	if err != nil {
 		return err
 	}
-	return s.enrichOne(ctx, provider, itemID, false, language)
+	if providerName == "" && item.MetadataStatus == "local" && item.ProviderID == "" {
+		return nil
+	}
+	name := providerName
+	if name == "" {
+		name = item.Provider
+	}
+	if !s.providers.Has(name) {
+		name = s.providers.DefaultName()
+	}
+	provider, err := s.providers.Get(ctx, name)
+	if err != nil {
+		return err
+	}
+	id := ""
+	if item.Provider == provider.Name() {
+		id = item.ProviderID
+	}
+	if id == "" {
+		id, _ = s.store.ItemProviderID(ctx, itemID, provider.Name())
+	}
+	if id == "" {
+		return metadata.ErrNoMatch
+	}
+	var d *metadata.Details
+	switch item.Kind {
+	case store.KindEpisode:
+		d, err = s.episodeDetails(ctx, provider, item, id, language, item.SeasonNumber, item.EpisodeNumber)
+	case store.KindSeason:
+		d, err = s.seasonDetails(ctx, provider, item, id, language, item.SeasonNumber)
+	default:
+		d, err = s.detailsLang(ctx, provider, item, id, language)
+	}
+	if err != nil {
+		return err
+	}
+	status := item.MetadataStatus
+	if status == "" || status == "unmatched" || status == "local" || status == "failed" {
+		status = "matched"
+	}
+	return s.apply(ctx, item, provider, d, status, item.MatchConfidence, nil)
+}
+
+// ProviderInfos reports the configured providers for the UI selector.
+func (s *Service) ProviderInfos(ctx context.Context) []ProviderInfo {
+	var out []ProviderInfo
+	for _, name := range s.providers.Names() {
+		info := ProviderInfo{Name: name}
+		if _, err := s.providers.Get(ctx, name); err == nil {
+			info.Configured = true
+		}
+		info.Kinds = []string{"movie", "show", "season", "episode"}
+		if provider, err := s.providers.Get(ctx, name); err == nil {
+			if kp, ok := provider.(metadata.KindsProvider); ok {
+				info.Kinds = kp.Kinds()
+			}
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
+// ProviderInfo describes one provider.
+type ProviderInfo struct {
+	Name       string   `json:"name"`
+	Configured bool     `json:"configured"`
+	Kinds      []string `json:"kinds"`
 }
 
 // SetArtFromURL downloads an image and assigns it as the poster or backdrop.
@@ -121,8 +194,8 @@ func (s *Service) SetArtFromURL(ctx context.Context, itemID int64, kind, url str
 }
 
 // Search returns provider candidates for an item, best first.
-func (s *Service) Search(ctx context.Context, itemID int64, query string, year int, language string) ([]metadata.Candidate, error) {
-	provider, err := s.factory(ctx)
+func (s *Service) Search(ctx context.Context, itemID int64, query string, year int, language, providerName string) ([]metadata.Candidate, error) {
+	provider, err := s.providers.Get(ctx, providerName)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +204,19 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 		return nil, err
 	}
 	searchTV := item.Kind == store.KindShow
-	if item.Kind == store.KindEpisode {
+	if item.Kind == store.KindSeason {
+		show, err := s.showForSeason(ctx, item)
+		if err != nil {
+			return nil, err
+		}
+		if show == nil {
+			return nil, metadata.ErrNoMatch
+		}
+		searchTV = true
+		if query == "" {
+			query = show.Title
+		}
+	} else if item.Kind == store.KindEpisode {
 		show, err := s.showForEpisode(ctx, item)
 		if err != nil {
 			return nil, err
@@ -168,6 +253,9 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 	}
 	for i := range candidates {
 		candidates[i].MediaType = mediaTypeFor(item.Kind)
+		if candidates[i].Provider == "" {
+			candidates[i].Provider = provider.Name()
+		}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		return metadata.Score(candidates[i], query, year) > metadata.Score(candidates[j], query, year)
@@ -177,14 +265,32 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 
 // Match applies a user-chosen provider id (manual identification). language
 // selects the provider details language ("" = configured default).
-func (s *Service) Match(ctx context.Context, itemID int64, providerID string, language string, season, episode int) error {
-	provider, err := s.factory(ctx)
+func (s *Service) Match(ctx context.Context, itemID int64, providerID string, language string, season, episode int, providerName string) error {
+	provider, err := s.providers.Get(ctx, providerName)
 	if err != nil {
 		return err
 	}
 	item, err := s.store.GetItem(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if item.Kind == store.KindSeason {
+		show, err := s.showForSeason(ctx, item)
+		if err != nil {
+			return err
+		}
+		if show == nil || item.SeasonNumber == 0 {
+			return metadata.ErrNoMatch
+		}
+		sn := item.SeasonNumber
+		if season > 0 {
+			sn = season
+		}
+		d, err := s.seasonDetails(ctx, provider, item, providerID, language, sn)
+		if err != nil {
+			return err
+		}
+		return s.apply(ctx, item, provider, d, "manual", 1, nil)
 	}
 	if item.Kind == store.KindEpisode {
 		show, err := s.showForEpisode(ctx, item)
@@ -221,6 +327,16 @@ func (s *Service) enrichOne(ctx context.Context, provider metadata.Provider, ite
 	item, err := s.store.GetItem(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if item.Kind == store.KindSeason {
+		if item.ProviderID == "" {
+			return metadata.ErrNoMatch
+		}
+		d, err := s.seasonDetails(ctx, provider, item, item.ProviderID, language, item.SeasonNumber)
+		if err != nil {
+			return err
+		}
+		return s.apply(ctx, item, provider, d, item.MetadataStatus, item.MatchConfidence, nil)
 	}
 	if item.Kind == store.KindEpisode {
 		if item.ProviderID == "" {
@@ -315,6 +431,38 @@ func (s *Service) episodeDetails(ctx context.Context, provider metadata.Provider
 		ReleaseDate: ed.AirDate,
 		RuntimeMS:   ed.RuntimeMS,
 	}, nil
+}
+
+// seasonDetails fetches one season from the provider (showID is the TMDb show id).
+func (s *Service) seasonDetails(ctx context.Context, provider metadata.Provider, item *store.Item, showID, language string, season int) (*metadata.Details, error) {
+	sp, ok := provider.(metadata.SeasonProvider)
+	if !ok {
+		return nil, metadata.ErrUnsupportedKind
+	}
+	sd, err := sp.SeasonLang(ctx, showID, season, language)
+	if err != nil {
+		return nil, err
+	}
+	return &metadata.Details{
+		Candidate: metadata.Candidate{
+			ProviderID: showID,
+			Title:      sd.Title,
+			Overview:   sd.Overview,
+			Rating:     sd.Rating,
+			PosterURL:  sd.PosterURL,
+			Year:       yearOfDate(sd.AirDate),
+			MediaType:  "tv",
+		},
+		ReleaseDate: sd.AirDate,
+	}, nil
+}
+
+// showForSeason returns the parent show of a season.
+func (s *Service) showForSeason(ctx context.Context, item *store.Item) (*store.Item, error) {
+	if item.Kind != store.KindSeason || item.ParentID == 0 {
+		return nil, nil
+	}
+	return s.store.GetItem(ctx, item.ParentID)
 }
 
 // showForEpisode walks episode -> season -> show.

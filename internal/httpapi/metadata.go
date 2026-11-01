@@ -93,7 +93,7 @@ func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query().Get("q")
-	candidates, err := s.enricher.Search(r.Context(), id, query, intQuery(r, "year", 0), r.URL.Query().Get("language"))
+	candidates, err := s.enricher.Search(r.Context(), id, query, intQuery(r, "year", 0), r.URL.Query().Get("language"), r.URL.Query().Get("provider"))
 	if err != nil {
 		s.failMetadata(w, err)
 		return
@@ -103,6 +103,7 @@ func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
 
 type matchInput struct {
 	ProviderID string `json:"providerId"`
+	Provider   string `json:"provider"`
 	Language   string `json:"language"`
 	Season     int    `json:"season"`
 	Episode    int    `json:"episode"`
@@ -127,7 +128,7 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "metadata_not_configured", "metadata provider is not configured")
 		return
 	}
-	if err := s.enricher.Match(r.Context(), id, in.ProviderID, in.Language, in.Season, in.Episode); err != nil {
+	if err := s.enricher.Match(r.Context(), id, in.ProviderID, in.Language, in.Season, in.Episode, in.Provider); err != nil {
 		s.failMetadata(w, err)
 		return
 	}
@@ -154,7 +155,7 @@ func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "metadata_not_configured", "metadata provider is not configured")
 		return
 	}
-	if err := s.enricher.EnrichItem(r.Context(), id, r.URL.Query().Get("language")); err != nil {
+	if err := s.enricher.Refresh(r.Context(), id, r.URL.Query().Get("language"), r.URL.Query().Get("provider")); err != nil {
 		s.failMetadata(w, err)
 		return
 	}
@@ -231,7 +232,7 @@ func (s *Server) failMetadata(w http.ResponseWriter, err error) {
 	case errors.Is(err, metadata.ErrUnsupportedKind):
 		writeError(w, http.StatusBadRequest, "unsupported_kind", "metadata search is only available for movies and TV shows")
 	case strings.Contains(msg, "status 401"), strings.Contains(strings.ToLower(msg), "invalid api key"):
-		writeError(w, http.StatusBadGateway, "metadata_auth_failed", "TMDB rejected the API key — check Settings")
+		writeError(w, http.StatusBadGateway, "metadata_auth_failed", "The metadata provider rejected the API key — check Settings")
 	case strings.Contains(msg, "status 429"):
 		writeError(w, http.StatusTooManyRequests, "metadata_rate_limited", "TMDB rate limit reached — try again shortly")
 	case strings.Contains(msg, "status 404"):
@@ -251,4 +252,12 @@ func valueOr(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
+	if s.enricher == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"providers": []any{}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"providers": s.enricher.ProviderInfos(r.Context())})
 }

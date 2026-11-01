@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -82,6 +83,15 @@ func (s *Store) ApplyEnrichment(ctx context.Context, itemID int64, e Enrichment)
 	}
 	if e.ProviderID != "" {
 		add("provider_id", e.ProviderID)
+	}
+	if e.Provider != "" && e.ProviderID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO item_provider_ids (item_id, provider, provider_id, created_at)
+			VALUES (?,?,?,?)
+			ON CONFLICT(item_id, provider) DO UPDATE SET provider_id = excluded.provider_id`,
+			itemID, e.Provider, e.ProviderID, now()); err != nil {
+			return wrap("provider id upsert", err)
+		}
 	}
 	if e.Status != "" {
 		add("metadata_status", e.Status)
@@ -221,4 +231,18 @@ func (s *Store) UnmatchedItems(ctx context.Context, libraryID int64, limit int) 
 		out = []Item{}
 	}
 	return out, nil
+}
+
+// ItemProviderID returns the stored provider id for one provider ("" if absent).
+func (s *Store) ItemProviderID(ctx context.Context, itemID int64, provider string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT provider_id FROM item_provider_ids WHERE item_id = ? AND provider = ?`, itemID, provider).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", wrap("provider id", err)
+	}
+	return id, nil
 }

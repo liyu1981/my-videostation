@@ -72,6 +72,8 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   const [releaseDate, setReleaseDate] = useState(toDateInput(item.releaseDate));
   const [contentRating, setContentRating] = useState(item.contentRating ?? '');
   const [rating, setRating] = useState(item.rating != null ? String(item.rating) : '');
+  const [year, setYear] = useState(item.year ? String(item.year) : '');
+  const [bestEffort, setBestEffort] = useState('');
   const [overview, setOverview] = useState(item.overview ?? '');
   const [genres, setGenres] = useState<string[]>(item.genres);
   const [cast, setCast] = useState<CastEntry[]>(castOf(item));
@@ -91,7 +93,9 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
     setReleaseDate(toDateInput(d.releaseDate));
     setContentRating(d.contentRating ?? '');
     setRating(d.rating != null ? String(d.rating) : '');
+    setYear(d.year ? String(d.year) : '');
     setOverview(d.overview ?? '');
+    setBestEffort('');
     setGenres(d.genres);
     setCast(castOf(d));
     setLocks(d.locks);
@@ -104,6 +108,30 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   };
 
   const reset = () => applyDetail(base);
+
+  const applyBestEffort = (d: {
+    title?: string;
+    overview?: string;
+    year?: number;
+    rating?: number;
+    posterUrl?: string;
+    backdropUrl?: string;
+  }) => {
+    if (d.title) setTitle(d.title);
+    if (d.overview) setOverview(d.overview);
+    if (d.year) setYear(String(d.year));
+    if (d.rating) setRating(String(d.rating));
+    const abs = (u: string) => (u.startsWith('/') ? window.location.origin + u : u);
+    if (d.posterUrl) {
+      setPosterChoice('url');
+      setPosterUrl(abs(d.posterUrl));
+    }
+    if (d.backdropUrl) {
+      setBackdropChoice('url');
+      setBackdropUrl(abs(d.backdropUrl));
+    }
+    setBestEffort('The provider had no record for that id — filled the available search info. Review and save.');
+  };
 
   const finish = () => {
     // Invalidate every item query: an episode edit must refresh the season/show
@@ -170,8 +198,12 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
         locks,
         locked,
       };
-      const year = Number(releaseDate.slice(0, 4));
-      if (releaseDate && Number.isFinite(year)) patch.year = year;
+      const y = Number(year);
+      if (year.trim() !== '' && Number.isFinite(y)) patch.year = y;
+      else if (releaseDate) {
+        const ry = Number(releaseDate.slice(0, 4));
+        if (Number.isFinite(ry)) patch.year = ry;
+      }
       const r = Number(rating);
       if (rating.trim() !== '' && Number.isFinite(r)) patch.rating = r;
       await api.patchItem(item.id, patch);
@@ -233,8 +265,11 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
         >
             {tab === 'info' ? (
               <div className="p-5">
+                {bestEffort ? (
+                  <p className="mb-3 rounded-md border border-new/40 bg-new/10 px-3 py-2 text-[11.5px] text-new">{bestEffort}</p>
+                ) : null}
                 <div className="mb-4 flex flex-wrap items-center gap-2">
-                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' ? (
+                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' || item.kind === 'season' ? (
                     <button
                       type="button"
                       onClick={() => setSearchOpen(true)}
@@ -243,9 +278,9 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                       Search from Video Info Plugin
                     </button>
                   ) : (
-                    <span className="text-[11.5px] text-fg-dim">Metadata search is available for movies and TV shows.</span>
+                    <span className="text-[11.5px] text-fg-dim">Metadata search is available for movies, TV shows, seasons and episodes.</span>
                   )}
-                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' ? (
+                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' || item.kind === 'season' ? (
                     <button
                       type="button"
                       onClick={() => setLocalOpen(true)}
@@ -280,6 +315,15 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                       />
                       <CalendarDays className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-dim" aria-hidden />
                     </div>
+                  </Field>
+                  <Field label="Year">
+                    <input
+                      value={year}
+                      onChange={(e) => setYear(e.target.value)}
+                      inputMode="numeric"
+                      placeholder="2019"
+                      className={`${inputClass} max-w-[120px]`}
+                    />
                   </Field>
                   <Field label="Classification">
                     <input
@@ -383,20 +427,35 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
             setLocalOpen(false);
             void qc.invalidateQueries({ queryKey: ['item'] });
           }}
+          onBestEffort={(source) => {
+            applyBestEffort(source);
+            setLocalOpen(false);
+          }}
         />
       ) : null}
 
       {searchOpen ? (
         <SearchPluginDialog
           item={base}
-          query={base.kind === 'episode' ? base.showTitle || base.title : base.title}
-          episode={base.kind === 'episode'}
+          query={base.kind === 'episode' || base.kind === 'season' ? base.showTitle || base.title : base.title}
+          mode={base.kind === 'episode' ? 'episode' : base.kind === 'season' ? 'season' : undefined}
           onClose={() => setSearchOpen(false)}
           onMatched={(d) => {
             applyDetail(d);
             setSearchOpen(false);
             void qc.invalidateQueries({ queryKey: ['item'] });
             void checkDuplicate();
+          }}
+          onBestEffort={(c) => {
+            applyBestEffort({
+              title: c.title,
+              overview: c.overview,
+              year: c.year,
+              rating: c.rating,
+              posterUrl: c.posterUrl,
+              backdropUrl: c.backdropUrl,
+            });
+            setSearchOpen(false);
           }}
         />
       ) : null}
@@ -617,13 +676,17 @@ function LocalSearchDialog({
   item,
   onClose,
   onApplied,
+  onBestEffort,
 }: {
   item: ItemDetail;
   onClose: () => void;
   onApplied: (d: ItemDetail) => void;
+  onBestEffort: (source: Item) => void;
 }) {
-  const [query, setQuery] = useState(item.title);
-  const [searchFor, setSearchFor] = useState(item.title);
+  const seriesTarget = item.kind === 'episode' || item.kind === 'season';
+  const defaultQuery = seriesTarget ? item.showTitle || item.title : item.title;
+  const [query, setQuery] = useState(defaultQuery);
+  const [searchFor, setSearchFor] = useState(defaultQuery);
   const [selected, setSelected] = useState<number | null>(null);
 
   const results = useQuery({
@@ -634,12 +697,29 @@ function LocalSearchDialog({
   });
 
   const apply = useMutation({
-    mutationFn: (sourceId: number) => api.applyLocal(item.id, sourceId),
+    mutationFn: async (source: Item) => {
+      if (seriesTarget && source.kind === 'show') {
+        if (!source.providerId) {
+          throw new Error('This series has no TMDb match yet — match the series first.');
+        }
+        const lang = window.localStorage.getItem('mvs.tmdbLanguage') || 'en-US';
+        if (item.kind === 'episode') {
+          return api.match(item.id, source.providerId, lang, item.seasonNumber, item.episodeNumber);
+        }
+        return api.match(item.id, source.providerId, lang, item.seasonNumber);
+      }
+      return api.applyLocal(item.id, source.id);
+    },
     onSuccess: (d) => onApplied(d),
+    onError: (err, source) => {
+      const e = err as { code?: string; status?: number };
+      if (e.code === 'not_found' || e.status === 404) onBestEffort(source);
+    },
   });
 
+  const targetKind = seriesTarget ? 'show' : item.kind;
   const candidates = (results.data?.items ?? []).filter(
-    (c) => c.kind === item.kind && c.id !== item.id && c.libraryId === item.libraryId,
+    (c) => c.kind === targetKind && c.id !== item.id && c.libraryId === item.libraryId,
   );
   const selectedItem = candidates.find((c) => c.id === selected) ?? null;
 
@@ -652,13 +732,17 @@ function LocalSearchDialog({
       size="max-w-4xl"
       footer={
         <>
-          <p className="text-[11px] text-fg-dim">Copies title, overview, genres, cast and artwork from the selected item.</p>
+          <p className="text-[11px] text-fg-dim">
+            {seriesTarget
+              ? 'Select the TV series; the episode/season is fetched from TMDb using the series match.'
+              : 'Copies title, overview, genres, cast and artwork from the selected item.'}
+          </p>
           <div className="flex items-center gap-2">
             <DialogButton onClick={onClose}>Cancel</DialogButton>
             <DialogButton
               variant="primary"
               disabled={!selectedItem || apply.isPending}
-              onClick={() => selectedItem && apply.mutate(selectedItem.id)}
+              onClick={() => selectedItem && apply.mutate(selectedItem)}
             >
               {apply.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
               Apply
@@ -682,7 +766,7 @@ function LocalSearchDialog({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search your library…"
+            placeholder={seriesTarget ? 'Search TV series in your library…' : 'Search your library…'}
             aria-label="Search your library"
             className="h-9 w-full rounded-md border border-hairline-strong bg-surface-2 pl-8 pr-3 text-[12.5px] text-fg outline-none placeholder:text-fg-dim"
           />
@@ -701,7 +785,9 @@ function LocalSearchDialog({
         {results.isFetching ? (
           <p className="px-4 py-8 text-center text-[12.5px] text-fg-dim">Searching…</p>
         ) : candidates.length === 0 ? (
-          <p className="px-4 py-8 text-center text-[12.5px] text-fg-dim">No matching {item.kind === 'episode' ? 'episodes' : item.kind === 'show' ? 'TV shows' : 'movies'} in this library.</p>
+          <p className="px-4 py-8 text-center text-[12.5px] text-fg-dim">
+            No matching {seriesTarget ? 'TV series' : item.kind === 'show' ? 'TV shows' : 'movies'} in this library.
+          </p>
         ) : (
           <table className="w-full text-left text-[12px]">
             <thead>
@@ -717,7 +803,7 @@ function LocalSearchDialog({
                 <tr
                   key={c.id}
                   onClick={() => setSelected(c.id)}
-                  onDoubleClick={() => apply.mutate(c.id)}
+                  onDoubleClick={() => apply.mutate(c)}
                   className={['cursor-pointer border-b border-hairline/60', selected === c.id ? 'bg-active/10' : 'hover:bg-surface-2'].join(' ')}
                 >
                   <td className="px-4 py-1.5">
@@ -757,15 +843,17 @@ function LocalSearchDialog({
 function SearchPluginDialog({
   item,
   query: initialQuery,
-  episode = false,
+  mode,
   onClose,
   onMatched,
+  onBestEffort,
 }: {
   item: ItemDetail;
   query: string;
-  episode?: boolean;
+  mode?: 'episode' | 'season';
   onClose: () => void;
   onMatched: (d: ItemDetail) => void;
+  onBestEffort: (c: Candidate) => void;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [language, setLanguage] = useState(() => {
@@ -776,24 +864,53 @@ function SearchPluginDialog({
   const [season, setSeason] = useState(item.seasonNumber ? String(item.seasonNumber) : '');
   const [episodeNo, setEpisodeNo] = useState(item.episodeNumber ? String(item.episodeNumber) : '');
   const [selected, setSelected] = useState<string | null>(null);
+  const [provider, setProvider] = useState(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('mvs.metadataProvider') : null;
+    return saved || 'tmdb';
+  });
+  const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers, staleTime: 60_000 });
+  // Providers that are configured and support this item kind. With one provider
+  // the selector is hidden; future plugins appear here automatically.
+  const available = (providers.data?.providers ?? []).filter(
+    (p) => p.configured && p.kinds.includes(item.kind),
+  );
+
+  useEffect(() => {
+    if (!providers.data) return;
+    if (!available.some((p) => p.name === provider)) {
+      setProvider(available[0]?.name ?? 'tmdb');
+    }
+  }, [providers.data, provider, item.kind]);
 
   const matches = useQuery({
-    queryKey: ['matches', item.id, searchFor.q, searchFor.language],
-    queryFn: () => api.matches(item.id, searchFor.q, undefined, searchFor.language),
-    enabled: searchFor.q.trim().length > 0,
+    queryKey: ['matches', item.id, searchFor.q, searchFor.language, provider],
+    queryFn: () => api.matches(item.id, searchFor.q, undefined, searchFor.language, provider),
+    enabled: searchFor.q.trim().length > 0 && !providers.isLoading,
     retry: false,
   });
 
   const match = useMutation({
-    mutationFn: (c: Candidate) =>
-      api.match(
-        item.id,
-        c.providerId,
-        searchFor.language,
-        episode ? Number(season) || undefined : undefined,
-        episode ? Number(episodeNo) || undefined : undefined,
-      ),
+    mutationFn: (c: Candidate) => {
+      if (mode === 'episode') {
+        return api.match(
+          item.id,
+          c.providerId,
+          searchFor.language,
+          Number(season) || undefined,
+          Number(episodeNo) || undefined,
+          provider,
+        );
+      }
+      if (mode === 'season') {
+        return api.match(item.id, c.providerId, searchFor.language, Number(season) || undefined, undefined, provider);
+      }
+      return api.match(item.id, c.providerId, searchFor.language, undefined, undefined, provider);
+    },
     onSuccess: (d) => onMatched(d),
+    onError: (err, c) => {
+      const e = err as { code?: string; status?: number };
+      if (e.code === 'not_found' || e.status === 404) onBestEffort(c);
+    },
   });
 
   const search = () => {
@@ -864,7 +981,27 @@ function SearchPluginDialog({
               </button>
             ) : null}
           </div>
-          {episode ? (
+          {available.length > 1 ? (
+            <label className="flex items-center gap-2 text-[12px] text-fg-muted">
+              Provider:
+              <select
+                value={provider}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setProvider(v);
+                  window.localStorage.setItem('mvs.metadataProvider', v);
+                }}
+                className="h-9 rounded-md border border-hairline-strong bg-surface-2 px-2 text-[12.5px] text-fg outline-none"
+              >
+                {available.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {providerLabel(p.name)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {mode ? (
             <>
               <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
                 S
@@ -877,17 +1014,19 @@ function SearchPluginDialog({
                   className="h-9 w-16 rounded-md border border-hairline-strong bg-surface-2 px-2 text-[12.5px] text-fg outline-none"
                 />
               </label>
-              <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
-                E
-                <input
-                  type="number"
-                  min={1}
-                  value={episodeNo}
-                  onChange={(e) => setEpisodeNo(e.target.value)}
-                  aria-label="Episode number"
-                  className="h-9 w-16 rounded-md border border-hairline-strong bg-surface-2 px-2 text-[12.5px] text-fg outline-none"
-                />
-              </label>
+              {mode === 'episode' ? (
+                <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
+                  E
+                  <input
+                    type="number"
+                    min={1}
+                    value={episodeNo}
+                    onChange={(e) => setEpisodeNo(e.target.value)}
+                    aria-label="Episode number"
+                    className="h-9 w-16 rounded-md border border-hairline-strong bg-surface-2 px-2 text-[12.5px] text-fg outline-none"
+                  />
+                </label>
+              ) : null}
             </>
           ) : null}
           <label className="flex items-center gap-2 text-[12px] text-fg-muted">
@@ -915,9 +1054,13 @@ function SearchPluginDialog({
             <Search className="size-3.5" aria-hidden /> Search
           </button>
         </form>
-        {episode ? (
+        {mode === 'episode' ? (
           <p className="border-b border-hairline px-5 py-2 text-[11.5px] text-fg-dim">
             Select the TV show — the episode is fetched for season {season || '—'} / episode {episodeNo || '—'}.
+          </p>
+        ) : mode === 'season' ? (
+          <p className="border-b border-hairline px-5 py-2 text-[11.5px] text-fg-dim">
+            Select the TV show — the season is fetched for season {season || '—'}.
           </p>
         ) : null}
 
@@ -969,7 +1112,7 @@ function SearchPluginDialog({
                       ) : null}
                     </td>
                     <td className="px-3 py-2 tabular-nums text-fg-muted">{c.year ?? '—'}</td>
-                    <td className="px-3 py-2 text-fg-muted">TMDB</td>
+                    <td className="px-3 py-2 text-fg-muted">{providerLabel(c.provider || provider)}</td>
                     <td className="px-3 py-2 text-fg-muted">
                       <span className="line-clamp-1">{c.overview || '—'}</span>
                     </td>
@@ -993,6 +1136,15 @@ function SearchPluginDialog({
 
     </Dialog>
   );
+}
+
+function providerLabel(name?: string): string {
+  switch (name) {
+    case 'tmdb':
+      return 'TMDb';
+    default:
+      return name || 'Provider';
+  }
 }
 
 function castOf(item: ItemDetail): CastEntry[] {

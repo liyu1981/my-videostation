@@ -34,6 +34,7 @@ type Candidate struct {
 	Rating        float64 `json:"rating,omitempty"`
 	Popularity    float64 `json:"popularity,omitempty"`
 	MediaType     string  `json:"mediaType"` // movie|tv
+	Provider      string  `json:"provider,omitempty"`
 }
 
 // Credit is one cast or crew member.
@@ -72,6 +73,20 @@ type EpisodeProvider interface {
 	EpisodeLang(ctx context.Context, showID string, season, episode int, language string) (*EpisodeDetails, error)
 }
 
+// SeasonDetails is provider metadata for one season.
+type SeasonDetails struct {
+	Title     string
+	Overview  string
+	AirDate   string
+	Rating    float64
+	PosterURL string
+}
+
+// SeasonProvider is implemented by providers that can fetch a season by the show id.
+type SeasonProvider interface {
+	SeasonLang(ctx context.Context, showID string, season int, language string) (*SeasonDetails, error)
+}
+
 // Provider is implemented by TMDB (and by test doubles).
 type Provider interface {
 	Name() string
@@ -79,6 +94,12 @@ type Provider interface {
 	SearchTV(ctx context.Context, query string, year int) ([]Candidate, error)
 	Movie(ctx context.Context, id string) (*Details, error)
 	TV(ctx context.Context, id string) (*Details, error)
+}
+
+// KindsProvider is optionally implemented by providers that only support some
+// item kinds (e.g. a future TV-only plugin).
+type KindsProvider interface {
+	Kinds() []string
 }
 
 // LanguageProvider is optionally implemented by providers that can search in a
