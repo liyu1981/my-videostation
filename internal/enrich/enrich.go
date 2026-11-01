@@ -20,8 +20,9 @@ import (
 	"github.com/liyu1981/myvideostation/internal/store"
 )
 
-// MinConfidence is the score below which a search result is rejected.
-const MinConfidence = 0.55
+// MinConfidence is the score below which an automatic search result is rejected.
+// Manual picks always win; the lower threshold is the first-pass best effort.
+const MinConfidence = 0.35
 
 // Service enriches items and caches artwork under the data dir.
 type Service struct {

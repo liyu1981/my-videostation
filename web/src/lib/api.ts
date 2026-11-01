@@ -117,6 +117,7 @@ export interface Library {
   itemCount: number;
   unmatchedCount: number;
   autoScanMinutes: number;
+  watchEnabled: boolean;
   lastAutoScanAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -317,9 +318,9 @@ export const api = {
     request<{ ok: boolean }>(`/items/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),
   libraries: () => request<{ libraries: Library[] }>('/libraries'),
   library: (id: number) => request<Library>(`/libraries/${id}`),
-  createLibrary: (body: { name: string; type: LibraryType; language?: string; paths: string[] }) =>
+  createLibrary: (body: { name: string; type: LibraryType; language?: string; paths: string[]; autoScanMinutes?: number; watchEnabled?: boolean }) =>
     request<Library>('/libraries', { method: 'POST', body: JSON.stringify(body) }),
-  updateLibrary: (id: number, body: { name?: string; language?: string; paths?: string[]; autoScanMinutes?: number }) =>
+  updateLibrary: (id: number, body: { name?: string; language?: string; paths?: string[]; autoScanMinutes?: number; watchEnabled?: boolean }) =>
     request<Library>(`/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteLibrary: (id: number) => request<void>(`/libraries/${id}`, { method: 'DELETE' }),
   scanLibrary: (id: number, force = false) =>

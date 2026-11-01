@@ -111,7 +111,8 @@ testdata/           parser corpus and generated sample media
   subtitle menu, audio-track list, speed, fullscreen), buffered progress bar, big pause
   overlay, next-up prompt, keyboard shortcuts, browser Back closing the player, and a clear
   message when the browser cannot decode the file (transcoding lands in M5).
-- **Metadata (M2)**: TMDb matching with confidence scoring, cast/crew/genres/certification,
+- **Metadata (M2)**: TMDb matching with confidence scoring (best-effort 35% auto-match,
+  low-confidence flag), cast/crew/genres/certification,
   artwork caching under `<data>/cache`, a provider registry + provider-aware match/refresh
   APIs and a search-dialog provider selector (ready for future plugins), a
   Video-Station-style **Edit video info** dialog
@@ -131,6 +132,10 @@ testdata/           parser corpus and generated sample media
 - **Organisation (M3)**: Favorites / Watchlist / custom collections, selection mode with
   bulk watched + add-to-collection, category presets (added / watched / released / A–Z),
   genre/year/watched/folder filters from live facets, per-library auto-scan intervals.
+- **Library monitoring**: adding a library scans it immediately and queues a metadata
+  pass; new libraries default to a 6 h auto-scan and an `fsnotify` watcher on
+  local/bind mounts (CIFS/SMB/NFS fall back to scheduled scans); unparseable files
+  are indexed as placeholders; auto-match is best-effort at 35%.
 - **Operations**: per-library **Scan** (incremental) and **Rescan** (force re-probe), with
   **outstanding tasks shown inside each library card** (queued/running/failed), plus a full
   task monitor with **persisted logs** — per-file probe/index lines including full paths,

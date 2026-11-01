@@ -16,6 +16,7 @@ type libraryInput struct {
 	Language        string   `json:"language"`
 	Paths           []string `json:"paths"`
 	AutoScanMinutes *int     `json:"autoScanMinutes"`
+	WatchEnabled    *bool    `json:"watchEnabled"`
 }
 
 type libraryDTO struct {
@@ -78,12 +79,27 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	lib, err := s.store.CreateLibrary(r.Context(), in.Name, in.Type, in.Language, in.Paths)
+	autoScan := 360
+	if in.AutoScanMinutes != nil {
+		autoScan = *in.AutoScanMinutes
+	}
+	watch := true
+	if in.WatchEnabled != nil {
+		watch = *in.WatchEnabled
+	}
+	lib, err := s.store.CreateLibraryWithOptions(r.Context(), in.Name, in.Type, in.Language, in.Paths, autoScan, watch)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.log.Info("library created", "id", lib.ID, "name", lib.Name, "type", lib.Type)
+	s.log.Info("library created", "id", lib.ID, "name", lib.Name, "type", lib.Type, "autoScanMinutes", autoScan, "watch", watch)
+	if s.jobs != nil {
+		if _, err := s.jobs.Enqueue(r.Context(), "scan", map[string]any{"libraryId": lib.ID}); err != nil {
+			s.log.Warn("initial scan enqueue failed", "library", lib.ID, "err", err)
+		} else {
+			s.log.Info("initial scan queued", "library", lib.ID)
+		}
+	}
 	dto, err := s.libraryDTO(r, *lib)
 	if err != nil {
 		s.fail(w, err)
@@ -109,7 +125,7 @@ func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.store.UpdateLibrary(r.Context(), id, in.Name, in.Language, in.Paths, in.AutoScanMinutes); err != nil {
+	if err := s.store.UpdateLibrary(r.Context(), id, in.Name, in.Language, in.Paths, in.AutoScanMinutes, in.WatchEnabled); err != nil {
 		s.fail(w, err)
 		return
 	}

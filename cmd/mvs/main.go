@@ -26,6 +26,7 @@ import (
 	"github.com/liyu1981/myvideostation/internal/metadata"
 	"github.com/liyu1981/myvideostation/internal/scanner"
 	"github.com/liyu1981/myvideostation/internal/store"
+	"github.com/liyu1981/myvideostation/internal/watch"
 )
 
 func main() {
@@ -113,6 +114,9 @@ func run() error {
 		if payload.LibraryID == 0 {
 			return errors.New("missing libraryId")
 		}
+		// Any scan (manual, watcher, create) resets the auto-scan clock so the
+		// scheduler does not immediately scan the same library again.
+		_ = st.MarkAutoScan(ctx, payload.LibraryID)
 		name := "library"
 		if lib, err := st.GetLibrary(ctx, payload.LibraryID); err == nil {
 			name = lib.Name
@@ -147,6 +151,17 @@ func run() error {
 			return err
 		}
 		reportMsg(100, name+": "+stats.String())
+		// Chain the first metadata pass: a scan leaves unmatched items, so queue
+		// enrichment automatically (deduplicated against an active enrich job).
+		if n, err := st.CountUnmatched(ctx, payload.LibraryID); err == nil && n > 0 {
+			if active, _ := st.HasActiveJob(ctx, "enrich", payload.LibraryID); !active {
+				if _, err := manager.Enqueue(ctx, "enrich", map[string]int64{"libraryId": payload.LibraryID}); err != nil {
+					log.Warn("auto-enrich enqueue failed", "library", payload.LibraryID, "err", err)
+				} else {
+					_ = st.AppendJobLog(ctx, job.ID, "info", fmt.Sprintf("queued metadata match for %d unmatched item(s)", n))
+				}
+			}
+		}
 		return nil
 	})
 	manager.Handle("enrich", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
@@ -173,6 +188,11 @@ func run() error {
 		return nil
 	})
 	manager.Start(ctx)
+
+	// Filesystem watcher: local/bind-mounted libraries get debounced scans;
+	// network filesystems and exhausted inotify limits fall back to the scheduler.
+	watcher := watch.New(st, manager, log)
+	go watcher.Run(ctx)
 
 	// Auto-scan scheduler: checks every minute for libraries whose interval elapsed.
 	go func() {

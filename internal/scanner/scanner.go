@@ -386,9 +386,17 @@ func (sc *Scanner) classify(libraryType string, files []foundFile, stats *Stats)
 			extras = append(extras, extraCandidate{file: f, res: res})
 			continue
 		case naming.KindUnknown, "":
+			// Best effort: keep the file in the DB as an editable placeholder even
+			// when the filename cannot be parsed (it shows up as unmatched).
 			stats.Unidentified++
-			sc.logf("warn", "unidentified file: %s", f.path)
-			continue
+			title := strings.TrimSpace(res.Title)
+			if title == "" {
+				title = placeholderTitle(f.path)
+			}
+			sc.logf("warn", "unidentified file (added as placeholder): %s", f.path)
+			item.Kind = store.KindHomeVideo
+			item.Title = title
+			item.Year = res.Year
 		case naming.KindEpisode:
 			item.Kind = store.KindEpisode
 			item.ShowTitle = res.Title
@@ -436,6 +444,16 @@ func (sc *Scanner) classify(libraryType string, files []foundFile, stats *Stats)
 		stats.Extras++
 	}
 	return plans
+}
+
+// placeholderTitle derives a readable title from a filename when parsing fails.
+func placeholderTitle(path string) string {
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	base = strings.TrimSpace(strings.NewReplacer("_", " ", ".", " ").Replace(base))
+	if base == "" {
+		return "Unidentified video"
+	}
+	return base
 }
 
 func extraLabel(kind string) string {

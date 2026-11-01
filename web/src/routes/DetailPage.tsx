@@ -403,7 +403,19 @@ export function DetailPage() {
               ) : null}
               {writers.length > 0 ? <DefRow label="Writer">{writers.map((p) => p.name).join(', ')}</DefRow> : null}
               {directors.length > 0 ? <DefRow label="Director">{directors.map((p) => p.name).join(', ')}</DefRow> : null}
-              {detail.provider ? <DefRow label="Reference">{providerLabel(detail.provider)}</DefRow> : null}
+              {detail.provider ? (
+                <DefRow label="Reference">
+                  {providerLabel(detail.provider)}
+                  {detail.metadataStatus === 'matched' && detail.matchConfidence > 0 && detail.matchConfidence < 0.55 ? (
+                    <span
+                      className="ml-2 rounded-sm border border-new/50 px-1.5 py-0.5 text-[10px] text-new"
+                      title={`Automatic match confidence ${(detail.matchConfidence * 100).toFixed(0)}%`}
+                    >
+                      low confidence
+                    </span>
+                  ) : null}
+                </DefRow>
+              ) : null}
               {subtitles.length > 0 ? (
                 <DefRow label="Subtitles">
                   <select

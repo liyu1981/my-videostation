@@ -120,7 +120,7 @@ export function SettingsPage() {
         <h2 className="text-[13.5px] font-semibold">How matching works</h2>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-[12px] text-fg-muted">
           <li>Automatic enrichment matches title/year against TMDb.</li>
-          <li>Candidates below 55% confidence are rejected and the item is left unmatched.</li>
+          <li>Automatic matching uses a best-effort 35% threshold; low-confidence matches are flagged for review.</li>
           <li>Locked fields are never overwritten by a refresh; manual matches and edits always win.</li>
           <li>Use Edit video info to search the provider and pick the right entry manually.</li>
           <li>Additional metadata providers can be plugged in; the search dialog shows a provider selector when more than one is installed.</li>

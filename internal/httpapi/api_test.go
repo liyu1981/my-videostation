@@ -769,7 +769,7 @@ func TestFacetsFoldersAndCategories(t *testing.T) {
 
 	// auto-scan scheduler bookkeeping
 	mins := 60
-	if err := st.UpdateLibrary(ctx, lib.ID, "", "", nil, &mins); err != nil {
+	if err := st.UpdateLibrary(ctx, lib.ID, "", "", nil, &mins, nil); err != nil {
 		t.Fatal(err)
 	}
 	due, err := st.LibrariesDueForScan(ctx)

@@ -16,6 +16,7 @@ type Library struct {
 	Paths           []LibraryPath `json:"paths"`
 	ItemCount       int64         `json:"itemCount"`
 	AutoScanMinutes int           `json:"autoScanMinutes"`
+	WatchEnabled    bool          `json:"watchEnabled"`
 	LastAutoScanAt  *time.Time    `json:"lastAutoScanAt,omitempty"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	UpdatedAt       time.Time     `json:"updatedAt"`
@@ -43,7 +44,7 @@ func (s *Store) ListLibraries(ctx context.Context) ([]Library, error) {
 		SELECT l.id, l.name, l.type, l.language, l.created_at, l.updated_at,
 		       (SELECT COUNT(*) FROM media_items m
 		         WHERE m.library_id = l.id AND m.kind IN ('movie','show','home_video')) AS item_count,
-		       l.auto_scan_minutes, l.last_auto_scan_at
+		       l.auto_scan_minutes, l.watch_enabled, l.last_auto_scan_at
 		FROM libraries l ORDER BY l.name COLLATE NOCASE`)
 	if err != nil {
 		return nil, wrap("list libraries", err)
@@ -55,11 +56,13 @@ func (s *Store) ListLibraries(ctx context.Context) ([]Library, error) {
 		var l Library
 		var created, updated string
 		var lastAuto sql.NullString
+		var watch int
 		if err := rows.Scan(&l.ID, &l.Name, &l.Type, &l.Language, &created, &updated, &l.ItemCount,
-			&l.AutoScanMinutes, &lastAuto); err != nil {
+			&l.AutoScanMinutes, &watch, &lastAuto); err != nil {
 			return nil, wrap("scan library", err)
 		}
 		l.CreatedAt, l.UpdatedAt = parseTime(created), parseTime(updated)
+		l.WatchEnabled = watch != 0
 		if lastAuto.Valid {
 			t := parseTime(lastAuto.String)
 			l.LastAutoScanAt = &t
@@ -112,18 +115,20 @@ func (s *Store) GetLibrary(ctx context.Context, id int64) (*Library, error) {
 	var l Library
 	var created, updated string
 	var lastAuto sql.NullString
+	var watch int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT l.id, l.name, l.type, l.language, l.created_at, l.updated_at,
 		       (SELECT COUNT(*) FROM media_items m
 		         WHERE m.library_id = l.id AND m.kind IN ('movie','show','home_video')),
-		       l.auto_scan_minutes, l.last_auto_scan_at
+		       l.auto_scan_minutes, l.watch_enabled, l.last_auto_scan_at
 		FROM libraries l WHERE l.id = ?`, id).
 		Scan(&l.ID, &l.Name, &l.Type, &l.Language, &created, &updated, &l.ItemCount,
-			&l.AutoScanMinutes, &lastAuto)
+			&l.AutoScanMinutes, &watch, &lastAuto)
 	if err != nil {
 		return nil, wrap("get library", err)
 	}
 	l.CreatedAt, l.UpdatedAt = parseTime(created), parseTime(updated)
+	l.WatchEnabled = watch != 0
 	if lastAuto.Valid {
 		t := parseTime(lastAuto.String)
 		l.LastAutoScanAt = &t
@@ -134,8 +139,13 @@ func (s *Store) GetLibrary(ctx context.Context, id int64) (*Library, error) {
 	return &l, nil
 }
 
-// CreateLibrary inserts a library and its paths.
+// CreateLibrary inserts a library with default options (auto-scan off, watcher on).
 func (s *Store) CreateLibrary(ctx context.Context, name, typ, language string, paths []string) (*Library, error) {
+	return s.CreateLibraryWithOptions(ctx, name, typ, language, paths, 0, true)
+}
+
+// CreateLibraryWithOptions inserts a library and its paths.
+func (s *Store) CreateLibraryWithOptions(ctx context.Context, name, typ, language string, paths []string, autoScanMinutes int, watchEnabled bool) (*Library, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, wrap("create library", errInvalid("name is required"))
@@ -156,9 +166,17 @@ func (s *Store) CreateLibrary(ctx context.Context, name, typ, language string, p
 	}
 	defer tx.Rollback()
 
+	if autoScanMinutes < 0 {
+		autoScanMinutes = 0
+	}
+	watch := 0
+	if watchEnabled {
+		watch = 1
+	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO libraries (name, type, language, created_at, updated_at) VALUES (?,?,?,?,?)`,
-		name, typ, language, ts, ts)
+		`INSERT INTO libraries (name, type, language, auto_scan_minutes, watch_enabled, created_at, updated_at)
+		 VALUES (?,?,?,?,?,?,?)`,
+		name, typ, language, autoScanMinutes, watch, ts, ts)
 	if err != nil {
 		if sqliteErrIsUnique(err) {
 			return nil, wrap("create library", errInvalid("a library with that name already exists"))
@@ -183,7 +201,7 @@ func (s *Store) CreateLibrary(ctx context.Context, name, typ, language string, p
 }
 
 // UpdateLibrary renames a library, replaces its paths and/or sets the auto-scan interval.
-func (s *Store) UpdateLibrary(ctx context.Context, id int64, name, language string, paths []string, autoScanMinutes *int) error {
+func (s *Store) UpdateLibrary(ctx context.Context, id int64, name, language string, paths []string, autoScanMinutes *int, watchEnabled *bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrap("begin", err)
@@ -196,9 +214,10 @@ func (s *Store) UpdateLibrary(ctx context.Context, id int64, name, language stri
 	var cur struct {
 		name, lang string
 		autoScan   int
+		watch      int
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT name, language, auto_scan_minutes FROM libraries WHERE id = ?`, id).
-		Scan(&cur.name, &cur.lang, &cur.autoScan); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT name, language, auto_scan_minutes, watch_enabled FROM libraries WHERE id = ?`, id).
+		Scan(&cur.name, &cur.lang, &cur.autoScan, &cur.watch); err != nil {
 		return wrap("get library", err)
 	}
 	if autoScanMinutes != nil {
@@ -214,9 +233,16 @@ func (s *Store) UpdateLibrary(ctx context.Context, id int64, name, language stri
 	if strings.TrimSpace(language) != "" {
 		cur.lang = strings.TrimSpace(language)
 	}
+	if watchEnabled != nil {
+		if *watchEnabled {
+			cur.watch = 1
+		} else {
+			cur.watch = 0
+		}
+	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE libraries SET name = ?, language = ?, auto_scan_minutes = ?, updated_at = ? WHERE id = ?`,
-		cur.name, cur.lang, cur.autoScan, now(), id); err != nil {
+		`UPDATE libraries SET name = ?, language = ?, auto_scan_minutes = ?, watch_enabled = ?, updated_at = ? WHERE id = ?`,
+		cur.name, cur.lang, cur.autoScan, cur.watch, now(), id); err != nil {
 		if sqliteErrIsUnique(err) {
 			return wrap("update library", errInvalid("a library with that name already exists"))
 		}

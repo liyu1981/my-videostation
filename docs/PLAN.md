@@ -6,11 +6,12 @@
 Status: **draft / awaiting decisions** (see §12)
 
 Companion docs:
-[`GAPS.md`](./GAPS.md) — feature-parity register vs Synology Video Station (44 known gaps,
+[`GAPS.md`](./GAPS.md) — feature-parity register vs Synology Video Station (43 known gaps,
 6 of them S1), including deliberate non-goals and the advantages we hold.
 [`UI-PROBE.md`](./UI-PROBE.md) — verified probe of a live Video Station 3.0.7 instance
 (42 screenshots): shell geometry, colour/type/layout tokens, component specs, verbatim
 labels, field lists, and a parity checklist for M1–M3.
+[`MONITORING.md`](./MONITORING.md) — library monitoring + auto-scrape audit and plan.
 
 ---
 
@@ -346,8 +347,27 @@ Each phase closes a defined slice of the gap register in [`GAPS.md`](./GAPS.md);
 - Show → season → episode navigation, next-up, specials
 - Collections, favorites, watched/unwatched, tags, home videos by date
 - Bulk edit, identify-many, hidden items, library permissions groundwork
-- Scheduler (interval/daily) + optional fsnotify live watch + job monitor UI
+- Scheduler (interval/daily) + fsnotify watcher on local/bind mounts + job monitor UI
 - **Done when**: library of 5k files is navigable and filterable without lag.
+
+### M3.x — Library monitoring (delivered)
+
+Audit and implementation notes: [`MONITORING.md`](./MONITORING.md).
+
+- `POST /libraries` enqueues the initial scan; new libraries default
+  `autoScanMinutes = 360` and `watchEnabled = true` (Add/Edit forms expose both).
+- A successful scan queues enrich (deduplicated) when unmatched items remain;
+  auto-match uses a best-effort 35% threshold and low-confidence matches are
+  flagged on the detail page.
+- Unparseable files are indexed as `home_video` placeholders with the filename as
+  title and `unmatched` status instead of being dropped.
+- `fsnotify` watches local/bind-mounted libraries (the Synology Docker deployment)
+  with a 10 s debounce and 20 s library resync; CIFS/SMB/NFS and Docker Desktop
+  shares are skipped, and `ENOSPC`/overflow disables the watcher with a warning;
+  scheduled scans remain the fallback. Per-library watch toggle.
+- GAP-068, GAP-070, GAP-071 and GAP-002 are closed. Automated watcher/pipeline
+  tests are still pending (manual verification: create→scan→enrich, watcher scan,
+  placeholder indexing).
 
 ### M4 — Playback (management loop closes)
 - Direct-play streaming with Range; subtitle conversion (srt/ass → vtt)
@@ -527,7 +547,7 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 | Plan item | Status |
 |---|---|
 | Metadata provider | ✅ `internal/metadata` interface + TMDb client (v3 key or v4 token), provider registry, provider-aware search/match/refresh APIs, `item_provider_ids` (migration 0012) and a search-dialog provider selector — the plumbing is ready for future plugins; only TMDb is registered today |
-| Matching | ✅ token-overlap + year + popularity score, 55% threshold, manual override wins |
+| Matching | ✅ token-overlap + year + popularity score; auto-match uses a best-effort 35% threshold (low-confidence flagged), manual override wins |
 | Enrichment | ✅ background `enrich` job per library, per-item refresh, `metadata_status`/`match_confidence` |
 | Artwork | ✅ poster/backdrop downloaded to `<data>/cache/images` (content-addressed), URL picker in the edit dialog |
 | Cast/crew/genres/certification | ✅ applied transactionally; crew roles mapped to director/writer |

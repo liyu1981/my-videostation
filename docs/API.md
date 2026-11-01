@@ -8,9 +8,9 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | GET | `/health` | Liveness + DB ping + version |
 | GET | `/config` | Version, build info, current (single) user |
 | GET | `/libraries` | Libraries with paths + item counts |
-| POST | `/libraries` | Create `{name,type,language?,paths[]}`; validates absolute, existing dirs |
+| POST | `/libraries` | Create `{name,type,language?,paths[],autoScanMinutes?,watchEnabled?}`; validates absolute, existing dirs; **queues the initial scan** (auto-scan defaults to 360 min, watcher on) |
 | GET | `/libraries/{id}` | One library |
-| PATCH | `/libraries/{id}` | Rename / change language / replace paths / `autoScanMinutes` |
+| PATCH | `/libraries/{id}` | Rename / change language / replace paths / `autoScanMinutes` / `watchEnabled` |
 | DELETE | `/libraries/{id}` | Remove library and derived data (never touches media files) |
 | POST | `/libraries/{id}/scan` | Enqueue a scan job → `202 {job}`; optional body `{force:true}` re-probes every file |
 | POST | `/libraries/{id}/enrich` | Enqueue metadata matching for unmatched items → `202 {job}` |
@@ -57,11 +57,12 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 ## Examples
 
 ```bash
-# create a library and scan it
+# create a library (the initial scan is queued automatically)
 curl -X POST localhost:6500/api/v1/libraries \
   -H 'Content-Type: application/json' \
   -d '{"name":"Movies","type":"movie","paths":["/mnt/media/movies"]}'
 
+# optional: scan again (e.g. after changing paths)
 curl -X POST localhost:6500/api/v1/libraries/1/scan
 curl localhost:6500/api/v1/jobs/1
 

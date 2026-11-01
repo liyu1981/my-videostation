@@ -31,6 +31,8 @@ export function LibrariesPage() {
   const [name, setName] = useState('');
   const [type, setType] = useState<LibraryType>('movie');
   const [paths, setPaths] = useState('');
+  const [autoScan, setAutoScan] = useState('360');
+  const [watch, setWatch] = useState(true);
   const [editing, setEditing] = useState<Library | null>(null);
 
   const create = useMutation({
@@ -42,13 +44,14 @@ export function LibrariesPage() {
           .split('\n')
           .map((p) => p.trim())
           .filter(Boolean),
+        autoScanMinutes: Number(autoScan),
+        watchEnabled: watch,
       }),
-    onSuccess: async (lib) => {
+    onSuccess: async () => {
       setShowAdd(false);
       setName('');
       setPaths('');
       await qc.invalidateQueries({ queryKey: ['libraries'] });
-      await api.scanLibrary(lib.id);
       await qc.invalidateQueries({ queryKey: ['jobs'] });
     },
   });
@@ -84,8 +87,13 @@ export function LibrariesPage() {
   });
 
   const update = useMutation({
-    mutationFn: (input: { id: number; name: string; paths: string[]; autoScanMinutes: number }) =>
-      api.updateLibrary(input.id, { name: input.name, paths: input.paths, autoScanMinutes: input.autoScanMinutes }),
+    mutationFn: (input: { id: number; name: string; paths: string[]; autoScanMinutes: number; watchEnabled: boolean }) =>
+      api.updateLibrary(input.id, {
+        name: input.name,
+        paths: input.paths,
+        autoScanMinutes: input.autoScanMinutes,
+        watchEnabled: input.watchEnabled,
+      }),
     onSuccess: () => {
       setEditing(null);
       void qc.invalidateQueries({ queryKey: ['libraries'] });
@@ -146,6 +154,20 @@ export function LibrariesPage() {
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[12px] text-fg-muted">Auto-scan</span>
+              <select value={autoScan} onChange={(e) => setAutoScan(e.target.value)} className={inputClass}>
+                <option value="0">Off (manual only)</option>
+                <option value="60">Every hour</option>
+                <option value="360">Every 6 hours</option>
+                <option value="1440">Daily</option>
+                <option value="10080">Weekly</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 self-end pb-2 text-[12px] text-fg-muted">
+              <input type="checkbox" checked={watch} onChange={(e) => setWatch(e.target.checked)} className="size-4 rounded border-hairline bg-surface-2" />
+              Watch for changes
             </label>
             <label className="block sm:col-span-2">
               <span className="mb-1 block text-[12px] text-fg-muted">Folders (one absolute path per line)</span>
@@ -275,6 +297,7 @@ export function LibrariesPage() {
                   const nameInput = form.elements.namedItem('name') as HTMLInputElement;
                   const pathsInput = form.elements.namedItem('paths') as HTMLTextAreaElement;
                   const scanSelect = form.elements.namedItem('autoScanMinutes') as HTMLSelectElement;
+                  const watchInput = form.elements.namedItem('watchEnabled') as HTMLInputElement;
                   update.mutate({
                     id: lib.id,
                     name: nameInput.value.trim(),
@@ -283,6 +306,7 @@ export function LibrariesPage() {
                       .map((p) => p.trim())
                       .filter(Boolean),
                     autoScanMinutes: Number(scanSelect.value),
+                    watchEnabled: watchInput.checked,
                   });
                 }}
                 className="mt-3 border-t border-hairline pt-3"
@@ -301,6 +325,10 @@ export function LibrariesPage() {
                       <option value="1440">Daily</option>
                       <option value="10080">Weekly</option>
                     </select>
+                  </label>
+                  <label className="flex items-center gap-2 self-end pb-2 text-[12px] text-fg-muted">
+                    <input type="checkbox" name="watchEnabled" defaultChecked={lib.watchEnabled} className="size-4 rounded border-hairline bg-surface-2" />
+                    Watch for changes
                   </label>
                   <label className="block sm:col-span-2">
                     <span className="mb-1 block text-[11.5px] text-fg-muted">Folders</span>

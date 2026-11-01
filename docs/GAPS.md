@@ -17,6 +17,7 @@ MyVideoStation currently does not**, so gaps are deliberate rather than accident
 | `docs/PLAN.md` | Architecture, data model, API sketch, milestones M0–M7, open decisions |
 | `docs/UI-PROBE.md` | Verified Video Station design tokens, layout metrics, component specs, parity checklist |
 | `docs/API.md` | The `/api/v1` HTTP contract |
+| `docs/MONITORING.md` | Library monitoring + auto-scrape audit and plan |
 | `docs/adr/` | Decisions (e.g. ADR 0002: provider plugins deferred) |
 
 Rules:
@@ -53,20 +54,22 @@ Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
 
 | Area | Open gaps | S1 | S2 | S3 | Notable |
 |---|---|---|---|---|---|
-| Library & indexing | 9 | 1 | 3 | 5 | 1 planned (multi-path) |
+| Library & indexing | 8 | 1 | 3 | 4 | 1 planned (multi-path) |
 | Metadata | 4 | 0 | 2 | 2 | NFO + field locks (ADV) |
 | Playback & transcoding | 12 | 2 | 5 | 5 | — |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
 | Users, security, permissions | 6 | 0 | 5 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
 | Integrations | 4 | 0 | 0 | 4 | all permanent |
-| **Total** | **44** | **6** | **19** | **19** | 10 advantages, 1 planned |
+| **Total** | **43** | **6** | **19** | **18** | 10 advantages, 1 planned |
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
 The rendered probe also **corrected three assumptions** (Video Station does have an
 item-level metadata lock, per-item poster/backdrop management, and a "Correct video
 info" re-match flow), so parity expectations in M1–M3 were raised accordingly.
+GAP-068/070/071 and GAP-002 were added by the library-monitoring audit and then
+closed in M3.x (see [`MONITORING.md`](./MONITORING.md)).
 
 Distribution of the six S1 gaps matters more than the total: **five are client/playback
 side** (codec breadth, casting, mobile apps, TV apps, remote access) and only one is
@@ -87,7 +90,6 @@ flowchart TB
   subgraph Library["Library & metadata"]
     direction TB
     G1["GAP-001 network/cloud sources"]
-    G2["GAP-002 real-time watching"]
     G3["GAP-003 ISO/disc playback"]
     G5["GAP-005 indexing rules"]
     G6["GAP-006 thumbnails"]
@@ -168,7 +170,6 @@ parity-completeness, not a hard feature blocker.
 | gap | depends on | kind | note |
 |---|---|---|---|
 | GAP-001 | — | — | storage abstraction; host mounts today |
-| GAP-002 | — | — | fsnotify opt-in; shares indexing work with GAP-005 |
 | GAP-003 | GAP-016 | hard | disc/ISO playback needs the transcode pipeline |
 | GAP-005 | — | — | globs, min-size and exclusion rules |
 | GAP-006 | — | — | thumbnail worker; GAP-055 depends on it |
@@ -210,7 +211,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
 | GAP-001 | Network/cloud sources configured in-app | VS indexes SMB/NFS shares and cloud folders configured inside DSM | `GAP-LATER` | S2 | post-M7 | v1 requires host-mounted paths (compose `volumes:`). SMB/NFS clients and S3/WebDAV/SFTP backends are a separate storage-abstraction project. |
-| GAP-002 | Real-time index watching on by default | VS has real-time indexing plus scheduled indexing | `GAP-LATER` | S3 | M3 | We ship scheduled scans by default and `fsnotify` as opt-in, because inotify limits inside containers caused most VS-vs-Docker support noise. |
+| GAP-002 | Real-time index watching on by default | VS has real-time indexing plus scheduled indexing | `CLOSED` | S3 | M3.x | Implemented: fsnotify watcher for local/bind-mounted libraries (the Synology Docker deployment), debounced scans; CIFS/SMB/NFS and Docker Desktop shares are detected and fall back to scheduled scans; inotify `ENOSPC`/overflow disables the watcher with a warning. Per-library watch toggle. |
 | GAP-003 | Optical/ISO image playback (`ISO`, `BDMV/`, `VIDEO_TS/`) | VS can play DVD/BD folder structures and ISOs | `GAP-UNDECIDED` | S3 | — | ffmpeg can read these, but stream/seek/subtitle semantics and chapter handling are nontrivial. Decide after M5. |
 | GAP-004 | TV recording library + EPG + scheduled recording | VS records from USB DTV dongles / HDHomeRun, with EPG and series recording | `GAP-NEVER` (v1) | S1 | — | **[confirmed]** `SYNO.VideoStation2.DTV.{Tuner,Channel,ChannelScan,Program,Schedule,Statistic,Streaming}`. Requires tuner abstraction, EPG ingestion, conflict resolution, post-processing. Live TV is a separate product. Revisit only with a dedicated design. |
 | GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `GAP-LATER` | S3 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.{Scheduler,IndexFolder}`. We ship sane defaults; user-configurable globs, min-size, and "skip extras" toggles come with bulk edit. |
@@ -218,18 +219,21 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
 | GAP-008 | Import/migration from an existing Video Station library | N/A (VS is the source) | `GAP-UNDECIDED` | S2 | post-M3 | **[verify]** storage is believed to be PostgreSQL. **`.vsmeta` sidecars are now imported natively**, so titles/plots/art work without the VS database; a DB importer would only add watch state and library paths. |
 | GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; cloud sources need host mounts (GAP-001). |
+| GAP-068 | Auto-scan on library creation + default monitoring | VS indexes a newly added folder immediately and keeps monitoring it | `CLOSED` | S2 | M3.x | Implemented: `POST /libraries` enqueues the initial scan; new libraries default `autoScanMinutes = 360` and `watchEnabled = true`; the Add/Edit forms expose both. |
+| GAP-071 | Best-effort indexing of unparseable files | VS adds files to the library even when it cannot identify them | `CLOSED` | S2 | M3.x | Implemented: unparseable files are added as `home_video` placeholders with a filename title and `metadataStatus = unmatched`; they appear in the unmatched/Needs-attention views and are editable/identifiable. |
 
 ## 4. Metadata
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
-| GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. **M2 ships TMDb behind a provider interface; the provider registry, provider-aware search/match/refresh, `item_provider_ids` and the search-dialog provider selector plumbing are now in place** (only TMDb is registered; plugin UX and extra providers are still missing — TheTVDB was deferred, see ADR 0002). |
+| GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. **M2 ships TMDb behind a provider interface; the provider registry, provider-aware search/match/refresh, `item_provider_ids` and the search-dialog provider selector plumbing are now in place** (only TMDb is registered; plugin UX and extra providers are still missing — TheTVDB was deferred, see ADR 0002). Automatic first-time scraping was implemented in M3.x (GAP-070, closed). |
 | GAP-011 | Trailer playback (YouTube) | VS fetches and plays trailers | `GAP-LATER` | S3 | M7 | Requires provider trailer keys + an embed/privacy decision (no third-party iframe by default). |
 | GAP-012 | Online subtitle search & download | VS has a "Search for subtitles" flow with Language / File name / Source columns | `GAP-UNDECIDED` | S2 | M6 | **[confirmed]** dialog captured; no provider configured on this instance ("No match found"). OpenSubtitles needs an account/API key + rate limits, and this is copyright-sensitive — decide policy explicitly. |
 | GAP-013 | Metadata language/region per library | VS selects scraper language per library | `PLANNED` | S3 | M1 | Already in the plan (`libraries.language` + provider language param); listed to confirm parity intent rather than claim a gap. |
 | GAP-014 | Rich person pages / filmography | VS shows cast lists only | `ADV` | — | M2 | We store `people` as first-class rows, so filmography pages are cheap and exceed VS. |
 | GAP-064 | Third-party scraper/plugin marketplace | VS exposes a metadata plugin system (install/search plugins, per-type ordering) | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch}` + Settings › Video Info Plugin. We expose a Go provider interface + config instead of a sandboxed plugin runtime. Revisit only if third-party providers become a real demand. |
 | GAP-067 | Per-item poster/backdrop from URL or media folder | Edit dialog offers Original / Enter URL / Select from folders / Select | `CLOSED` | S3 | M2 | Implemented: URL download + cache (`POST /items/{id}/art`), and sidecar art discovery on scan. Folder picker UI is still a dropdown-less URL field. |
+| GAP-070 | Automatic first-time scrape after a scan | VS scrapes new media on import with the provider's first/best result and keeps the item if unmatched | `CLOSED` | S2 | M3.x | Implemented: a successful scan enqueues enrich (deduplicated) for unmatched items; auto-match uses a best-effort 35% threshold and the detail page flags low-confidence matches; unmatched items stay for manual fixing. |
 
 ## 5. Playback & transcoding
 
