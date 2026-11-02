@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/libraries/{id}/facets", s.handleFacets)
 	mux.HandleFunc("GET /api/v1/libraries/{id}/folders", s.handleFolders)
+	mux.HandleFunc("GET /api/v1/fs", s.handleFSList)
 
 	mux.HandleFunc("GET /api/v1/home", s.handleHome)
 	mux.HandleFunc("GET /api/v1/browse", s.handleBrowse)

@@ -1353,3 +1353,54 @@ func TestJobLogsDeletionAndForceRescan(t *testing.T) {
 		t.Fatalf("jobs after clear = %d", len(remaining.Jobs))
 	}
 }
+
+func TestFSBrowse(t *testing.T) {
+	srv, _, dir := newTestServer(t)
+	root := filepath.Join(dir, "media")
+	if err := os.MkdirAll(filepath.Join(root, "movies"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "@eaDir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var listing struct {
+		Path    string `json:"path"`
+		Parent  string `json:"parent"`
+		Entries []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"entries"`
+	}
+	getJSON(t, srv.URL+"/api/v1/fs?path="+url.QueryEscape(root), &listing)
+	if listing.Path != root {
+		t.Fatalf("path = %q, want %q", listing.Path, root)
+	}
+	if len(listing.Entries) != 1 || listing.Entries[0].Name != "movies" {
+		t.Fatalf("entries = %+v, want only movies", listing.Entries)
+	}
+	if listing.Entries[0].Path != filepath.Join(root, "movies") {
+		t.Fatalf("entry path = %q", listing.Entries[0].Path)
+	}
+
+	res, err := http.Get(srv.URL + "/api/v1/fs?path=" + url.QueryEscape(filepath.Join(root, "missing")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Errorf("missing folder status = %d, want 404", res.StatusCode)
+	}
+
+	res, err = http.Get(srv.URL + "/api/v1/fs?path=relative")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Errorf("relative path status = %d, want 400", res.StatusCode)
+	}
+}

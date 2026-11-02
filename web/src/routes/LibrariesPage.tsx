@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { FolderPlus, HardDrive, Pencil, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from 'lucide-react';
+import { FolderOpen, FolderPlus, HardDrive, Pencil, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from 'lucide-react';
 import { api, type Job, type Library, type LibraryType } from '../lib/api';
 import { formatDateTime } from '../lib/format';
+import { FolderPickerDialog } from '../components/FolderPicker';
 import { JobMessage } from '../components/JobMessage';
 import { ErrorState, Loading } from '../components/State';
 
@@ -169,17 +170,24 @@ export function LibrariesPage() {
               <input type="checkbox" checked={watch} onChange={(e) => setWatch(e.target.checked)} className="size-4 rounded border-hairline bg-surface-2" />
               Watch for changes
             </label>
-            <label className="block sm:col-span-2">
-              <span className="mb-1 block text-[12px] text-fg-muted">Folders (one absolute path per line)</span>
+            <div className="block sm:col-span-2">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-[12px] text-fg-muted">Folders (one absolute path per line)</span>
+                <BrowseFolderButton
+                  initialPath={firstPath(paths)}
+                  onSelect={(path) => setPaths((prev) => appendPath(prev, path))}
+                />
+              </div>
               <textarea
                 value={paths}
                 onChange={(e) => setPaths(e.target.value)}
                 rows={3}
                 required
+                aria-label="Folders"
                 className={`${inputClass} font-mono text-[12px]`}
                 placeholder="/mnt/media/movies"
               />
-            </label>
+            </div>
           </div>
           {create.isError ? <p className="mt-2 text-[12px] text-active">{(create.error as Error).message}</p> : null}
           <div className="mt-3 flex justify-end gap-2">
@@ -330,10 +338,26 @@ export function LibrariesPage() {
                     <input type="checkbox" name="watchEnabled" defaultChecked={lib.watchEnabled} className="size-4 rounded border-hairline bg-surface-2" />
                     Watch for changes
                   </label>
-                  <label className="block sm:col-span-2">
-                    <span className="mb-1 block text-[11.5px] text-fg-muted">Folders</span>
-                    <textarea name="paths" defaultValue={lib.paths.map((p) => p.path).join('\n')} rows={3} className={`${inputClass} font-mono text-[12px]`} />
-                  </label>
+                  <div className="block sm:col-span-2">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="text-[11.5px] text-fg-muted">Folders</span>
+                      <BrowseFolderButton
+                        initialPath={lib.paths[0]?.path}
+                        onSelect={(path) => {
+                          const el = document.getElementById(`library-paths-${lib.id}`) as HTMLTextAreaElement | null;
+                          if (el) el.value = appendPath(el.value, path);
+                        }}
+                      />
+                    </div>
+                    <textarea
+                      id={`library-paths-${lib.id}`}
+                      name="paths"
+                      defaultValue={lib.paths.map((p) => p.path).join('\n')}
+                      rows={3}
+                      aria-label="Folders"
+                      className={`${inputClass} font-mono text-[12px]`}
+                    />
+                  </div>
                 </div>
                 {update.isError ? <p className="mt-2 text-[12px] text-active">{(update.error as Error).message}</p> : null}
                 <div className="mt-2 flex justify-end gap-2">
@@ -407,6 +431,47 @@ function JobRow({ job, active = false }: { job: Job; active?: boolean }) {
       ) : null}
     </div>
   );
+}
+
+function BrowseFolderButton({ initialPath, onSelect }: { initialPath?: string; onSelect: (path: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-hairline px-2 py-1 text-[10.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+      >
+        <FolderOpen className="size-3.5" aria-hidden /> Browse…
+      </button>
+      {open ? (
+        <FolderPickerDialog
+          initialPath={initialPath}
+          onClose={() => setOpen(false)}
+          onSelect={(path) => {
+            onSelect(path);
+            setOpen(false);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function firstPath(value: string): string | undefined {
+  return value
+    .split('\n')
+    .map((p) => p.trim())
+    .find(Boolean);
+}
+
+function appendPath(current: string, path: string): string {
+  const lines = current
+    .split('\n')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!lines.includes(path)) lines.push(path);
+  return lines.join('\n');
 }
 
 const inputClass =

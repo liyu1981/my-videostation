@@ -23,6 +23,7 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | GET | `/browse` | `?kind=&libraryId=&sort=&page=&perPage=&q=&metadataStatus=&category=&genre=&year=&watched=&folder=` → `{items,page,perPage,total,totalPages}` |
 | GET | `/libraries/{id}/facets?kind=` | Genre/year counts for filters |
 | GET | `/libraries/{id}/folders` | Folder prefixes with file counts |
+| GET | `/fs?path=` | Read-only server folder browser for the library path picker: `{path,parent?,roots[],entries[]}`; directories only, hides `@eaDir`/`#recycle` |
 | GET | `/collections` | Collections (Favorites, Watchlist, user) with item counts |
 | POST | `/collections` | `{name}` |
 | PATCH | `/collections/{id}` | `{name}` (system collections rejected) |

@@ -123,6 +123,18 @@ export interface Library {
   updatedAt: string;
 }
 
+export interface FSEntry {
+  name: string;
+  path: string;
+}
+
+export interface FSListing {
+  path: string;
+  parent?: string;
+  roots: FSEntry[];
+  entries: FSEntry[];
+}
+
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 export interface Job {
@@ -325,6 +337,7 @@ export const api = {
   progress: (id: number, body: { positionMs: number; durationMs: number; played: boolean }) =>
     request<{ ok: boolean }>(`/items/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),
   libraries: () => request<{ libraries: Library[] }>('/libraries'),
+  listFS: (path?: string) => request<FSListing>(`/fs${qs({ path })}`),
   library: (id: number) => request<Library>(`/libraries/${id}`),
   createLibrary: (body: { name: string; type: LibraryType; language?: string; paths: string[]; autoScanMinutes?: number; watchEnabled?: boolean }) =>
     request<Library>('/libraries', { method: 'POST', body: JSON.stringify(body) }),

@@ -521,7 +521,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 
 | Plan item | Status |
 |---|---|
-| Libraries CRUD, multiple paths | ✅ (API + UI, path validation) |
+| Libraries CRUD, multiple paths | ✅ (API + UI, path validation + server-side folder picker) |
 | Incremental scanner, ignore rules, jobs | ✅ durable `jobs`, progress polling, missing-file + orphan cleanup |
 | Filename parser + corpus | ✅ 34-case table test (scene, SxxExx, 1x02, multi-ep, CJK, editions) |
 | Schema + FTS5 | ✅ single self-referencing `media_items`, `media_files`, people/genres/locks, `media_fts` |

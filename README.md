@@ -81,7 +81,8 @@ testdata/           parser corpus and generated sample media
 
 ## What works today (M1)
 
-- **Libraries**: movie / TV / home-video libraries with multiple read-only folders.
+- **Libraries**: movie / TV / home-video libraries with multiple read-only folders,
+  added by typing absolute paths or picking them from a server-side folder tree.
 - **Scanning**: incremental (size+mtime), durable jobs with live progress, results streamed
   into the library while scanning, per-file failure isolation, `@eaDir`/`#recycle` skipping,
   orphan cleanup, parallel probing (4 workers), extras indexed hidden and attached to their
