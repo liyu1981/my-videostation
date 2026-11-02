@@ -4,11 +4,14 @@
 and your existing folders — point it at a library and it identifies, organises, and plays
 your movies and shows.
 
-> **Status: M0–M4 plus M3.x monitoring and local accounts.** A single static binary with an
+> **Status: M0–M4 plus M3.x monitoring and M6 account/access groundwork.** A single static binary with an
 > embedded React UI indexes movie / TV / home-video libraries, probes with ffprobe, groups
 > shows into seasons and episodes, browses and searches, edits metadata, direct-plays,
-> and now has first-run admin setup, local user/admin accounts and per-user watch state.
-> Transcoding, per-library permissions and sharing are still open.
+> and now has first-run admin setup, local user/admin accounts, per-user watch state,
+> per-library permissions, rating ceilings, audit activity and an i18n scaffold.
+> Transcoding (M5) and sharing links are still open.
+
+![MyVideoStation demo](https://raw.githubusercontent.com/liyu1981/my-videostation/master/assets/myvideostation-demo.jpg)
 
 ---
 
@@ -27,6 +30,98 @@ MyVideoStation aims for the opposite:
 - **Non-destructive.** Never renames, moves, or deletes media. Sidecar data lives in `/data`.
 - **Modern UI.** Dark-first, keyboard-friendly, responsive — inspired by Video Station's
   information architecture, not its 2013 ExtJS chrome.
+
+## Quick start on Synology Docker
+
+This is the supported deployment path: one Alpine image, a writable `/data` bind mount and
+read-only media mounts. Run these commands over SSH as root (or with `sudo`).
+
+### 1. Pull the image
+
+```bash
+docker pull ghcr.io/liyu1981/my-videostation:0.1.1
+# or track the latest release:
+# docker pull ghcr.io/liyu1981/my-videostation:latest
+```
+
+### 2. Decide the UID/GID
+
+The image runs as the non-root `mvs` user by default: **UID 100 / GID 101**. On Synology it
+is usually easier to run as a DSM user so shared-folder ACLs apply directly. Find its IDs
+over SSH:
+
+```bash
+id myvideostation
+# uid=1026(myvideostation) gid=100(users) groups=...
+```
+
+The example below uses `1026:100`; replace it with your user's real UID/GID. The user needs:
+
+- **Read** access on the video shared folder(s);
+- **Read/Write** access on the data folder.
+
+```bash
+sudo mkdir -p /volume1/docker/myvideostation
+sudo chown -R 1026:100 /volume1/docker/myvideostation
+```
+
+If DSM ACLs override the ownership, also grant the same user **Read/Write** under
+**Control Panel → Shared Folder → Permissions**. Keep the media mount read-only:
+MyVideoStation never writes into your video folders.
+
+### 3. Start the container
+
+```bash
+docker run -d \
+  --name myvideostation \
+  --restart unless-stopped \
+  --user "1026:100" \
+  -p 6500:6500 \
+  -e MVS_LISTEN=0.0.0.0:6500 \
+  -e MVS_DATA_DIR=/data \
+  -v /volume1/docker/myvideostation:/data \
+  -v /volume1/video:/media/video:ro \
+  ghcr.io/liyu1981/my-videostation:0.1.1
+```
+
+- `/volume1/docker/myvideostation:/data` — SQLite DB, artwork cache, subtitle cache and
+  logs. This is the only writable volume.
+- `/volume1/video:/media/video:ro` — your media, mounted read-only. Add libraries using
+  paths under `/media/video` (for example `/media/video/movies`).
+- `6500:6500` — web UI. Open `http://<NAS-IP>:6500`.
+
+The first visit opens the **admin setup** page; create the administrator account there.
+
+> The image's default user is `100:101`. If you omit `--user`, chown `/data` to `100:101`
+> (or use a named volume) and grant that user read access to media instead.
+
+### 4. Allow Docker bridge traffic in the DSM firewall
+
+Synology's firewall can drop Docker's forwarded traffic even though `docker pull` works.
+Allow the Docker bridge subnet outbound:
+
+1. **Control Panel → Security → Firewall → Edit Rules → Create**
+2. **Source IP:** `172.17.0.0/16`
+   (or the IP range `172.17.0.0`–`172.17.255.255` if your DSM build does not accept CIDR)
+3. **Destination:** `All`
+4. **Ports:** `All` — **Protocol:** `All` — **Action:** `Allow`
+5. Move the rule **above any Deny rules**, then apply.
+
+If you use a custom Docker network, use its subnet instead:
+
+```bash
+docker network inspect bridge --format '{{json .IPAM.Config}}'
+```
+
+Without this rule, the container may resolve DNS or reach TMDb only intermittently despite
+the NAS itself having internet access. More DNS/proxy/MTU troubleshooting is in
+[Docker: metadata requests time out](#docker-metadata-requests-time-out).
+
+### 5. First library
+
+After setup, go to **Manage → Libraries → Add library**, choose the type, then add a path
+such as `/media/video/movies` using the folder picker or the text field. The initial scan is
+queued automatically.
 
 ## Planned features
 
