@@ -53,7 +53,10 @@ jobs:
             -X github.com/liyu1981/myvideostation/internal/buildinfo.Commit=${COMMIT} \
             -X github.com/liyu1981/myvideostation/internal/buildinfo.Date=${BUILD_DATE}"
           mkdir -p dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+          # macOS and Windows artifacts are intentionally not shipped: the primary target
+          # is Synology NAS, so only Linux amd64/arm64 are built. To restore them, use:
+          # for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+          for target in linux/amd64 linux/arm64; do
             GOOS="${target%/*}"
             GOARCH="${target#*/}"
             ext=""
@@ -81,26 +84,27 @@ jobs:
           cd dist
           for f in mvs_*; do
             case "$f" in
-              *.exe) zip "${f%.exe}.zip" "$f" README.md ;;
-              *.tar.gz|*.zip) ;;
+              # Windows .zip packaging disabled for Linux-only releases. To restore:
+              # *.exe) zip "${f%.exe}.zip" "$f" README.md ;;
+              *.tar.gz) ;;
               *) tar -czf "${f}.tar.gz" "$f" README.md ;;
             esac
           done
           for f in mvs_*; do
             case "$f" in
-              *.tar.gz|*.zip) ;;
+              *.tar.gz) ;;
               *) rm -f "$f" ;;
             esac
           done
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum *.tar.gz > checksums.txt
           ls -lh
 
       - uses: actions/upload-artifact@v4
         with:
           name: mvs-release
+          # Re-enable `dist/*.zip` here when the Windows target is restored.
           path: |
             dist/*.tar.gz
-            dist/*.zip
             dist/checksums.txt
           retention-days: 7
 
@@ -187,8 +191,8 @@ jobs:
           generate_release_notes: true
           append_body: |
             **Docker image:** `${{ needs.docker.outputs.image }}:${{ needs.docker.outputs.version }}` (linux/amd64, linux/arm64)
+          # Re-enable `dist/*.zip` here when the Windows target is restored.
           files: |
             dist/*.tar.gz
-            dist/*.zip
             dist/checksums.txt
           prerelease: ${{ contains(github.ref_name, '-') }}

@@ -260,8 +260,9 @@ Docker volume, path-move caveats and verification are in
 Pushing a `v*` tag runs the release workflow:
 
 - cross-compiled, statically linked binaries with the SPA embedded for
-  `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` and `windows/amd64`
-  (archives + `checksums.txt` on the GitHub Release);
+  **`linux/amd64` and `linux/arm64`** (`.tar.gz` archives + `checksums.txt` on the GitHub
+  Release). macOS and Windows builds are intentionally disabled — Synology NAS is the
+  primary target; the targets are commented out in the workflow and can be re-enabled.
 - a multi-arch Alpine image pushed to
   `ghcr.io/liyu1981/my-videostation` (`<version>`, `<major>.<minor>`, `latest`).
 
