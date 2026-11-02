@@ -13,6 +13,22 @@ services:
       MVS_DATA_DIR: /data
       MVS_LOG_LEVEL: info
       MVS_LOG_FORMAT: json
+      # TMDb is unreachable from some networks/regions without a proxy. The Go
+      # client honors the standard proxy variables; point them at a proxy that
+      # is reachable from the Docker bridge (usually the NAS LAN IP, not
+      # 127.0.0.1). Uncomment and adjust:
+      # HTTPS_PROXY: http://192.168.0.221:7890
+      # HTTP_PROXY: http://192.168.0.221:7890
+      # NO_PROXY: localhost,127.0.0.1
+    # If the container cannot resolve external hostnames (Synology's
+    # /etc/resolv.conf often points at 127.0.0.1, which Docker's embedded DNS
+    # cannot forward to), use the router's LAN DNS or a public resolver:
+    # dns:
+    #   - 192.168.0.1
+    #   - 1.1.1.1
+    # If the container still cannot resolve/reach anything, Docker bridge egress may be
+    # blocked. Alternative: host networking (remove ports, keep MVS_LISTEN=0.0.0.0:6500):
+    # network_mode: host
     volumes:
       - mvs-data:/data
       # Media is mounted read-only on purpose: MyVideoStation never writes to it.
@@ -22,3 +38,10 @@ services:
 
 volumes:
   mvs-data:
+
+# If large HTTPS requests hang on a PPPoE/MTU-mismatched Synology host, lower
+# the Docker bridge MTU (uncomment):
+# networks:
+#   default:
+#     driver_opts:
+#       com.docker.network.driver.mtu: "1400"

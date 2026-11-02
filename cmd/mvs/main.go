@@ -24,6 +24,7 @@ import (
 	"github.com/liyu1981/myvideostation/internal/jobs"
 	"github.com/liyu1981/myvideostation/internal/media"
 	"github.com/liyu1981/myvideostation/internal/metadata"
+	"github.com/liyu1981/myvideostation/internal/redact"
 	"github.com/liyu1981/myvideostation/internal/scanner"
 	"github.com/liyu1981/myvideostation/internal/store"
 	"github.com/liyu1981/myvideostation/internal/watch"
@@ -299,7 +300,7 @@ func newLogger(cfg config.Config) *slog.Logger {
 	} else {
 		h = slog.NewTextHandler(os.Stdout, opts)
 	}
-	return slog.New(h)
+	return slog.New(redact.NewHandler(h))
 }
 
 func splitList(v string) []string {

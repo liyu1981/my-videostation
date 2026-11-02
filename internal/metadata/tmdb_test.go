@@ -3,8 +3,10 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -138,3 +140,24 @@ func TestScore(t *testing.T) {
 		t.Errorf("unrelated score = %.3f, want < 0.5", other)
 	}
 }
+
+func TestTMDBNetworkErrorRedactsAPIKey(t *testing.T) {
+	client := NewTMDB("super-secret-key", "en-US", "US")
+	client.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("dial failed for %s", req.URL.String())
+	})
+	_, err := client.SearchMovies(context.Background(), "test", 0)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if strings.Contains(err.Error(), "super-secret-key") {
+		t.Fatalf("error leaks the API key: %v", err)
+	}
+	if !strings.Contains(err.Error(), "api_key=[redacted]") {
+		t.Fatalf("error did not redact the key: %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

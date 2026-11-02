@@ -190,6 +190,178 @@ MEDIA_MOVIES=/mnt/media/movies MEDIA_TV=/mnt/media/tv \
   docker compose -f deployments/docker-compose.yml up -d --build
 ```
 
+### Docker on Synology: user and folder permissions
+
+The image runs as the non-root `mvs` user: **UID 100 / GID 101**. On Synology it is
+usually easier to run it as a DSM user, so DSM shared-folder ACLs apply directly:
+
+```yaml
+services:
+  myvideostation:
+    user: "1026:100"   # id -u <dsm-user> : id -g <dsm-user>
+```
+
+- The DSM user needs **Read** on the media shared folders; mount media with `:ro`.
+- `/data` must be **writable** by that user:
+  ```bash
+  sudo mkdir -p /volume1/docker/myvideostation
+  sudo chown -R 1026:100 /volume1/docker/myvideostation
+  ```
+  or grant **Read/Write** on the folder in **Control Panel → Shared Folder →
+  Permissions**.
+- If you override `user:` and use the named `mvs-data` volume, the volume starts owned by
+  `100:101`; use a bind mount or `chown` the volume before starting.
+- Keep media read-only; the app never needs to write there.
+
+Verify:
+
+```bash
+docker exec myvideostation id
+docker exec myvideostation test -w /data && echo data-writable
+docker exec myvideostation ls /video
+```
+
+A complete Synology-style run:
+
+```bash
+docker run -d --name my-videostation \
+  --restart unless-stopped \
+  --user "1026:100" \
+  -p 65000:6500 \
+  -v /volume1/docker/myvideostation:/data \
+  -v /volume1/video:/video:ro \
+  ghcr.io/liyu1981/my-videostation:latest
+```
+
+### Docker: metadata requests time out
+
+The container has its own network namespace, so it does **not** inherit a host VPN, proxy
+or custom DNS. If TMDb works in local dev but times out inside the container, check the
+container's egress path first:
+
+```bash
+docker exec myvideostation wget -S -O- https://api.themoviedb.org/3/configuration
+```
+
+A `401 Unauthorized` means the network is healthy (the request had no API key). A timeout
+means the container cannot reach TMDb.
+
+**Proxy / VPN (common where TMDb is blocked).** The Go client honors the standard proxy
+variables; pass them to the container. The proxy must be reachable from the Docker bridge
+— use the NAS LAN IP, not `127.0.0.1`, unless the proxy also listens on the LAN:
+
+```yaml
+environment:
+  HTTPS_PROXY: http://192.168.0.221:7890
+  HTTP_PROXY: http://192.168.0.221:7890
+  NO_PROXY: localhost,127.0.0.1
+```
+
+**DNS.** If the container cannot resolve external names, set Docker DNS explicitly:
+
+```yaml
+dns:
+  - 192.168.0.1   # router / NAS LAN DNS
+  - 1.1.1.1
+```
+
+This is common on Synology: the NAS's `/etc/resolv.conf` may point at `127.0.0.1`
+(DSM's local DNS server or systemd-resolved), and Docker's embedded resolver cannot
+forward to the host loopback. Use the router's LAN IP, a public resolver, or host
+networking. DNS changes require recreating the container, not just restarting it.
+
+Test name resolution from inside the container:
+
+```bash
+docker exec myvideostation cat /etc/resolv.conf
+docker exec myvideostation nslookup api.themoviedb.org 1.1.1.1
+docker exec myvideostation nslookup api.themoviedb.org 192.168.0.1
+docker exec myvideostation ping -c 2 192.168.0.1
+```
+
+If `nslookup` against **both** the router and a public resolver times out, the container
+has no outbound path at all. `docker pull` still works because the daemon uses the host
+namespace; it does not prove the bridge works. From inside the container:
+
+```bash
+docker exec -u 0 myvideostation ping -c 2 172.17.0.1     # bridge gateway
+docker exec -u 0 myvideostation ping -c 2 192.168.0.1    # LAN
+docker exec -u 0 myvideostation ping -c 2 1.1.1.1        # internet
+```
+
+On the NAS:
+
+```bash
+sysctl net.ipv4.ip_forward
+iptables -t nat -S POSTROUTING | grep -E '172\.|MASQUERADE'
+iptables -S FORWARD
+```
+
+`net.ipv4.ip_forward` must be `1`, and Docker must have a `MASQUERADE` rule for
+`172.17.0.0/16`. If forwarding is off:
+
+```bash
+sysctl -w net.ipv4.ip_forward=1
+# persist it in /etc/sysctl.conf if your DSM version does not manage it
+```
+
+Then restart Container Manager to rebuild Docker's NAT rules. This is not a resolver
+setting — check:
+
+- `docker inspect myvideostation --format '{{.HostConfig.NetworkMode}}'` — bridge or host?
+- DSM → Security → Firewall: see the firewall rule below.
+- Docker bridge/NAT: restart Container Manager (`synopkg restart ContainerManager`), or
+  switch the service to host networking (below).
+- The NAS host itself: `nslookup api.themoviedb.org` on the NAS. If the host also fails,
+  fix the NAS's DNS/network, not the container.
+
+**DSM firewall (confirmed cause).** If the container cannot reach the LAN or internet but
+the NAS can still `docker pull`, the DSM firewall may be dropping Docker's forwarded bridge
+traffic. Allow the bridge subnet:
+
+1. **Control Panel → Security → Firewall → Edit Rules → Create**
+2. **Source IP:** `172.17.0.0/16`
+   (or the range `172.17.0.0`–`172.17.255.255` if your DSM build does not accept CIDR)
+3. **Destination:** `All`
+4. **Ports:** `All` — **Protocol:** `All` — **Action:** `Allow`
+5. Move the rule **above any Deny rules**, then apply.
+
+For a custom Docker network, use its subnet from
+`docker network inspect <network> --format '{{json .IPAM.Config}}'`. `docker pull` works
+through the host namespace, so it does **not** prove that container egress works.
+
+If you have a LAN proxy (e.g. `192.168.0.221:7890`), setting the proxy variables can bypass
+the container DNS problem entirely: the proxy resolves TMDb, and the app only needs to
+resolve/reach the proxy IP.
+
+**MTU.** On PPPoE/Synology setups, TLS can hang when the bridge MTU is larger than the
+uplink. Lower it for the project network:
+
+```yaml
+networks:
+  default:
+    driver_opts:
+      com.docker.network.driver.mtu: "1400"
+```
+
+**IPv6.** If `getent hosts api.themoviedb.org` returns only an IPv6 address and the NAS
+has no working IPv6 route, disable IPv6 in the container
+(`sysctls: net.ipv6.conf.all.disable_ipv6: "1"`) or use host networking.
+
+**Host networking.** If Docker bridge egress/DNS is blocked by the DSM firewall or the
+host VPN/proxy only works through the host stack, use `network_mode: host`, remove the
+`ports:` mapping, and keep `MVS_LISTEN=0.0.0.0:6500`. Test it without changing the
+project first:
+
+```bash
+docker run --rm --network host --entrypoint sh \
+  ghcr.io/liyu1981/my-videostation:latest \
+  -c 'nslookup api.themoviedb.org; wget -S -O- https://api.themoviedb.org/3/configuration'
+```
+
+These are network-path fixes; the API key itself is fine. API keys are now redacted from
+logs, job errors and API error responses automatically.
+
 > **Security:** M1 has no authentication. The `mvs` binary defaults to `127.0.0.1`, but the
 > **dev loop binds `0.0.0.0`** so you can test from a TV/phone on your LAN. Run dev only on a
 > trusted network, and do not expose either port to the internet until M6 (users/sessions).
@@ -204,6 +376,10 @@ Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file 
 | `--ffprobe` | `MVS_FFPROBE` | auto-detected |
 | `--log-level` | `MVS_LOG_LEVEL` | `info` |
 | `--log-format` | `MVS_LOG_FORMAT` | `text` |
+
+The metadata and artwork HTTP clients honor the standard `HTTPS_PROXY`, `HTTP_PROXY` and
+`NO_PROXY` environment variables. API keys are redacted from logs, job errors and API
+error responses automatically.
 
 ## Roadmap
 

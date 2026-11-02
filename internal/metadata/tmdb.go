@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/liyu1981/myvideostation/internal/redact"
 )
 
 // TMDB is a The Movie Database client (v3 API key or v4 bearer token).
@@ -123,7 +125,10 @@ func (t *TMDB) get(ctx context.Context, path string, params url.Values, dst any)
 			break
 		}
 	}
-	return lastErr
+	if lastErr == nil {
+		return nil
+	}
+	return redact.Error(lastErr)
 }
 
 type tmdbSearch struct {

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/liyu1981/myvideostation/internal/metadata"
+	"github.com/liyu1981/myvideostation/internal/redact"
 )
 
 // settingsDTO is the redacted settings payload.
@@ -228,7 +229,7 @@ func (s *Server) handleSetArt(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) failMetadata(w http.ResponseWriter, err error) {
-	msg := err.Error()
+	msg := redact.String(err.Error())
 	switch {
 	case errors.Is(err, metadata.ErrNotConfigured):
 		writeError(w, http.StatusBadRequest, "metadata_not_configured", "set a TMDB API key in Settings first")
@@ -243,7 +244,7 @@ func (s *Server) failMetadata(w http.ResponseWriter, err error) {
 	case strings.Contains(msg, "status 404"):
 		writeError(w, http.StatusNotFound, "not_found", "the provider has no record with that id")
 	default:
-		s.log.Error("metadata request failed", "err", err)
+		s.log.Error("metadata request failed", "err", msg)
 		detail := msg
 		if len(detail) > 200 {
 			detail = detail[:200]

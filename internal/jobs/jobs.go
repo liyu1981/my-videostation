@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/liyu1981/myvideostation/internal/redact"
 	"github.com/liyu1981/myvideostation/internal/store"
 )
 
@@ -136,9 +137,10 @@ func (m *Manager) run(ctx context.Context, id int64) {
 
 	err = h(ctx, job, report)
 	if err != nil {
-		m.log.Error("job failed", "job", id, "type", job.Type, "err", err)
-		_ = m.store.AppendJobLog(ctx, id, "error", err.Error())
-		_ = m.store.FinishJob(ctx, id, "failed", err.Error(), "")
+		safeErr := redact.String(err.Error())
+		m.log.Error("job failed", "job", id, "type", job.Type, "err", safeErr)
+		_ = m.store.AppendJobLog(ctx, id, "error", safeErr)
+		_ = m.store.FinishJob(ctx, id, "failed", safeErr, "")
 		_ = m.store.PruneJobLogs(ctx, id, 50000)
 		return
 	}
