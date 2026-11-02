@@ -263,6 +263,19 @@ export interface PlaybackAudio {
   default?: boolean;
 }
 
+export interface CastInfo {
+  url?: string;
+  compatible: boolean;
+  reachable: boolean;
+  reason?: string;
+}
+
+export interface DLNADevice {
+  id: string;
+  name: string;
+  controlUrl: string;
+}
+
 export interface PlaybackInfo {
   itemId: number;
   fileId: number;
@@ -272,6 +285,7 @@ export interface PlaybackInfo {
   subtitles: PlaybackSubtitle[];
   audio: PlaybackAudio[];
   next?: { itemId: number; title: string; seasonNumber?: number; episodeNumber?: number };
+  cast: CastInfo;
 }
 
 export interface Settings {
@@ -370,6 +384,12 @@ export const api = {
   neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
   progress: (id: number, body: { positionMs: number; durationMs: number; played: boolean }) =>
     request<{ ok: boolean }>(`/items/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),
+  castDLNADevices: () => request<{ devices: DLNADevice[] }>('/cast/dlna/discover', { method: 'POST' }),
+  castDLNAPlay: (fileId: number, controlUrl: string, title: string) =>
+    request<{ ok: boolean }>('/cast/dlna/play', {
+      method: 'POST',
+      body: JSON.stringify({ fileId, controlUrl, title }),
+    }),
   authStatus: () => request<AuthStatus>('/auth/status'),
   me: () => request<{ user: User }>('/auth/me'),
   login: (username: string, password: string) =>

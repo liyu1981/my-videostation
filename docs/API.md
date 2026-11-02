@@ -26,6 +26,8 @@ libraries, browse/home/search results, collections and media access; admins bypa
 | GET | `/users/{id}/libraries` | **admin** — `{libraries:[{id,name,allowed}]}` |
 | PUT | `/users/{id}/libraries` | **admin** — `{libraryIds[]}` allow-list (unlisted/new libraries denied); `{unrestricted:true}` restores all |
 | GET | `/audit?limit=` | **admin** — newest activity entries (`auth`, account, library, settings, metadata) |
+| POST | `/cast/dlna/discover` | Discover LAN DLNA MediaRenderers → `{devices:[{id,name,controlUrl}]}` |
+| POST | `/cast/dlna/play` | `{fileId,controlUrl,title}` — best-effort DLNA `SetAVTransportURI` + `Play`; returns `422 needs_transcoding` for unsupported formats |
 | GET | `/settings` | **admin** — provider settings (API key never returned) |
 | GET | `/libraries` | Libraries with paths + item counts |
 | POST | `/libraries` | **admin** — create `{name,type,language?,paths[],autoScanMinutes?,watchEnabled?}`; validates absolute, existing dirs; **queues the initial scan** (auto-scan defaults to 360 min, watcher on) |
@@ -70,8 +72,8 @@ libraries, browse/home/search results, collections and media access; admins bypa
 | POST | `/items/{id}/art/upload` | **admin** — multipart `kind=poster|backdrop` + `file` (JPEG/PNG/WebP/GIF, ≤20 MB) — store a user upload in the art cache |
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
-| GET | `/items/{id}/playback` | Player payload: stream URL, resume position, subtitle tracks, audio tracks, next episode |
-| GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206` |
+| GET | `/items/{id}/playback` | Player payload: stream URL, signed `cast` URL/compatibility, resume position, subtitle tracks, audio tracks, next episode |
+| GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206`; signed `?cast=` tokens allow cast devices without a session cookie |
 | GET | `/media/{fileId}/subtitle?ext=ID` | Sidecar subtitle as WebVTT; optional `&delayMs=±n` shifts cue times |
 | GET | `/media/{fileId}/subtitle?embedded=INDEX` | ffmpeg-extracted embedded subtitle as WebVTT (cached); optional `&delayMs=±n` |
 

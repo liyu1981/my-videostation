@@ -394,8 +394,10 @@ Audit and implementation notes: [`MONITORING.md`](./MONITORING.md).
   overrides, playback events in the audit log.
 
 ### M7 — Polish / optional
-- PWA/offline shell, Chromecast, online subtitle search, trailers,
-  duplicate detection, file-move re-link, Prometheus metrics, ARM builds
+- PWA/offline shell, online subtitle search, trailers, duplicate detection,
+  file-move re-link, Prometheus metrics, ARM builds
+- Casting: best-effort Chromecast/AirPlay remote playback and DLNA renderer
+  discovery/SOAP delivery are in place; full SDK/AirPlay format breadth waits on M5 HLS.
 
 ---
 

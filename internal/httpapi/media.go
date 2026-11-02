@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var mimeByExt = map[string]string{
@@ -52,11 +53,15 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "file not found")
 		return
 	}
-	ext := filepath.Ext(file.Path)
+	ext := strings.ToLower(filepath.Ext(file.Path))
 	if ct := mimeByExt[ext]; ct != "" {
 		w.Header().Set("Content-Type", ct)
 	} else if ct := mime.TypeByExtension(ext); ct != "" {
 		w.Header().Set("Content-Type", ct)
+	}
+	if r.URL.Query().Get("cast") != "" {
+		// Cast receivers fetch media without the session cookie.
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Disposition", "inline")

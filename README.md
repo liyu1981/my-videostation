@@ -198,9 +198,12 @@ testdata/           parser corpus and generated sample media
 | Continuous play | Next-up autoplay with countdown, same-season and cross-season rollover, and Play all/Shuffle episode queues with queue-aware previous/next. |
 | Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
 | Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich, backup/restore docs and cache-path repair. |
+| Casting | Best-effort Chromecast/AirPlay via browser remote playback and DLNA renderer discovery + SOAP playback. MP4/H.264/AAC only; unsupported formats report that transcoding is required. |
 | Packaging | Single static Go binary with embedded SPA; Alpine Docker image for linux/amd64 and linux/arm64; Synology deployment guide. |
 
-**Not yet:** HLS remux/transcoding (M5), PGS/VobSub/SMI subtitles, sharing links, OIDC/LDAP/SSO, 2FA and parental PIN.
+Casting caveats: open the app through the NAS LAN IP (not localhost), Chromecast remote playback/AirPlay need a secure browser context, and DLNA discovery uses SSDP multicast — Docker bridge networking may not receive it, so host networking may be needed for DLNA renderers.
+
+**Not yet:** HLS remux/transcoding (M5), broad Chromecast/AirPlay format coverage (requires M5), PGS/VobSub/SMI subtitles, sharing links, OIDC/LDAP/SSO, 2FA and parental PIN.
 
 ## Getting started
 

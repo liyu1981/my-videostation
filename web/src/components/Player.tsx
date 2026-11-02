@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAtom } from 'jotai';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Airplay,
+  Cast,
   ChevronRight,
   Gauge,
   Loader2,
@@ -20,9 +22,9 @@ import {
   X,
 } from 'lucide-react';
 import { playerAtom } from '../atoms/ui';
-import { api, type PlaybackSubtitle } from '../lib/api';
+import { api, type DLNADevice, type PlaybackSubtitle } from '../lib/api';
 
-type Menu = 'none' | 'subs' | 'audio' | 'speed';
+type Menu = 'none' | 'subs' | 'audio' | 'speed' | 'cast';
 
 const HIDE_AFTER_MS = 3000;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -70,6 +72,11 @@ export function PlayerModal() {
   const [ended, setEnded] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [mediaError, setMediaError] = useState(false);
+  const [castMessage, setCastMessage] = useState('');
+  const [remoteState, setRemoteState] = useState('disconnected');
+  const [dlnaDevices, setDlnaDevices] = useState<DLNADevice[]>([]);
+  const [dlnaLoading, setDlnaLoading] = useState(false);
+  const [dlnaError, setDlnaError] = useState('');
 
   const hideTimer = useRef<number | null>(null);
   const lastSaved = useRef(0);
@@ -163,6 +170,9 @@ export function PlayerModal() {
     setCurrent(0);
     setDuration(0);
     setMediaError(false);
+    setCastMessage('');
+    setDlnaDevices([]);
+    setDlnaError('');
     poke();
   }, [player?.itemId, poke]);
 
@@ -198,6 +208,22 @@ export function PlayerModal() {
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
+
+  useEffect(() => {
+    const remote = (videoRef.current as any)?.remote;
+    if (!remote) {
+      setRemoteState('unsupported');
+      return;
+    }
+    const update = () => setRemoteState(remote.state || 'disconnected');
+    update();
+    remote.addEventListener('connect', update);
+    remote.addEventListener('disconnect', update);
+    return () => {
+      remote.removeEventListener('connect', update);
+      remote.removeEventListener('disconnect', update);
+    };
+  }, [data?.itemId, data?.cast?.url]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -277,6 +303,72 @@ export function PlayerModal() {
     setPlayer({ itemId: prev.id, title: prev.title });
   }, [queuePrev, queue, queueIndex, player, neighbors.data, setPlayer]);
 
+  const remoteSupported = typeof HTMLMediaElement !== 'undefined' && 'remote' in HTMLMediaElement.prototype;
+  const airplaySupported =
+    typeof HTMLMediaElement !== 'undefined' && 'webkitShowPlaybackTargetPicker' in HTMLMediaElement.prototype;
+  const castReady = Boolean(data?.cast?.compatible && data?.cast?.reachable && data.cast.url);
+  const castReason = data?.cast?.reason || 'This media format needs transcoding before it can be cast.';
+
+  const startRemoteCast = async () => {
+    if (!castReady) {
+      setCastMessage(castReason);
+      return;
+    }
+    const remote = (videoRef.current as any)?.remote;
+    if (!remote?.prompt) {
+      setCastMessage('Chromecast/remote playback is unavailable in this browser. Use Chrome/Chromium over HTTPS or localhost.');
+      return;
+    }
+    try {
+      await remote.prompt();
+      setCastMessage(remote.state === 'connected' ? 'Connected to the cast device.' : 'Choose a cast device in the browser prompt.');
+    } catch (err) {
+      setCastMessage((err as Error)?.message || 'Could not open the cast device picker.');
+    }
+  };
+
+  const startAirPlay = () => {
+    if (!castReady) {
+      setCastMessage(castReason);
+      return;
+    }
+    const video = videoRef.current as any;
+    if (!video?.webkitShowPlaybackTargetPicker) {
+      setCastMessage('AirPlay needs Safari on a compatible Apple device.');
+      return;
+    }
+    video.webkitShowPlaybackTargetPicker();
+    setCastMessage('Choose an AirPlay device.');
+  };
+
+  const discoverDLNA = async () => {
+    if (!castReady) {
+      setCastMessage(castReason);
+      return;
+    }
+    setDlnaLoading(true);
+    setDlnaError('');
+    try {
+      const result = await api.castDLNADevices();
+      setDlnaDevices(result.devices);
+      if (result.devices.length === 0) setDlnaError('No DLNA renderers found on the LAN.');
+    } catch (err) {
+      setDlnaError((err as Error).message);
+    } finally {
+      setDlnaLoading(false);
+    }
+  };
+
+  const playDLNA = async (device: DLNADevice) => {
+    if (!data || !castReady) return;
+    try {
+      await api.castDLNAPlay(data.fileId, device.controlUrl, player?.title ?? 'MyVideoStation');
+      setCastMessage(`Sent to ${device.name}. The renderer controls playback.`);
+    } catch (err) {
+      setCastMessage((err as Error).message);
+    }
+  };
+
   // Keyboard shortcuts.
   useEffect(() => {
     if (!player) return;
@@ -340,9 +432,11 @@ export function PlayerModal() {
       {data ? (
         <video
           ref={videoRef}
-          src={data.streamUrl}
+          src={data.cast?.url || data.streamUrl}
           autoPlay
+          playsInline
           crossOrigin="anonymous"
+          {...({ 'x-webkit-airplay': 'allow' } as any)}
           className="absolute inset-0 h-full w-full object-contain"
           style={{ '--mvs-cue-size': `${cueSize}em`, '--mvs-cue-color': cueColor } as React.CSSProperties}
           onClick={togglePlay}
@@ -543,6 +637,7 @@ export function PlayerModal() {
 
           <div className="ml-auto flex items-center gap-1.5">
             <MenuButton label="Subtitles" active={subtitleID !== 'off'} onClick={() => setMenu(menu === 'subs' ? 'none' : 'subs')} icon={<Subtitles className="size-[18px]" aria-hidden />} />
+            <MenuButton label="Cast" active={remoteState === 'connected'} onClick={() => setMenu(menu === 'cast' ? 'none' : 'cast')} icon={<Cast className="size-[18px]" aria-hidden />} />
             <MenuButton label="Audio" onClick={() => setMenu(menu === 'audio' ? 'none' : 'audio')} icon={<Volume2 className="size-[18px]" aria-hidden />} />
             <MenuButton label="Speed" onClick={() => setMenu(menu === 'speed' ? 'none' : 'speed')} icon={<Gauge className="size-[18px]" aria-hidden />} text={speed !== 1 ? `${speed}×` : undefined} />
             <button type="button" onClick={toggleFullscreen} className={ctrlBtn} aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
@@ -556,7 +651,7 @@ export function PlayerModal() {
       {menu !== 'none' ? (
         <div className="absolute bottom-24 right-5 z-30 w-72 overflow-hidden rounded-lg border border-hairline bg-surface/95 shadow-2xl backdrop-blur">
           <div className="border-b border-hairline px-3 py-2 text-[10.5px] uppercase tracking-wide text-fg-dim">
-            {menu === 'subs' ? 'Subtitles' : menu === 'audio' ? 'Audio tracks' : 'Playback speed'}
+            {menu === 'subs' ? 'Subtitles' : menu === 'audio' ? 'Audio tracks' : menu === 'cast' ? 'Cast' : 'Playback speed'}
           </div>
           <div className="max-h-[70vh] overflow-y-auto p-1">
             {menu === 'subs' ? (
@@ -647,6 +742,75 @@ export function PlayerModal() {
                 {(data?.audio ?? []).length === 0 ? <p className="px-3 py-2 text-[11.5px] text-fg-dim">No audio tracks</p> : null}
                 <p className="px-3 py-2 text-[10.5px] text-fg-dim">Track switching needs transcoding (M5); the browser plays the default track.</p>
               </>
+            ) : null}
+            {menu === 'cast' ? (
+              <div className="space-y-2 p-1">
+                {!data ? (
+                  <p className="px-2 py-1 text-[11.5px] text-fg-dim">Preparing playback…</p>
+                ) : !castReady ? (
+                  <div className="rounded-md border border-new/30 bg-new/5 px-2.5 py-2">
+                    <p className="text-[11.5px] font-medium text-new">Casting is not ready for this file.</p>
+                    <p className="mt-1 text-[10.5px] text-fg-muted">{castReason}</p>
+                    {!data.cast?.reachable ? (
+                      <p className="mt-1 text-[10.5px] text-fg-muted">Open MyVideoStation via the NAS LAN IP, not localhost.</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <p className="px-1 pb-1 text-[10.5px] uppercase tracking-wide text-fg-dim">Chromecast</p>
+                      <button
+                        type="button"
+                        onClick={() => void startRemoteCast()}
+                        disabled={!remoteSupported}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-fg-muted hover:bg-surface-3 hover:text-fg disabled:opacity-40"
+                      >
+                        <Cast className="size-3.5" aria-hidden />
+                        Cast via Chrome remote playback
+                      </button>
+                      {!remoteSupported ? (
+                        <p className="px-1 text-[10px] text-fg-dim">Requires Chrome/Chromium over HTTPS or localhost.</p>
+                      ) : null}
+                    </div>
+                    <div>
+                      <p className="px-1 pb-1 text-[10.5px] uppercase tracking-wide text-fg-dim">AirPlay</p>
+                      <button
+                        type="button"
+                        onClick={startAirPlay}
+                        disabled={!airplaySupported}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-fg-muted hover:bg-surface-3 hover:text-fg disabled:opacity-40"
+                      >
+                        <Airplay className="size-3.5" aria-hidden />
+                        Open AirPlay picker
+                      </button>
+                      {!airplaySupported ? <p className="px-1 text-[10px] text-fg-dim">Requires Safari.</p> : null}
+                    </div>
+                    <div>
+                      <p className="px-1 pb-1 text-[10.5px] uppercase tracking-wide text-fg-dim">DLNA</p>
+                      <button
+                        type="button"
+                        onClick={() => void discoverDLNA()}
+                        disabled={dlnaLoading}
+                        className="w-full rounded-md border border-hairline px-2 py-1.5 text-left text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg disabled:opacity-40"
+                      >
+                        {dlnaLoading ? 'Searching for renderers…' : 'Discover DLNA renderers'}
+                      </button>
+                      {dlnaDevices.map((device) => (
+                        <button
+                          key={device.id}
+                          type="button"
+                          onClick={() => void playDLNA(device)}
+                          className="mt-1 block w-full truncate rounded-md px-2 py-1 text-left text-[11.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
+                        >
+                          {device.name}
+                        </button>
+                      ))}
+                      {dlnaError ? <p className="px-1 text-[10.5px] text-active">{dlnaError}</p> : null}
+                    </div>
+                  </>
+                )}
+                {castMessage ? <p className="px-1 text-[10.5px] text-progress">{castMessage}</p> : null}
+              </div>
             ) : null}
             {menu === 'speed' ? (
               SPEEDS.map((s) => (

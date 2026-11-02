@@ -50,6 +50,7 @@ type playbackDTO struct {
 	Subtitles  []subtitleTrackDTO `json:"subtitles"`
 	Audio      []audioTrackDTO    `json:"audio"`
 	Next       *nextUpDTO         `json:"next,omitempty"`
+	Cast       castInfoDTO        `json:"cast"`
 }
 
 // handlePlayback resolves everything the player needs for one item.
@@ -92,6 +93,7 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	if item.PositionMS > 0 && !item.Played {
 		out.ResumeMS = item.PositionMS
 	}
+	out.Cast = s.castInfo(r, file)
 
 	exts, err := s.store.ExternalSubtitles(r.Context(), file.ID)
 	if err != nil {

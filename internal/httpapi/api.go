@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/liyu1981/myvideostation/internal/buildinfo"
@@ -28,6 +29,9 @@ type Server struct {
 	enricher *enrich.Service
 	ffmpeg   string
 	cacheDir string
+
+	castMu  sync.Mutex
+	castKey []byte
 }
 
 // Options configures the HTTP server.
@@ -77,6 +81,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/users/{id}/libraries", s.admin(s.handleUserLibraries))
 	mux.HandleFunc("PUT /api/v1/users/{id}/libraries", s.admin(s.handleUserLibraries))
 	mux.HandleFunc("GET /api/v1/audit", s.admin(s.handleAudit))
+	mux.HandleFunc("POST /api/v1/cast/dlna/discover", s.auth(s.handleCastDLNADiscover))
+	mux.HandleFunc("POST /api/v1/cast/dlna/play", s.auth(s.handleCastDLNAPlay))
 
 	mux.HandleFunc("GET /api/v1/libraries", s.auth(s.handleListLibraries))
 	mux.HandleFunc("POST /api/v1/libraries", s.admin(s.handleCreateLibrary))
@@ -126,7 +132,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/items/{id}/poster", s.auth(s.handleArt("poster")))
 	mux.HandleFunc("GET /api/v1/items/{id}/backdrop", s.auth(s.handleArt("backdrop")))
 
-	mux.HandleFunc("GET /api/v1/media/{fileId}", s.auth(s.handleStream))
+	mux.HandleFunc("GET /api/v1/media/{fileId}", s.mediaAuth(s.handleStream))
 	mux.HandleFunc("GET /api/v1/media/{fileId}/subtitle", s.auth(s.handleSubtitle))
 	mux.HandleFunc("GET /api/v1/items/{id}/playback", s.auth(s.handlePlayback))
 
