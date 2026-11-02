@@ -175,80 +175,32 @@ docs/               PLAN · GAPS · UI-PROBE · ADRs
 testdata/           parser corpus and generated sample media
 ```
 
-## What works today (M1)
+## What works today
 
-- **Accounts & permissions**: first-run admin setup, login/logout, admin/user roles,
-  admin user management, self-service password change, HttpOnly sessions, per-user watch
-  state/collections, per-library view permissions, content-rating ceilings, an admin
-  activity log, and an English/German/Chinese UI scaffold; admin-only
-  library/metadata/settings APIs.
-- **Libraries**: movie / TV / home-video libraries with multiple read-only folders,
-  added by typing absolute paths or picking them from a server-side folder tree.
-- **Scanning**: incremental (size+mtime), durable jobs with live progress, results streamed
-  into the library while scanning, per-file failure isolation, `@eaDir`/`#recycle` skipping,
-  orphan cleanup, parallel probing (4 workers), extras indexed hidden and attached to their
-  movie/show, samples skipped.
-- **Parsing**: scene names, `SxxExx`, `1x02`, multi-episode ranges (`S01E01-E02`), CJK
-  titles, editions, folders as fallback — 34-case test corpus.
-- **Probing**: ffprobe (container, duration, resolution, codecs, HDR, audio/subtitle tracks);
-  graceful degradation when ffprobe is absent.
-- **Library UI**: Video-Station-style header (logo block as wide as the rail, home, search,
-  user, settings), an inset **"bookshelf" hero** (`<poster> | <bg>`: a full-height poster
-  next to a fixed 16:9 backdrop with a left-dark mask, bottom-aligned title/stars/runtime/
-  age chip, and a ring-shaped shelf of full-height poster spines; each slide is an
-  already-expanded poster + backdrop block, and clicking a spine simply slides that block
-  into the poster slot), continue-watching, **fixed-size 120 px poster grid** (posters never stretch to fill the page), thumbnail/tile/list views, category + sort
-  dropdowns, pagination, global FTS5 search, show → season → episode navigation.
-- **Edit video info (VS parity)**: one overflow-menu entry opens a tabbed dialog
-  (Video Info / Poster / Backdrop) with chip editors, per-field locks, artwork
-  Original / No images / URL / **upload**, and a nested TMDb search with a remembered
-  language picker. Provider/NFO summaries are normalized to real paragraphs
-  (`\n\n`), including TMDb Chinese overviews that separate paragraphs with
-  ideographic spaces; existing rows are backfilled at startup.
-- **Item UI (VS parity)**: 270×388 poster with 76 px play overlay, unwatched chip + action
-  icons, 36 px title, tagline, iconised info line (release date · stars · clock duration ·
-  video codec · audio codec) with an age-classification chip, definition rows (genre/cast/
-  writer/director/reference/subtitles/audio), summary with "View all", season bar + landscape
-  episode cards, prev/next item arrows, **media info dialog** from the top-right info button
-  and overflow menu, extras.
-- **Player (VS parity)**: custom auto-hiding control bar (prev/next, ±10 s, volume, time,
-  subtitle menu with **delay and cue size/colour**, audio-track list, speed, fullscreen),
-  buffered progress bar, big pause overlay, next-up prompt with **autoplay/cross-season
-  rollover**, play-all/shuffle episode queues, keyboard shortcuts, browser Back closing
-  the player, and a clear message when the browser cannot decode the file (transcoding
-  lands in M5).
-- **Metadata (M2)**: TMDb matching with confidence scoring (best-effort 35% auto-match,
-  low-confidence flag), cast/crew/genres/certification,
-  artwork caching under `<data>/cache`, a provider registry + provider-aware match/refresh
-  APIs and a search-dialog provider selector (ready for future plugins), a
-  Video-Station-style **Edit video info** dialog
-  (tabs, chip editors, nested TMDb search with a remembered language picker; episodes
-  search the show and match by season/episode, including stills), a
-  "Needs attention" queue, **Select from existing videos** (movies/shows copy a library item;
-  episodes/seasons pick a series and fetch the episode/season from its TMDb match), refresh
-  that never overwrites locked fields,
-  and a merge/keep
-  prompt when an edit or match collides with an existing same-title item (movies merge
-  files, shows merge seasons/episodes).
-- **Local sidecars**: reads Jellyfin/Kodi `.nfo` (movie/tvshow/episode, local art, cast,
-  unique ids) and Synology `.vsmeta` (protobuf; embedded poster/backdrop) — **vsmeta wins
-  over NFO field-by-field** (Video Station's priority). Imported items are marked `local`;
-  TMDb matches and user edits are written to the DB and are never reverted by a rescan.
-  Format notes: [`docs/VSMETA-FORMAT.md`](docs/VSMETA-FORMAT.md).
-- **Organisation (M3)**: Favorites / Watchlist / custom collections, selection mode with
-  bulk watched + add-to-collection, category presets (added / watched / released / A–Z),
-  genre/year/watched/folder filters from live facets, per-library auto-scan intervals.
-- **Library monitoring**: adding a library scans it immediately and queues a metadata
-  pass; new libraries default to a 6 h auto-scan and an `fsnotify` watcher on
-  local/bind mounts (CIFS/SMB/NFS fall back to scheduled scans); unparseable files
-  are indexed as placeholders; auto-match is best-effort at 35%.
-- **Operations**: per-library **Scan** (incremental) and **Rescan** (force re-probe), with
-  **outstanding tasks shown inside each library card** (queued/running/failed), plus a full
-  task monitor with **persisted logs** — per-file probe/index lines including full paths,
-  warn/error entries, copy-all, per-task delete and "clear finished".
-- **Playback (M4)**: direct play scaled to fit the window (`object-contain`, any aspect
-  ratio), resume, sidecar + embedded subtitle tracks served as WebVTT (UTF-8/GB18030/Big5),
-  subtitle menu, keyboard shortcuts, and next-episode prompt.
+| Area | Capabilities |
+|---|---|
+| Accounts & roles | First-run admin setup, login/logout, PBKDF2 passwords, HttpOnly sessions, admin/user roles, admin user management, self-service password change, per-user watch state and collections. |
+| Access control | Per-library allow-lists and content-rating ceilings, enforced server-side for libraries, browse, search, item, collection and media access. |
+| Audit | Admin Activity log for auth, account, library, settings and metadata actions. |
+| Localisation | English / German / Chinese UI scaffold with an account-menu language selector. |
+| Libraries | Movie / TV / home-video libraries, multiple read-only paths, server-side folder picker, scheduled scans and an fsnotify watcher. |
+| Scanning | Incremental size/mtime scans, durable jobs, four-worker probing, per-file failure isolation, `@eaDir`/`#recycle` skipping, extras/samples handling, placeholder indexing. |
+| Naming | Scene names, `SxxExx`, `1x02`, multi-episode ranges, CJK titles, editions and folder fallbacks. |
+| Probing | ffprobe container, duration, resolution, codecs, HDR and audio/subtitle tracks; graceful fallback when ffprobe is absent. |
+| Local metadata | Jellyfin/Kodi `.nfo` and Synology `.vsmeta`, with vsmeta winning field-by-field; local artwork; user/TMDb data survives rescans. |
+| TMDb metadata | Search, match and refresh with confidence scoring, low-confidence flag, cast/crew/genres/certification, provider registry and language-aware queries. |
+| Artwork | Cached posters/backdrops with Original / No images / URL / Upload choices, plus sidecar artwork discovery. |
+| Browse | VS-style hero and ring shelf, continue watching, fixed 120 px poster grid, poster/tile/list views, categories, sorting, pagination, FTS5 search and show → season → episode navigation. |
+| Item detail | VS poster/action layout, badges, metadata rows, paragraph-preserving summary, season bar and episode cards, prev/next arrows, extras and a media-info dialog. |
+| Edit dialog | Video Info / Poster / Backdrop tabs, chip editors, per-field locks, nested TMDb search, best-effort fills, merge/keep prompts and “Select from existing”. |
+| Subtitles | Sidecar and embedded WebVTT with charset detection (UTF-8/GB18030/Big5), ±60 s delay, cue size/colour and default-language preference. |
+| Player | Direct play with resume/watched state, audio-track list, speed, fullscreen, keyboard shortcuts and browser-Back close. |
+| Continuous play | Next-up autoplay with countdown, same-season and cross-season rollover, and Play all/Shuffle episode queues with queue-aware previous/next. |
+| Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
+| Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich, backup/restore docs and cache-path repair. |
+| Packaging | Single static Go binary with embedded SPA; Alpine Docker image for linux/amd64 and linux/arm64; Synology deployment guide. |
+
+**Not yet:** HLS remux/transcoding (M5), PGS/VobSub/SMI subtitles, sharing links, OIDC/LDAP/SSO, 2FA and parental PIN.
 
 ## Getting started
 
@@ -522,8 +474,7 @@ documented alongside the gap entries.
 
 ## License
 
-Not chosen yet — tracked as an open decision in [`docs/PLAN.md`](./docs/PLAN.md) §12.
-Until decided, treat the repository as all-rights-reserved.
+MIT — see [`LICENSE`](./LICENSE).
 
 ## Acknowledgements
 

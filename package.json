@@ -1,6 +1,7 @@
 {
   "name": "myvideostation",
   "version": "0.1.1",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {

@@ -480,8 +480,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 16. Live watcher (fsnotify) default **off**, scheduled scans default every 6h? (default: yes)
 
 **D. Stack & repo**
-17. Go module path + license: `github.com/<you>/myvideostation`, **AGPL-3.0**
-    (like Jellyfin) or **MIT**? Please give me the GitHub org/user name.
+17. Go module path + license: `github.com/liyu1981/myvideostation`, **MIT** (decided).
 18. Repo layout: monorepo with `web/` (recommended) vs separate frontend repo?
 19. Query layer: **sqlc** (recommended) vs sqlx/gorm? Migrations: **goose** ok?
 20. UI kit: shadcn-style on Radix (recommended) vs Base UI vs hand-rolled?
