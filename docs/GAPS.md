@@ -56,12 +56,12 @@ Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
 |---|---|---|---|---|---|
 | Library & indexing | 8 | 1 | 3 | 4 | 1 planned (multi-path) |
 | Metadata | 4 | 0 | 2 | 2 | NFO + field locks (ADV) |
-| Playback & transcoding | 12 | 2 | 5 | 5 | — |
+| Playback & transcoding | 11 | 2 | 4 | 5 | — |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
 | Users, security, permissions | 6 | 0 | 5 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
 | Integrations | 4 | 0 | 0 | 4 | all permanent |
-| **Total** | **43** | **6** | **19** | **18** | 10 advantages, 1 planned |
+| **Total** | **42** | **6** | **18** | **18** | 10 advantages, 1 planned |
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
@@ -108,9 +108,8 @@ flowchart TB
   subgraph Playback["Playback & transcoding"]
     direction TB
     G16["GAP-016 transcode / codecs"]
-    G17["GAP-017 subtitle SMI/sync"]
+    G17["GAP-017 SMI subtitles"]
     G18["GAP-018 image subtitles"]
-    G19["GAP-019 play-all/shuffle"]
     G20["GAP-020 offline conversion"]
     G22["GAP-022 casting"]
     G24["GAP-024 audio switching"]
@@ -179,9 +178,8 @@ parity-completeness, not a hard feature blocker.
 | GAP-011 | GAP-010 | soft | provider trailer keys |
 | GAP-012 | — | — | OpenSubtitles policy/API and rate limits |
 | GAP-016 | — | — | core transcode/codec pipeline |
-| GAP-017 | — | — | SMI plus per-playback sync/styling |
+| GAP-017 | — | — | SMI subtitles |
 | GAP-018 | GAP-016 | hard | image subtitles need burn-in/transcode |
-| GAP-019 | — | — | player queue state machine |
 | GAP-020 | GAP-016 | hard | offline conversion writes new files |
 | GAP-022 | GAP-016 | soft | casting needs HLS/transcode for many codecs |
 | GAP-024 | GAP-016 | hard | audio switching restarts the HLS session |
@@ -240,9 +238,9 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
 | GAP-016 | Broad codec/container coverage in browser | VS transcodes anything it can demux, incl. HEVC, AC3/DTS/TrueHD, VC-1, MPEG-2, Xvid, RMVB | `GAP-LATER` | S1 | M5 | Direct-play (M4) covers H.264/AAC/WebM only. Until M5, users with HEVC/DTS libraries will see "cannot play" — this is the single largest parity debt. |
-| GAP-017 | Subtitle charset detection, `SMI`, sync offset, styling | VS guesses Big5/GBK/Shift-JIS, reads SMI, offers per-playback delay and font/size/color | `GAP-LATER` | S2 | M4 (sync/styling) · M6 (SMI) | **Charset detection (GB18030/Big5) ships in M4** with SRT/ASS/SSA/VTT→WebVTT conversion. Still missing: SMI, per-playback delay, styling controls. |
+| GAP-017 | Subtitle charset detection, `SMI`, sync offset, styling | VS guesses Big5/GBK/Shift-JIS, reads SMI, offers per-playback delay and font/size/color | `GAP-LATER` | S2 | M6 (SMI) | **Charset detection, per-playback delay (±60 s) and cue size/colour ship in M4** with SRT/ASS/SSA/VTT→WebVTT conversion. Still missing: SMI and finer font family/position controls. |
 | GAP-018 | Image-based subtitles (PGS/VobSub) | VS renders or burns them in | `GAP-LATER` | S2 | M5 | Cannot be sent as WebVTT. Options: burn-in (re-encode) or client-side canvas rendering with extracted bitmaps. |
-| GAP-019 | Continuous play, "play all", shuffle | VS plays a season/collection continuously and supports play-all | `GAP-LATER` | S2 | M4 | **Next-episode prompt ships in M4**; auto-play rollover, play-all and shuffle still need a queue state machine. |
+| GAP-019 | Continuous play, "play all", shuffle | VS plays a season/collection continuously and supports play-all | `CLOSED` | S2 | M4 | Implemented: next-up prompt + autoplay countdown, cross-season rollover, and Play all/Shuffle queues for a show/season's episodes. |
 | GAP-020 | Batch/offline conversion ("convert video") | VS converts files to MP4 with target device profiles, as a background job | `GAP-LATER` | S3 | M7 | **[confirmed]** `SYNO.VideoStation2.{OfflineConversion,Setting.PreAnalysis}`. Our job queue makes this straightforward, but it writes new files — needs an explicit output policy that respects the read-only rule. |
 | GAP-021 | ISO/3D/MVC playback | VS supported 3D MVC and disc images | `GAP-NEVER` (v1) | S3 | — | 3D is effectively dead; disc images fold into GAP-003. |
 | GAP-022 | Casting: Chromecast, AirPlay, DLNA renderers | VS casts from web and mobile to TVs/speakers | `GAP-LATER` | S1 | M7 | **[confirmed]** `SYNO.VideoStation2.Controller.{Device,Password,Playback,Volume}` — cast targets are paired devices with their own volume/transport control. Cast SDK needs HTTPS + a public-ish origin; AirPlay needs a sender or HLS. |

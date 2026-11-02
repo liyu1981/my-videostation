@@ -317,3 +317,12 @@
 .rounded-3xl {
   border-radius: 3px;
 }
+
+
+/* Native WebVTT cue styling; the player sets these CSS variables per session. */
+video::cue {
+  font-size: var(--mvs-cue-size, 1em);
+  color: var(--mvs-cue-color, #ffffff);
+  background: rgba(0, 0, 0, 0.66);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}

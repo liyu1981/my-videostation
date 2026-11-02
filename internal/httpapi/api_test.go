@@ -1446,3 +1446,96 @@ func TestFSBrowse(t *testing.T) {
 		t.Errorf("relative path status = %d, want 400", res.StatusCode)
 	}
 }
+
+func TestCrossSeasonNextEpisode(t *testing.T) {
+	_, st, dir := newTestServer(t)
+	ctx := context.Background()
+	tvDir := filepath.Join(dir, "tv")
+	writeFile(t, filepath.Join(tvDir, "Show (2020)", "Season 1", "Show.S01E01.1080p.mkv"))
+	writeFile(t, filepath.Join(tvDir, "Show (2020)", "Season 2", "Show.S02E01.1080p.mkv"))
+
+	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{tvDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := sc.ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	shows, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindShow})
+	if err != nil || len(shows) != 1 {
+		t.Fatalf("shows = %+v err=%v", shows, err)
+	}
+	seasons, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindSeason, ParentID: shows[0].ID})
+	if err != nil || len(seasons) != 2 {
+		t.Fatalf("seasons = %+v err=%v", seasons, err)
+	}
+	var season1 int64
+	for _, s := range seasons {
+		if s.SeasonNumber == 1 {
+			season1 = s.ID
+		}
+	}
+	episodes, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindEpisode, ParentID: season1})
+	if err != nil || len(episodes) != 1 {
+		t.Fatalf("episodes = %+v err=%v", episodes, err)
+	}
+	next, err := st.NextEpisode(ctx, episodes[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next == nil || next.SeasonNumber != 2 || next.EpisodeNumber != 1 {
+		t.Fatalf("next = %+v, want S02E01", next)
+	}
+}
+
+func TestSubtitleDelayShiftsWebVTT(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+	mediaDir := filepath.Join(dir, "media")
+	movie := filepath.Join(mediaDir, "Delay Movie (2020)", "Delay Movie (2020).mkv")
+	writeFile(t, movie)
+	if err := os.WriteFile(strings.TrimSuffix(movie, ".mkv")+".en.srt", []byte(
+		"1\n00:00:01,000 --> 00:00:02,000\nHello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lib, err := st.CreateLibrary(ctx, "Movies", "movie", "", []string{mediaDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := sc.ScanLibrary(ctx, lib.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items = %+v err=%v", items, err)
+	}
+	files, err := st.ItemFiles(ctx, items[0].ID)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("files = %+v err=%v", files, err)
+	}
+	subs, err := st.ExternalSubtitles(ctx, files[0].ID)
+	if err != nil || len(subs) != 1 {
+		t.Fatalf("subs = %+v err=%v", subs, err)
+	}
+	base := srv.URL + "/api/v1/media/" + itoa(files[0].ID) + "/subtitle?ext=" + itoa(subs[0].ID)
+	res, err := http.Get(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "00:00:01.000 --> 00:00:02.000") {
+		t.Fatalf("base subtitle = %d %q", res.StatusCode, body)
+	}
+	res, err = http.Get(base + "&delayMs=1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "00:00:02.000 --> 00:00:03.000") {
+		t.Fatalf("delayed subtitle = %d %q", res.StatusCode, body)
+	}
+}

@@ -26,6 +26,19 @@ type Menu = 'none' | 'subs' | 'audio' | 'speed';
 
 const HIDE_AFTER_MS = 3000;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const CUE_SIZES = [
+  { label: 'S', value: 0.85 },
+  { label: 'M', value: 1 },
+  { label: 'L', value: 1.25 },
+  { label: 'XL', value: 1.5 },
+];
+const CUE_COLORS = [
+  { label: 'White', value: '#ffffff' },
+  { label: 'Yellow', value: '#ffe66d' },
+];
+const clampDelay = (ms: number) => Math.max(-60000, Math.min(60000, ms));
+const cueSizeValue = (v: number) => (CUE_SIZES.some((s) => s.value === v) ? v : 1);
+const cueColorValue = (v: string | null) => (CUE_COLORS.some((c) => c.value === v) ? v! : '#ffffff');
 
 /**
  * Video-Station-style player: custom control bar over a full-bleed video,
@@ -47,6 +60,11 @@ export function PlayerModal() {
   const [muted, setMuted] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [subtitleID, setSubtitleID] = useState('off');
+  const [subtitleDelay, setSubtitleDelay] = useState(0);
+  const [cueSize, setCueSize] = useState(() => cueSizeValue(Number(localStorage.getItem('mvs.cueSize')) || 1));
+  const [cueColor, setCueColor] = useState(() => cueColorValue(localStorage.getItem('mvs.cueColor')));
+  const [autoPlayNext, setAutoPlayNext] = useState(() => localStorage.getItem('mvs.autoPlayNext') === 'true');
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [menu, setMenu] = useState<Menu>('none');
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ended, setEnded] = useState(false);
@@ -74,6 +92,9 @@ export function PlayerModal() {
   const data = playback.data;
   const tracks = data?.subtitles ?? [];
   const track = tracks.find((t) => t.id === subtitleID);
+  const subtitleURL = track
+    ? `${track.url}${track.url.includes('?') ? '&' : '?'}delayMs=${subtitleDelay}`
+    : '';
 
   const save = useCallback(
     (positionMs: number, durationMs: number, played: boolean) => {
@@ -133,7 +154,9 @@ export function PlayerModal() {
   // Reset per-item state.
   useEffect(() => {
     setSubtitleID('off');
+    setSubtitleDelay(0);
     setEnded(false);
+    setCountdown(null);
     setMenu('none');
     lastSaved.current = 0;
     resumedFor.current = null;
@@ -142,6 +165,16 @@ export function PlayerModal() {
     setMediaError(false);
     poke();
   }, [player?.itemId, poke]);
+
+  useEffect(() => {
+    localStorage.setItem('mvs.cueSize', String(cueSize));
+  }, [cueSize]);
+  useEffect(() => {
+    localStorage.setItem('mvs.cueColor', cueColor);
+  }, [cueColor]);
+  useEffect(() => {
+    localStorage.setItem('mvs.autoPlayNext', String(autoPlayNext));
+  }, [autoPlayNext]);
 
   // Default subtitle (English preferred).
   useEffect(() => {
@@ -198,19 +231,51 @@ export function PlayerModal() {
     else void el.requestFullscreen();
   }, []);
 
-  const nextTitle = neighbors.data?.next?.title ?? data?.next?.title;
-  const nextItemID = neighbors.data?.next?.id ?? data?.next?.itemId;
+  const queue = player?.queue ?? null;
+  const queueIndex = player?.queueIndex ?? -1;
+  const queueNext = queue && queueIndex >= 0 && queueIndex + 1 < queue.length ? queue[queueIndex + 1] : undefined;
+  const queuePrev = queue && queueIndex > 0 ? queue[queueIndex - 1] : undefined;
+  // With a queue, the same-season neighbor may be an episode already played;
+  // fall back to the playback endpoint's next episode (including cross-season).
+  const normalNextTitle = queue ? data?.next?.title : neighbors.data?.next?.title ?? data?.next?.title;
+  const normalNextID = queue ? data?.next?.itemId : neighbors.data?.next?.id ?? data?.next?.itemId;
+  const nextTitle = queueNext?.title ?? normalNextTitle;
+  const nextItemID = queueNext?.itemId ?? normalNextID;
 
   const playNext = useCallback(() => {
     if (!nextItemID || !nextTitle) return;
+    if (queueNext && queue) {
+      setPlayer({ ...player!, itemId: queueNext.itemId, title: queueNext.title, queue, queueIndex: queueIndex + 1 });
+      return;
+    }
     setPlayer({ itemId: nextItemID, title: nextTitle });
-  }, [nextItemID, nextTitle, setPlayer]);
+  }, [nextItemID, nextTitle, queueNext, queue, queueIndex, player, setPlayer]);
+
+  useEffect(() => {
+    if (!ended || !autoPlayNext || !nextItemID) {
+      setCountdown(null);
+      return;
+    }
+    setCountdown(5);
+    const timer = window.setInterval(() => {
+      setCountdown((value) => (value === null ? null : value - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [ended, autoPlayNext, nextItemID]);
+
+  useEffect(() => {
+    if (countdown === 0 && ended && autoPlayNext) playNext();
+  }, [countdown, ended, autoPlayNext, playNext]);
 
   const playPrevious = useCallback(() => {
+    if (queuePrev && queue) {
+      setPlayer({ ...player!, itemId: queuePrev.itemId, title: queuePrev.title, queue, queueIndex: queueIndex - 1 });
+      return;
+    }
     const prev = neighbors.data?.prev;
     if (!prev) return;
     setPlayer({ itemId: prev.id, title: prev.title });
-  }, [neighbors.data, setPlayer]);
+  }, [queuePrev, queue, queueIndex, player, neighbors.data, setPlayer]);
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -279,6 +344,7 @@ export function PlayerModal() {
           autoPlay
           crossOrigin="anonymous"
           className="absolute inset-0 h-full w-full object-contain"
+          style={{ '--mvs-cue-size': `${cueSize}em`, '--mvs-cue-color': cueColor } as React.CSSProperties}
           onClick={togglePlay}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
@@ -319,12 +385,19 @@ export function PlayerModal() {
           }}
         >
           {track ? (
-            <track key={track.id} kind="subtitles" src={track.url} label={track.label} srcLang={track.language || 'und'} default />
+            <track
+              key={`${track.id}:${subtitleDelay}`}
+              kind="subtitles"
+              src={subtitleURL}
+              label={track.label}
+              srcLang={track.language || 'und'}
+              default
+            />
           ) : null}
         </video>
       ) : null}
 
-      {track ? <SubtitleEnabler video={videoRef.current} active={track.id} /> : null}
+      {track ? <SubtitleEnabler video={videoRef.current} active={`${track.id}:${subtitleDelay}`} /> : null}
 
       {playback.isLoading ? (
         <div className="absolute inset-0 flex items-center justify-center gap-2 text-[13px] text-fg-dim">
@@ -378,6 +451,11 @@ export function PlayerModal() {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="truncate text-[14px] font-medium text-fg">{player.title}</p>
+            {queue && queue.length > 1 ? (
+              <p className="mt-0.5 text-[10.5px] text-fg-dim">
+                Queue {Math.max(1, queueIndex + 1)} / {queue.length}
+              </p>
+            ) : null}
             {data && data.audio.length > 0 ? (
               <p className="mt-0.5 truncate text-[11.5px] text-fg-dim">
                 {data.audio[0]!.codec.toUpperCase()} · {data.audio[0]!.channels}ch
@@ -476,11 +554,11 @@ export function PlayerModal() {
 
       {/* menus */}
       {menu !== 'none' ? (
-        <div className="absolute bottom-24 right-5 z-30 w-64 overflow-hidden rounded-lg border border-hairline bg-surface/95 shadow-2xl backdrop-blur">
+        <div className="absolute bottom-24 right-5 z-30 w-72 overflow-hidden rounded-lg border border-hairline bg-surface/95 shadow-2xl backdrop-blur">
           <div className="border-b border-hairline px-3 py-2 text-[10.5px] uppercase tracking-wide text-fg-dim">
             {menu === 'subs' ? 'Subtitles' : menu === 'audio' ? 'Audio tracks' : 'Playback speed'}
           </div>
-          <div className="max-h-64 overflow-y-auto p-1">
+          <div className="max-h-[70vh] overflow-y-auto p-1">
             {menu === 'subs' ? (
               <>
                 <MenuRow selected={subtitleID === 'off'} onClick={() => { setSubtitleID('off'); setMenu('none'); }}>Off</MenuRow>
@@ -491,6 +569,70 @@ export function PlayerModal() {
                   </MenuRow>
                 ))}
                 {tracks.length === 0 ? <p className="px-3 py-2 text-[11.5px] text-fg-dim">No subtitle tracks</p> : null}
+                <div className="border-t border-hairline px-2.5 pb-2 pt-2">
+                  <div className="mb-1 flex items-center justify-between text-[10.5px] uppercase tracking-wide text-fg-dim">
+                    <span>Delay</span>
+                    <span className="tabular-nums">
+                      {subtitleDelay === 0 ? '0.0s' : `${subtitleDelay > 0 ? '+' : ''}${(subtitleDelay / 1000).toFixed(1)}s`}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {[-500, -100, 100, 500].map((delta) => (
+                      <button
+                        key={delta}
+                        type="button"
+                        onClick={() => setSubtitleDelay((value) => clampDelay(value + delta))}
+                        className="rounded border border-hairline px-1.5 py-1 text-[10.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+                      >
+                        {delta < 0 ? '−' : '+'}
+                        {Math.abs(delta) / 1000}s
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setSubtitleDelay(0)}
+                      className="rounded border border-hairline px-1.5 py-1 text-[10.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  <div className="mb-1 mt-2 text-[10.5px] uppercase tracking-wide text-fg-dim">Size</div>
+                  <div className="flex gap-1">
+                    {CUE_SIZES.map((size) => (
+                      <button
+                        key={size.value}
+                        type="button"
+                        onClick={() => setCueSize(size.value)}
+                        className={[
+                          'rounded border px-2 py-1 text-[10.5px]',
+                          cueSize === size.value
+                            ? 'border-progress text-progress'
+                            : 'border-hairline text-fg-muted hover:border-hairline-strong hover:text-fg',
+                        ].join(' ')}
+                      >
+                        {size.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mb-1 mt-2 text-[10.5px] uppercase tracking-wide text-fg-dim">Colour</div>
+                  <div className="flex gap-1">
+                    {CUE_COLORS.map((color) => (
+                      <button
+                        key={color.value}
+                        type="button"
+                        onClick={() => setCueColor(color.value)}
+                        className={[
+                          'rounded border px-2 py-1 text-[10.5px]',
+                          cueColor === color.value
+                            ? 'border-progress text-progress'
+                            : 'border-hairline text-fg-muted hover:border-hairline-strong hover:text-fg',
+                        ].join(' ')}
+                      >
+                        {color.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </>
             ) : null}
             {menu === 'audio' ? (
@@ -525,7 +667,10 @@ export function PlayerModal() {
       {/* next up */}
       {ended && nextItemID ? (
         <div className="absolute bottom-28 right-6 z-30 w-72 rounded-lg border border-hairline bg-surface/95 p-4 shadow-2xl backdrop-blur">
-          <p className="text-[10.5px] uppercase tracking-wide text-fg-dim">Up next</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10.5px] uppercase tracking-wide text-fg-dim">Up next</p>
+            {autoPlayNext && countdown !== null ? <span className="text-[10.5px] text-progress">Playing in {countdown}s</span> : null}
+          </div>
           <p className="mt-1 line-clamp-2 text-[13.5px] font-medium text-fg">
             {nextTitle}
           </p>
@@ -537,6 +682,15 @@ export function PlayerModal() {
               Dismiss
             </button>
           </div>
+          <label className="mt-3 flex items-center gap-2 text-[10.5px] text-fg-dim">
+            <input
+              type="checkbox"
+              checked={autoPlayNext}
+              onChange={(e) => setAutoPlayNext(e.target.checked)}
+              className="size-3.5 rounded border-hairline bg-surface-2"
+            />
+            Autoplay next episode
+          </label>
         </div>
       ) : null}
     </div>

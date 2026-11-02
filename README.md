@@ -115,9 +115,11 @@ testdata/           parser corpus and generated sample media
   episode cards, prev/next item arrows, **media info dialog** from the top-right info button
   and overflow menu, extras.
 - **Player (VS parity)**: custom auto-hiding control bar (prev/next, ±10 s, volume, time,
-  subtitle menu, audio-track list, speed, fullscreen), buffered progress bar, big pause
-  overlay, next-up prompt, keyboard shortcuts, browser Back closing the player, and a clear
-  message when the browser cannot decode the file (transcoding lands in M5).
+  subtitle menu with **delay and cue size/colour**, audio-track list, speed, fullscreen),
+  buffered progress bar, big pause overlay, next-up prompt with **autoplay/cross-season
+  rollover**, play-all/shuffle episode queues, keyboard shortcuts, browser Back closing
+  the player, and a clear message when the browser cannot decode the file (transcoding
+  lands in M5).
 - **Metadata (M2)**: TMDb matching with confidence scoring (best-effort 35% auto-match,
   low-confidence flag), cast/crew/genres/certification,
   artwork caching under `<data>/cache`, a provider registry + provider-aware match/refresh

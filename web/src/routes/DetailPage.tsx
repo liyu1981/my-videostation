@@ -18,6 +18,7 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  Shuffle,
   Star,
   Volume2,
 } from 'lucide-react';
@@ -155,6 +156,24 @@ export function DetailPage() {
   const play = () => {
     if (!playable) return;
     setPlayer({ itemId: detail.id, title: detail.title });
+  };
+
+  const playQueue = (list: Item[], shuffle: boolean) => {
+    const playableList = list.filter((item) => item.fileCount > 0);
+    if (playableList.length === 0) return;
+    const ordered = [...playableList];
+    if (shuffle) {
+      for (let i = ordered.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+      }
+    }
+    setPlayer({
+      itemId: ordered[0].id,
+      title: ordered[0].title,
+      queue: ordered.map((item) => ({ itemId: item.id, title: item.title })),
+      queueIndex: 0,
+    });
   };
 
   const breadcrumb: { label: string; to?: string }[] = [];
@@ -509,18 +528,53 @@ export function DetailPage() {
             </div>
             {seasonDetail.isLoading ? <Loading label="Loading episodes…" /> : null}
             {episodes.length > 0 ? (
-              <div className="mt-4 flex flex-wrap gap-4">
-                {episodes.map((e) => (
-                  <EpisodeCard key={e.id} item={e} onEdit={isAdmin ? () => void openEpisodeEdit(e.id) : undefined} />
-                ))}
-              </div>
+              <>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="mr-1 text-[12px] text-fg-dim">Episodes</span>
+                  <button
+                    type="button"
+                    onClick={() => playQueue(episodes, false)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+                  >
+                    <Play className="size-3.5" aria-hidden /> Play all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => playQueue(episodes, true)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+                  >
+                    <Shuffle className="size-3.5" aria-hidden /> Shuffle
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-4">
+                  {episodes.map((e) => (
+                    <EpisodeCard key={e.id} item={e} onEdit={isAdmin ? () => void openEpisodeEdit(e.id) : undefined} />
+                  ))}
+                </div>
+              </>
             ) : null}
           </section>
         ) : null}
 
         {!isShow && episodes.length > 0 ? (
           <section className="mt-8">
-            <h2 className="mb-3 text-[17px] font-semibold text-fg-heading">Episodes</h2>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <h2 className="mr-2 text-[17px] font-semibold text-fg-heading">Episodes</h2>
+              <button
+                type="button"
+                onClick={() => playQueue(episodes, false)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+              >
+                <Play className="size-3.5" aria-hidden /> Play all
+              </button>
+              <button
+                type="button"
+                onClick={() => playQueue(episodes, true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+              >
+                <Shuffle className="size-3.5" aria-hidden /> Shuffle
+              </button>
+            </div>
             <div className="flex flex-wrap gap-4">
               {episodes.map((e) => (
                 <EpisodeCard key={e.id} item={e} onEdit={isAdmin ? () => void openEpisodeEdit(e.id) : undefined} />

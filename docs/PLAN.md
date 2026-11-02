@@ -602,8 +602,10 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 | Subtitle discovery | ✅ sidecar `<stem>.<lang>.srt/ass/ssa/vtt` found during scans, stored per file |
 | Subtitle conversion | ✅ SRT/ASS/SSA/VTT → WebVTT, charset detection (UTF-8 / GB18030 / Big5), embedded tracks extracted with ffmpeg and cached |
 | Track selection | ✅ subtitle menu in the player; default prefers English |
+| Subtitle sync/style | ✅ per-playback delay (−60…+60 s) shifts WebVTT server-side; cue size/colour controls (persisted) |
 | Resume | ✅ playback endpoint returns `resumeMs`; player seeks on load; progress saved on pause/interval/close |
-| Next episode | ✅ next-up card on end (same season, next number) + watch state |
+| Next episode | ✅ next-up card, autoplay countdown, same-season and cross-season rollover |
+| Play all / shuffle | ✅ episode queue from a show/season, with previous/next inside the queue |
 | Keyboard | ✅ space, ←/→ (10 s), f (fullscreen), esc |
 
 ### M4 — known limitations
@@ -612,8 +614,8 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
   That is what M5 (remux/transcode) fixes.
 - Audio-track switching is not possible with plain `<video>`; it arrives with HLS renditions in M5.
 - Image-based subtitles (PGS/VobSub) are skipped in the player (burn-in needs M5).
-- No subtitle sync offset, styling controls, or SMI support yet.
-- Next-up covers the same season only (no cross-season rollover), and does not auto-play.
+- SMI subtitles, per-playback font family and precise positioning are still open (GAP-017).
+- Subtitle track switching is limited to WebVTT-compatible tracks; image subtitles need M5 burn-in.
 
 ### Local sidecar metadata (post-M4) — delivered
 

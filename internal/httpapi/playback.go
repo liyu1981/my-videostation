@@ -183,6 +183,12 @@ func (s *Server) handleSubtitle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
+	delay := intQuery(r, "delayMs", 0)
+	if delay < -60000 {
+		delay = -60000
+	} else if delay > 60000 {
+		delay = 60000
+	}
 	var (
 		data []byte
 		etag string
@@ -233,6 +239,12 @@ func (s *Server) handleSubtitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if delay != 0 {
+		data = subtitle.ShiftWebVTT(data, delay)
+		if etag != "" {
+			etag = strings.TrimSuffix(etag, `"`) + fmt.Sprintf("-d%d\"", delay)
+		}
+	}
 	if etag != "" {
 		w.Header().Set("ETag", etag)
 		if r.Header.Get("If-None-Match") == etag {

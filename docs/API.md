@@ -68,8 +68,8 @@ manage their own collections.
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
 | GET | `/items/{id}/playback` | Player payload: stream URL, resume position, subtitle tracks, audio tracks, next episode |
 | GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206` |
-| GET | `/media/{fileId}/subtitle?ext=ID` | Sidecar subtitle as WebVTT |
-| GET | `/media/{fileId}/subtitle?embedded=INDEX` | ffmpeg-extracted embedded subtitle as WebVTT (cached) |
+| GET | `/media/{fileId}/subtitle?ext=ID` | Sidecar subtitle as WebVTT; optional `&delayMs=±n` shifts cue times |
+| GET | `/media/{fileId}/subtitle?embedded=INDEX` | ffmpeg-extracted embedded subtitle as WebVTT (cached); optional `&delayMs=±n` |
 
 ## Examples
 

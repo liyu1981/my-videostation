@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -469,33 +470,73 @@ func (s *Store) ExternalSubtitleByID(ctx context.Context, id int64) (*ExternalSu
 	return &e, nil
 }
 
-// NextEpisode returns the next episode in the same season, if any.
+// NextEpisode returns the next episode in the same season, or the first
+// episode of the next season when the current season is finished.
 func (s *Store) NextEpisode(ctx context.Context, itemID int64) (*Item, error) {
-	var seasonID int64
-	var number int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT parent_id, COALESCE(episode_number,0) FROM media_items WHERE id = ? AND kind = 'episode'`,
-		itemID).Scan(&seasonID, &number)
+	var seasonID, showID int64
+	var number, seasonNumber int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT e.parent_id, COALESCE(e.episode_number,0), COALESCE(s.parent_id,0), COALESCE(s.season_number,0)
+		FROM media_items e
+		JOIN media_items s ON s.id = e.parent_id AND s.kind = 'season'
+		WHERE e.id = ? AND e.kind = 'episode'`, itemID).
+		Scan(&seasonID, &number, &showID, &seasonNumber)
 	if err != nil {
 		return nil, nil // not an episode
 	}
+	first := func(season int64) (*Item, error) {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT `+itemColumns+`, `+itemStateColumns+`
+			FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
+			WHERE m.parent_id = ? AND m.kind = 'episode' AND m.hidden = 0
+			ORDER BY COALESCE(m.episode_number,0), m.id LIMIT 1`, season)
+		if err != nil {
+			return nil, wrap("next episode", err)
+		}
+		defer rows.Close()
+		var out []Item
+		if err := collectItems(rows, &out); err != nil {
+			return nil, err
+		}
+		if len(out) == 0 {
+			return nil, nil
+		}
+		return &out[0], nil
+	}
+
+	// Same season first.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`
 		FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
-		WHERE m.parent_id = ? AND m.kind = 'episode' AND m.episode_number > ?
-		ORDER BY m.episode_number LIMIT 1`, seasonID, number)
+		WHERE m.parent_id = ? AND m.kind = 'episode' AND m.hidden = 0 AND m.episode_number > ?
+		ORDER BY m.episode_number, m.id LIMIT 1`, seasonID, number)
 	if err != nil {
 		return nil, wrap("next episode", err)
 	}
-	defer rows.Close()
 	var out []Item
 	if err := collectItems(rows, &out); err != nil {
 		return nil, err
 	}
-	if len(out) == 0 {
+	if len(out) > 0 {
+		return &out[0], nil
+	}
+	if showID == 0 {
 		return nil, nil
 	}
-	return &out[0], nil
+
+	// End of season: first episode of the next season in the same show.
+	var nextSeasonID int64
+	err = s.db.QueryRowContext(ctx, `
+		SELECT id FROM media_items
+		WHERE parent_id = ? AND kind = 'season' AND COALESCE(season_number,0) > ?
+		ORDER BY season_number, id LIMIT 1`, showID, seasonNumber).Scan(&nextSeasonID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrap("next season", err)
+	}
+	return first(nextSeasonID)
 }
 
 // ItemPeople returns cast/crew, cast first.
