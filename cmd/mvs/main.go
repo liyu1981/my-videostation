@@ -245,8 +245,6 @@ func run() error {
 		Logger:     log,
 		CORSOrigin: cors,
 		Version:    buildinfo.Version,
-		MediaDir:   cfg.DataDir,
-		Provider:   providerFactory,
 		Enricher:   enricher,
 		FFmpeg:     ffmpegPath,
 		CacheDir:   cacheDir,

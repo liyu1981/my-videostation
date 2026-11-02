@@ -187,11 +187,14 @@ func ensureExtra(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, 
 	parentID := int64(0)
 	if f.ParentDir != "" {
 		prefix := strings.TrimSuffix(f.ParentDir, "/") + "/%"
-		_ = tx.QueryRowContext(ctx, `
+		err := tx.QueryRowContext(ctx, `
 			SELECT m.id FROM media_items m
 			JOIN media_files mf ON mf.item_id = m.id
 			WHERE m.library_id = ? AND mf.path LIKE ? AND m.kind IN ('movie','show')
 			ORDER BY LENGTH(mf.path) LIMIT 1`, f.LibraryID, prefix).Scan(&parentID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, false, wrap("find extra parent", err)
+		}
 	}
 	var id int64
 	err := tx.QueryRowContext(ctx, `
@@ -301,13 +304,11 @@ func ensureEpisode(ctx context.Context, tx *sql.Tx, f *ScannedFile, showID, seas
 		want = fmt.Sprintf("Episode %d", f.EpisodeNumber)
 	}
 	var id int64
-	var curTitle string
 	err := tx.QueryRowContext(ctx, `
-		SELECT id, title FROM media_items
+		SELECT id FROM media_items
 		WHERE parent_id = ? AND kind = 'episode' AND season_number = ? AND episode_number = ?`,
-		seasonID, f.SeasonNumber, f.EpisodeNumber).Scan(&id, &curTitle)
+		seasonID, f.SeasonNumber, f.EpisodeNumber).Scan(&id)
 	if err == nil {
-		_ = curTitle
 		if err := repairEpisodeTitle(ctx, tx, id, f); err != nil {
 			return 0, false, err
 		}

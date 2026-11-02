@@ -131,14 +131,16 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "you cannot delete your own account")
 		return
 	}
-	u, _ := s.store.GetUserByID(r.Context(), id)
+	u, err := s.store.GetUserByID(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	if err := s.store.DeleteUser(r.Context(), id); err != nil {
 		s.fail(w, err)
 		return
 	}
-	if u != nil {
-		s.audit(r, "user.delete", "user:"+strconv.FormatInt(id, 10), u.Username)
-	}
+	s.audit(r, "user.delete", "user:"+strconv.FormatInt(id, 10), u.Username)
 	w.WriteHeader(http.StatusNoContent)
 }
 

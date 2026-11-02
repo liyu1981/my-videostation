@@ -16,7 +16,7 @@ import (
 	"github.com/liyu1981/myvideostation/internal/db"
 )
 
-// DefaultUserID is the built-in admin profile (auth arrives in M6).
+// DefaultUserID is the fallback profile for background jobs and tests.
 const DefaultUserID int64 = 1
 
 // Store provides data access.
@@ -73,13 +73,6 @@ func mustJSON(v any) string {
 		return "[]"
 	}
 	return string(b)
-}
-
-func placeholders(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }
 
 // sqliteErrIsUnique reports whether err is a UNIQUE constraint violation.

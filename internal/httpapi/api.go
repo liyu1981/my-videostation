@@ -14,7 +14,6 @@ import (
 	"github.com/liyu1981/myvideostation/internal/buildinfo"
 	"github.com/liyu1981/myvideostation/internal/enrich"
 	"github.com/liyu1981/myvideostation/internal/jobs"
-	"github.com/liyu1981/myvideostation/internal/metadata"
 	"github.com/liyu1981/myvideostation/internal/store"
 	"github.com/liyu1981/myvideostation/internal/web"
 )
@@ -26,8 +25,6 @@ type Server struct {
 	log      *slog.Logger
 	cors     []string
 	version  string
-	mediaDir string
-	provider metadata.Factory
 	enricher *enrich.Service
 	ffmpeg   string
 	cacheDir string
@@ -40,8 +37,6 @@ type Options struct {
 	Logger     *slog.Logger
 	CORSOrigin []string
 	Version    string
-	MediaDir   string
-	Provider   metadata.Factory
 	Enricher   *enrich.Service
 	FFmpeg     string
 	CacheDir   string
@@ -56,8 +51,7 @@ func New(o Options) *Server {
 		o.Version = buildinfo.Version
 	}
 	return &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
-		mediaDir: o.MediaDir, provider: o.Provider, enricher: o.Enricher,
-		ffmpeg: o.FFmpeg, cacheDir: o.CacheDir}
+		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: o.CacheDir}
 }
 
 // Handler builds the root HTTP handler (API + UI).
@@ -148,7 +142,7 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 		if origin := r.Header.Get("Origin"); origin != "" && s.originAllowed(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			w.Header().Set("Access-Control-Max-Age", "600")
 		}

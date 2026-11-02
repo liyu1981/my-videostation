@@ -456,7 +456,7 @@ func TestMetadataMatchingFlow(t *testing.T) {
 	manager := jobs.New(st, log)
 	manager.Start(ctx)
 	srv := httptest.NewServer(httpapi.New(httpapi.Options{
-		Store: st, Jobs: manager, Logger: log, Provider: factory, Enricher: enricher,
+		Store: st, Jobs: manager, Logger: log, Enricher: enricher,
 	}).Handler())
 	t.Cleanup(srv.Close)
 	setupTestAdmin(t, srv, st)
@@ -1090,7 +1090,7 @@ func TestLocalSidecarMetadata(t *testing.T) {
 	manager := jobs.New(st, log)
 	manager.Start(ctx)
 	srv := httptest.NewServer(httpapi.New(httpapi.Options{
-		Store: st, Jobs: manager, Logger: log, Provider: factory, Enricher: enricher, CacheDir: cacheDir,
+		Store: st, Jobs: manager, Logger: log, Enricher: enricher, CacheDir: cacheDir,
 	}).Handler())
 	t.Cleanup(srv.Close)
 	setupTestAdmin(t, srv, st)

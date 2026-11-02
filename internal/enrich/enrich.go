@@ -130,7 +130,11 @@ func (s *Service) Refresh(ctx context.Context, itemID int64, language, providerN
 		id = item.ProviderID
 	}
 	if id == "" {
-		id, _ = s.store.ItemProviderID(ctx, itemID, provider.Name())
+		var lookupErr error
+		id, lookupErr = s.store.ItemProviderID(ctx, itemID, provider.Name())
+		if lookupErr != nil {
+			return lookupErr
+		}
 	}
 	if id == "" {
 		return metadata.ErrNoMatch
@@ -491,10 +495,6 @@ func yearOfDate(date string) int {
 		return 0
 	}
 	return y
-}
-
-func (s *Service) details(ctx context.Context, provider metadata.Provider, item *store.Item, providerID string) (*metadata.Details, error) {
-	return s.detailsLang(ctx, provider, item, providerID, "")
 }
 
 func (s *Service) detailsLang(ctx context.Context, provider metadata.Provider, item *store.Item, providerID, language string) (*metadata.Details, error) {

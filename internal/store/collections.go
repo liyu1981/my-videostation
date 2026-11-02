@@ -291,7 +291,9 @@ func (s *Store) MarkPlayed(ctx context.Context, itemIDs []int64, played bool) er
 	}
 	for _, id := range itemIDs {
 		var duration int64
-		_ = tx.QueryRowContext(ctx, `SELECT COALESCE(runtime_ms,0) FROM media_items WHERE id = ?`, id).Scan(&duration)
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(runtime_ms,0) FROM media_items WHERE id = ?`, id).Scan(&duration); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return wrap("bulk progress duration", err)
+		}
 		position := int64(0)
 		if played {
 			position = duration
@@ -329,11 +331,9 @@ func (s *Store) Folders(ctx context.Context, libraryID int64) ([]Folder, error) 
 		if err := rows.Scan(&rel); err != nil {
 			return nil, wrap("scan rel path", err)
 		}
-		dir := rel
+		dir := ""
 		if i := strings.LastIndex(rel, "/"); i >= 0 {
 			dir = rel[:i]
-		} else {
-			dir = ""
 		}
 		counts[dir]++
 	}

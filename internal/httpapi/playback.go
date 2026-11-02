@@ -298,6 +298,8 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, file *store.File, 
 	if !strings.HasPrefix(string(out), "WEBVTT") {
 		out = append([]byte("WEBVTT\n\n"), out...)
 	}
-	_ = os.WriteFile(path, out, 0o644)
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		s.log.Warn("embedded subtitle cache write failed", "file", file.ID, "index", index, "err", err)
+	}
 	return out, fmt.Sprintf(`"emb-%d-%d"`, file.ID, time.Now().Unix()), nil
 }

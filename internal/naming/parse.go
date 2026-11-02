@@ -64,8 +64,7 @@ var (
 		regexp.MustCompile(`\[[^\]]*\]`),
 		regexp.MustCompile(`\{[^}]*\}`),
 	}
-	reParens     = regexp.MustCompile(`\([^)]*\)`)
-	reTrailGroup = regexp.MustCompile(`[\s._-]+[A-Za-z0-9]{2,}$`)
+	reParens = regexp.MustCompile(`\([^)]*\)`)
 	// Multi-part movie markers: CD1, Disc 2, Part.1, DVD2…
 	rePartMarker = regexp.MustCompile(`(?i)\b(?:cd|disc|disk|dvd|part)[\s._-]*\d{1,2}\b`)
 	reCJKTags    = regexp.MustCompile(`(?i)(?:国英双语|中英双字|中英字幕|国语中字|国语|粤语|中字|双语|高清|蓝光|完整版|无删减|默认字幕|BD|HD)+$`)

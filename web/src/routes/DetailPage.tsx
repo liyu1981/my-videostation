@@ -531,20 +531,7 @@ export function DetailPage() {
               <>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span className="mr-1 text-[12px] text-fg-dim">Episodes</span>
-                  <button
-                    type="button"
-                    onClick={() => playQueue(episodes, false)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
-                  >
-                    <Play className="size-3.5" aria-hidden /> Play all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => playQueue(episodes, true)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
-                  >
-                    <Shuffle className="size-3.5" aria-hidden /> Shuffle
-                  </button>
+                  <EpisodeQueueActions episodes={episodes} onQueue={playQueue} />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-4">
                   {episodes.map((e) => (
@@ -560,20 +547,7 @@ export function DetailPage() {
           <section className="mt-8">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 className="mr-2 text-[17px] font-semibold text-fg-heading">Episodes</h2>
-              <button
-                type="button"
-                onClick={() => playQueue(episodes, false)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
-              >
-                <Play className="size-3.5" aria-hidden /> Play all
-              </button>
-              <button
-                type="button"
-                onClick={() => playQueue(episodes, true)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
-              >
-                <Shuffle className="size-3.5" aria-hidden /> Shuffle
-              </button>
+              <EpisodeQueueActions episodes={episodes} onQueue={playQueue} />
             </div>
             <div className="flex flex-wrap gap-4">
               {episodes.map((e) => (
@@ -705,6 +679,27 @@ function MenuItem({ icon, children, onClick }: { icon: React.ReactNode; children
       {icon}
       {children}
     </button>
+  );
+}
+
+function EpisodeQueueActions({ episodes, onQueue }: { episodes: Item[]; onQueue: (items: Item[], shuffle: boolean) => void }) {
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onQueue(episodes, false)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+      >
+        <Play className="size-3.5" aria-hidden /> Play all
+      </button>
+      <button
+        type="button"
+        onClick={() => onQueue(episodes, true)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
+      >
+        <Shuffle className="size-3.5" aria-hidden /> Shuffle
+      </button>
+    </>
   );
 }
 

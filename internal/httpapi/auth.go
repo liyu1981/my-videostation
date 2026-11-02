@@ -142,6 +142,10 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := s.store.GetUserByUsername(r.Context(), strings.TrimSpace(in.Username))
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.fail(w, err)
+		return
+	}
 	if err != nil || u == nil || !u.Active || u.PasswordHash == "" || !auth.VerifyPassword(u.PasswordHash, in.Password) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 		return

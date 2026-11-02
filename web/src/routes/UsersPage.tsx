@@ -145,6 +145,7 @@ function UserDialog({
   const [active, setActive] = useState(user?.active ?? true);
   const [rating, setRating] = useState(user?.ratingCeiling ?? '');
   const [libraryIDs, setLibraryIDs] = useState<number[] | null>(null);
+  const [permissionsDirty, setPermissionsDirty] = useState(false);
   const access = useQuery({
     queryKey: ['user-libraries', user?.id],
     queryFn: () => api.userLibraries(user!.id),
@@ -171,7 +172,7 @@ function UserDialog({
           ratingCeiling: rating,
           ...(password ? { password } : {}),
         });
-        if (libraryIDs !== null) await api.setUserLibraries(user.id, libraryIDs);
+        if (libraryIDs !== null && permissionsDirty) await api.setUserLibraries(user.id, libraryIDs);
         return;
       }
       return api.createUser({ username: username.trim(), displayName: displayName.trim(), password, role });
@@ -280,10 +281,13 @@ function UserDialog({
                       type="checkbox"
                       checked={libraryIDs?.includes(lib.id) ?? true}
                       onChange={(e) =>
-                        setLibraryIDs((current) => {
-                          const base = current ?? access.data!.libraries.filter((l) => l.allowed).map((l) => l.id);
-                          return e.target.checked ? [...new Set([...base, lib.id])] : base.filter((id) => id !== lib.id);
-                        })
+                        {
+                          setPermissionsDirty(true);
+                          setLibraryIDs((current) => {
+                            const base = current ?? access.data!.libraries.filter((l) => l.allowed).map((l) => l.id);
+                            return e.target.checked ? [...new Set([...base, lib.id])] : base.filter((id) => id !== lib.id);
+                          });
+                        }
                       }
                       className="size-4 rounded border-hairline bg-surface-2"
                     />
@@ -308,6 +312,7 @@ function UserDialog({
               >
                 Allow all libraries
               </button>
+              {unrestrict.isError ? <span className="text-[10.5px] text-active">{(unrestrict.error as Error).message}</span> : null}
             </div>
           </div>
         ) : null}
