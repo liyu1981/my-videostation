@@ -58,10 +58,10 @@ Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
 | Metadata | 4 | 0 | 2 | 2 | NFO + field locks (ADV) |
 | Playback & transcoding | 11 | 2 | 4 | 5 | — |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
-| Users, security, permissions | 6 | 0 | 5 | 1 | — |
+| Users, security, permissions | 5 | 0 | 4 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
 | Integrations | 4 | 0 | 0 | 4 | all permanent |
-| **Total** | **42** | **6** | **18** | **18** | 10 advantages, 1 planned |
+| **Total** | **41** | **6** | **17** | **18** | 10 advantages, 1 planned |
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
@@ -129,13 +129,11 @@ flowchart TB
     G40["GAP-040 identity (OIDC/LDAP)"]
     G41["GAP-041 2FA / sessions"]
     G42["GAP-042 parental controls"]
-    G43["GAP-043 library permissions"]
     G44["GAP-044 audit log"]
     G45["GAP-045 share links"]
 
     G41 -.-> G40
     G42 --> G40
-    G43 --> G40
     G44 -.-> G40
     G45 -.-> G41
     G45 -.-> G25
@@ -187,7 +185,6 @@ parity-completeness, not a hard feature blocker.
 | GAP-040 | — | — | OIDC/LDAP identity |
 | GAP-041 | GAP-040 | soft | 2FA/session management on top of identity |
 | GAP-042 | GAP-040 | hard | per-user rating ceiling |
-| GAP-043 | GAP-040 | hard | per-library permissions |
 | GAP-044 | GAP-040 | soft | audit log needs users |
 | GAP-045 | GAP-041, GAP-025 | soft | signed links plus rate limits |
 | GAP-050 | — | — | DB/art/watch-state backup |
@@ -264,9 +261,9 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 |---|---|---|---|---|---|---|
 | GAP-040 | DSM/LDAP/AD identity integration | VS uses DSM accounts, so NAS permissions and VS permissions are one system | `GAP-LATER` | S2 | M6 | Local username/password accounts with admin/user roles are delivered. DSM/LDAP/OIDC integration is still open; must not become a blocker for family installs. |
 | GAP-041 | 2FA, password policy, lockout, session management | Handled by DSM for VS | `GAP-LATER` | S2 | M6 | TOTP + lockout + active-session revocation. Also mandatory before any Internet exposure. |
-| GAP-042 | Parental controls (content-rating ceiling, PIN) | VS restricts libraries/items by age rating per user | `GAP-LATER` | S2 | M6 | **[confirmed]** `SYNO.VideoStation2.ParentalControl`. `users.rating_ceiling` is reserved in the schema; needs per-library override + PIN for profile switching. |
-| GAP-043 | Per-library view permissions | VS supports allow/deny per library per user | `GAP-LATER` | S2 | M6 | Roles are delivered, but per-library allow/deny is still open; must be enforced in queries, not just in the UI. |
-| GAP-044 | Audit/activity log (logins, playback, admin actions) | VS surfaces DSM logs and per-user history | `GAP-LATER` | S3 | M6 | We have `slog`; local logins/sessions exist but there is no queryable `events` table yet. |
+| GAP-042 | Parental controls (content-rating ceiling, PIN) | VS restricts libraries/items by age rating per user | `GAP-LATER` | S2 | M6 | Content-rating ceilings are enforced for users in browse/home/search/item/media queries. Still open: PIN for profile switching and per-library rating overrides. |
+| GAP-043 | Per-library view permissions | VS supports allow/deny per library per user | `CLOSED` | S2 | M6 | Implemented per-user allow/deny (`library_permissions`), enforced in library/item/search/home/media queries, with a checkbox editor in the admin user dialog. |
+| GAP-044 | Audit/activity log (logins, playback, admin actions) | VS surfaces DSM logs and per-user history | `GAP-LATER` | S3 | M6 | Auth, account, library, settings and metadata-edit events are stored in `audit_events` and shown on the admin Activity page. Playback events are not audited yet. |
 | GAP-045 | Public share links with expiry | VS shares videos/collections via link | `GAP-LATER` | S2 | M6 | Already planned (signed, expiring tokens). Must be rate-limited and revocable. |
 
 ## 8. Admin, ops, i18n

@@ -176,6 +176,10 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 	}
 	where := []string{"m.hidden = 0"}
 	args := []any{}
+	if scope, scopeArgs := accessScope(ctx, "m"); scope != "" {
+		where = append(where, strings.TrimPrefix(scope, " AND "))
+		args = append(args, scopeArgs...)
+	}
 	if f.LibraryID > 0 {
 		where = append(where, "m.library_id = ?")
 		args = append(args, f.LibraryID)
@@ -278,10 +282,11 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 
 // GetItem loads a single item with user state.
 func (s *Store) GetItem(ctx context.Context, id int64) (*Item, error) {
+	scope, scopeArgs := accessScope(ctx, "m")
 	q := `SELECT ` + itemColumns + `, ` + itemStateColumns + `
-		FROM media_items m ` + fmt.Sprintf(itemJoin, UserID(ctx)) + ` WHERE m.id = ?`
+		FROM media_items m ` + fmt.Sprintf(itemJoin, UserID(ctx)) + ` WHERE m.id = ?` + scope
 	var it Item
-	if err := scanItem(s.db.QueryRowContext(ctx, q, id), &it); err != nil {
+	if err := scanItem(s.db.QueryRowContext(ctx, q, append([]any{id}, scopeArgs...)...), &it); err != nil {
 		return nil, wrap("get item", err)
 	}
 	return &it, nil
@@ -321,11 +326,13 @@ func (s *Store) Neighbors(ctx context.Context, itemID int64) (*Item, *Item, erro
 	}
 
 	fetch := func(dir string, cmp string, limit int) (*Item, error) {
+		access, accessArgs := accessScope(ctx, "m")
 		q := `SELECT ` + itemColumns + `, ` + itemStateColumns + `
 			FROM media_items m ` + fmt.Sprintf(itemJoin, UserID(ctx)) + `
-			WHERE ` + scopeSQL + ` AND m.hidden = 0 AND (` + orderKey + `, m.id) ` + cmp + ` (?, ?)
+			WHERE ` + scopeSQL + ` AND m.hidden = 0 AND (` + orderKey + `, m.id) ` + cmp + ` (?, ?)` + access + `
 			ORDER BY ` + orderKey + ` ` + dir + `, m.id ` + dir + ` LIMIT 1`
 		qargs := append(append([]any{}, args...), curValue, item.ID)
+		qargs = append(qargs, accessArgs...)
 		rows, err := s.db.QueryContext(ctx, q, qargs...)
 		if err != nil {
 			return nil, wrap("neighbors", err)
@@ -419,12 +426,14 @@ func (s *Store) FileByID(ctx context.Context, id int64) (*File, error) {
 	var f File
 	var audio, subs, added string
 	var missing int
+	scope, scopeArgs := accessScope(ctx, "m")
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, library_id, item_id, path, rel_path, size, mtime, inode,
-		       COALESCE(container,''), COALESCE(duration_ms,0), COALESCE(bitrate,0),
-		       COALESCE(width,0), COALESCE(height,0), COALESCE(video_codec,''), COALESCE(hdr,''),
-		       audio_streams, subtitle_streams, missing, added_at
-		FROM media_files WHERE id = ?`, id).
+		SELECT f.id, f.library_id, f.item_id, f.path, f.rel_path, f.size, f.mtime, f.inode,
+		       COALESCE(f.container,''), COALESCE(f.duration_ms,0), COALESCE(f.bitrate,0),
+		       COALESCE(f.width,0), COALESCE(f.height,0), COALESCE(f.video_codec,''), COALESCE(f.hdr,''),
+		       f.audio_streams, f.subtitle_streams, f.missing, f.added_at
+		FROM media_files f JOIN media_items m ON m.id = f.item_id
+		WHERE f.id = ?`+scope, append([]any{id}, scopeArgs...)...).
 		Scan(&f.ID, &f.LibraryID, &f.ItemID, &f.Path, &f.RelPath, &f.Size, &f.Mtime, &f.Inode,
 			&f.Container, &f.DurationMS, &f.Bitrate, &f.Width, &f.Height, &f.VideoCodec, &f.HDR,
 			&audio, &subs, &missing, &added)
@@ -485,11 +494,13 @@ func (s *Store) NextEpisode(ctx context.Context, itemID int64) (*Item, error) {
 		return nil, nil // not an episode
 	}
 	first := func(season int64) (*Item, error) {
+		access, accessArgs := accessScope(ctx, "m")
 		rows, err := s.db.QueryContext(ctx, `
 			SELECT `+itemColumns+`, `+itemStateColumns+`
 			FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
-			WHERE m.parent_id = ? AND m.kind = 'episode' AND m.hidden = 0
-			ORDER BY COALESCE(m.episode_number,0), m.id LIMIT 1`, season)
+			WHERE m.parent_id = ? AND m.kind = 'episode' AND m.hidden = 0`+access+`
+			ORDER BY COALESCE(m.episode_number,0), m.id LIMIT 1`,
+			append([]any{season}, accessArgs...)...)
 		if err != nil {
 			return nil, wrap("next episode", err)
 		}
@@ -505,11 +516,13 @@ func (s *Store) NextEpisode(ctx context.Context, itemID int64) (*Item, error) {
 	}
 
 	// Same season first.
+	access, accessArgs := accessScope(ctx, "m")
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`
 		FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
-		WHERE m.parent_id = ? AND m.kind = 'episode' AND m.hidden = 0 AND m.episode_number > ?
-		ORDER BY m.episode_number, m.id LIMIT 1`, seasonID, number)
+		WHERE m.parent_id = ? AND m.kind = 'episode' AND m.hidden = 0 AND m.episode_number > ?`+access+`
+		ORDER BY m.episode_number, m.id LIMIT 1`,
+		append([]any{seasonID, number}, accessArgs...)...)
 	if err != nil {
 		return nil, wrap("next episode", err)
 	}
@@ -774,12 +787,13 @@ type Shelf struct {
 // GetHome builds the home page payload.
 func (s *Store) GetHome(ctx context.Context) (*Home, error) {
 	h := &Home{Continue: []Item{}, Recent: []Item{}, Shelves: []Shelf{}}
+	scope, scopeArgs := accessScope(ctx, "m")
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`
 		FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
-		WHERE m.hidden = 0 AND p.position_ms > 0 AND p.played = 0
-		ORDER BY p.updated_at DESC LIMIT 12`)
+		WHERE m.hidden = 0 AND p.position_ms > 0 AND p.played = 0`+scope+`
+		ORDER BY p.updated_at DESC LIMIT 12`, scopeArgs...)
 	if err != nil {
 		return nil, wrap("continue watching", err)
 	}
@@ -790,8 +804,8 @@ func (s *Store) GetHome(ctx context.Context) (*Home, error) {
 	rows, err = s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`
 		FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
-		WHERE m.hidden = 0 AND m.kind IN ('movie','show','home_video')
-		ORDER BY m.added_at DESC, m.id DESC LIMIT 24`)
+		WHERE m.hidden = 0 AND m.kind IN ('movie','show','home_video')`+scope+`
+		ORDER BY m.added_at DESC, m.id DESC LIMIT 24`, scopeArgs...)
 	if err != nil {
 		return nil, wrap("recent items", err)
 	}
@@ -814,8 +828,8 @@ func (s *Store) GetHome(ctx context.Context) (*Home, error) {
 		rows, err := s.db.QueryContext(ctx, `
 			SELECT `+itemColumns+`, `+itemStateColumns+`
 			FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
-			WHERE m.hidden = 0 AND m.library_id = ? AND m.kind = ?
-			ORDER BY m.added_at DESC, m.id DESC LIMIT 24`, lib.ID, kind)
+			WHERE m.hidden = 0 AND m.library_id = ? AND m.kind = ?`+scope+`
+			ORDER BY m.added_at DESC, m.id DESC LIMIT 24`, append([]any{lib.ID, kind}, scopeArgs...)...)
 		if err != nil {
 			return nil, wrap("library shelf", err)
 		}
@@ -876,13 +890,16 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Item, er
 	if limit <= 0 || limit > 100 {
 		limit = 40
 	}
+	scope, scopeArgs := accessScope(ctx, "m")
+	args := append([]any{ftsQuery(query)}, scopeArgs...)
+	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`, bm25(media_fts) AS rank
 		FROM media_items m
 		JOIN media_fts ft ON ft.rowid = m.id
 		`+fmt.Sprintf(itemJoin, UserID(ctx))+`
-		WHERE media_fts MATCH ? AND m.hidden = 0 AND m.kind != 'season'
-		ORDER BY rank, m.sort_title LIMIT ?`, ftsQuery(query), limit)
+		WHERE media_fts MATCH ? AND m.hidden = 0 AND m.kind != 'season'`+scope+`
+		ORDER BY rank, m.sort_title LIMIT ?`, args...)
 	if err != nil {
 		return nil, wrap("search", err)
 	}

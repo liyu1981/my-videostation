@@ -40,12 +40,13 @@ func validLibraryType(t string) bool {
 
 // ListLibraries returns all libraries with item counts.
 func (s *Store) ListLibraries(ctx context.Context) ([]Library, error) {
+	scope, scopeArgs := libraryScope(ctx, "l")
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT l.id, l.name, l.type, l.language, l.created_at, l.updated_at,
 		       (SELECT COUNT(*) FROM media_items m
 		         WHERE m.library_id = l.id AND m.kind IN ('movie','show','home_video')) AS item_count,
 		       l.auto_scan_minutes, l.watch_enabled, l.last_auto_scan_at
-		FROM libraries l ORDER BY l.name COLLATE NOCASE`)
+		FROM libraries l WHERE 1=1`+scope+` ORDER BY l.name COLLATE NOCASE`, scopeArgs...)
 	if err != nil {
 		return nil, wrap("list libraries", err)
 	}
@@ -116,12 +117,13 @@ func (s *Store) GetLibrary(ctx context.Context, id int64) (*Library, error) {
 	var created, updated string
 	var lastAuto sql.NullString
 	var watch int
+	scope, scopeArgs := libraryScope(ctx, "l")
 	err := s.db.QueryRowContext(ctx, `
 		SELECT l.id, l.name, l.type, l.language, l.created_at, l.updated_at,
 		       (SELECT COUNT(*) FROM media_items m
 		         WHERE m.library_id = l.id AND m.kind IN ('movie','show','home_video')),
 		       l.auto_scan_minutes, l.watch_enabled, l.last_auto_scan_at
-		FROM libraries l WHERE l.id = ?`, id).
+		FROM libraries l WHERE l.id = ?`+scope, append([]any{id}, scopeArgs...)...).
 		Scan(&l.ID, &l.Name, &l.Type, &l.Language, &created, &updated, &l.ItemCount,
 			&l.AutoScanMinutes, &watch, &lastAuto)
 	if err != nil {

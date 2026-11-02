@@ -245,9 +245,13 @@ func (s *Store) ListCollectionItems(ctx context.Context, collectionID int64, pag
 	if _, err := s.GetCollection(ctx, collectionID); err != nil {
 		return nil, 0, err
 	}
+	scope, scopeArgs := accessScope(ctx, "m")
 	var total int
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM item_collections WHERE collection_id = ?`, collectionID).Scan(&total); err != nil {
+	countArgs := append([]any{collectionID}, scopeArgs...)
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM item_collections ic
+		JOIN media_items m ON m.id = ic.item_id
+		WHERE ic.collection_id = ? AND m.hidden = 0`+scope, countArgs...).Scan(&total); err != nil {
 		return nil, 0, wrap("count collection items", err)
 	}
 	rows, err := s.db.QueryContext(ctx, `
@@ -255,9 +259,9 @@ func (s *Store) ListCollectionItems(ctx context.Context, collectionID int64, pag
 		FROM media_items m
 		JOIN item_collections ic ON ic.item_id = m.id
 		`+fmt.Sprintf(itemJoin, UserID(ctx))+`
-		WHERE ic.collection_id = ? AND m.hidden = 0
+		WHERE ic.collection_id = ? AND m.hidden = 0`+scope+`
 		ORDER BY ic.added_at DESC, m.id DESC LIMIT ? OFFSET ?`,
-		collectionID, perPage, (page-1)*perPage)
+		append(append([]any{collectionID}, scopeArgs...), perPage, (page-1)*perPage)...)
 	if err != nil {
 		return nil, 0, wrap("collection items", err)
 	}

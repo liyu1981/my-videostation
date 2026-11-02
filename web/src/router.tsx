@@ -12,6 +12,7 @@ import { TasksPage } from './routes/TasksPage';
 import { LoginPage } from './routes/LoginPage';
 import { SetupPage } from './routes/SetupPage';
 import { UsersPage } from './routes/UsersPage';
+import { ActivityPage } from './routes/ActivityPage';
 
 const toNum = (v: unknown): number | undefined => {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -116,6 +117,12 @@ const usersRoute = createRoute({
   component: UsersPage,
 });
 
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/activity',
+  component: ActivityPage,
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   browseRoute,
@@ -129,6 +136,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
   usersRoute,
+  activityRoute,
 ]);
 
 export const router = createRouter({

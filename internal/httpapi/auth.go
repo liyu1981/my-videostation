@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +52,9 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		ctx := context.WithValue(r.Context(), authUserKey{}, u)
 		ctx = context.WithValue(ctx, authTokenKey{}, cookie.Value)
 		ctx = store.WithUserID(ctx, u.ID)
+		ctx = store.WithUserRole(ctx, u.Role)
+		ctx = store.WithUserRating(ctx, u.RatingCeiling)
+		ctx = store.WithUserLibraryRestricted(ctx, u.LibraryRestricted)
 		next(w, r.WithContext(ctx))
 	}
 }
@@ -122,6 +126,7 @@ func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.auditAs(r, u, "auth.setup", "user:"+strconv.FormatInt(u.ID, 10), "admin account created")
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 
@@ -145,6 +150,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.auditAs(r, u, "auth.login", "user:"+strconv.FormatInt(u.ID, 10), "signed in")
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 
@@ -188,6 +194,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, "auth.password", "user:"+strconv.FormatInt(u.ID, 10), "password changed")
 	if token := tokenFrom(r); token != "" {
 		if err := s.store.DeleteOtherSessions(r.Context(), u.ID, auth.HashToken(token)); err != nil {
 			s.fail(w, err)
@@ -198,6 +205,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	s.audit(r, "auth.logout", "", "signed out")
 	if token := tokenFrom(r); token != "" {
 		if err := s.store.DeleteSession(r.Context(), auth.HashToken(token)); err != nil {
 			s.fail(w, err)

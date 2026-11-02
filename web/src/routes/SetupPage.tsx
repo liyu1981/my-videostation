@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ShieldCheck } from 'lucide-react';
 import { api } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 import { AuthCard, authButtonClass, authInputClass } from '../components/AuthCard';
 import { Loading } from '../components/State';
 
@@ -14,6 +15,7 @@ export function SetupPage() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [localError, setLocalError] = useState('');
+  const { t } = useI18n();
   const status = useQuery({ queryKey: ['auth', 'status'], queryFn: api.authStatus, retry: false });
   const me = useQuery({ queryKey: ['auth', 'me'], queryFn: api.me, retry: false });
 
@@ -39,7 +41,7 @@ export function SetupPage() {
   if (me.data?.user || (status.data && !status.data.needsSetup)) return <Loading />;
 
   return (
-    <AuthCard title="Set up MyVideoStation" subtitle="Create the first admin account. This prompt appears once.">
+    <AuthCard title={t('auth.setupTitle')} subtitle={t('auth.setupSubtitle')}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -58,7 +60,7 @@ export function SetupPage() {
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-1 block text-[12px] text-fg-muted">Username</span>
+            <span className="mb-1 block text-[12px] text-fg-muted">{t('auth.username')}</span>
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -69,7 +71,7 @@ export function SetupPage() {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-[12px] text-fg-muted">Display name</span>
+            <span className="mb-1 block text-[12px] text-fg-muted">{t('auth.displayName')}</span>
             <input
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
@@ -79,7 +81,7 @@ export function SetupPage() {
           </label>
         </div>
         <label className="block">
-          <span className="mb-1 block text-[12px] text-fg-muted">Password</span>
+          <span className="mb-1 block text-[12px] text-fg-muted">{t('auth.password')}</span>
           <input
             type="password"
             value={password}
@@ -89,10 +91,10 @@ export function SetupPage() {
             minLength={8}
             className={authInputClass}
           />
-          <span className="mt-1 block text-[10.5px] text-fg-dim">At least 8 characters.</span>
+          <span className="mt-1 block text-[10.5px] text-fg-dim">{t('auth.passwordHint')}</span>
         </label>
         <label className="block">
-          <span className="mb-1 block text-[12px] text-fg-muted">Confirm password</span>
+          <span className="mb-1 block text-[12px] text-fg-muted">{t('auth.confirmPassword')}</span>
           <input
             type="password"
             value={confirm}
@@ -107,7 +109,7 @@ export function SetupPage() {
         ) : null}
         <button type="submit" disabled={setup.isPending} className={`${authButtonClass} inline-flex items-center justify-center gap-2`}>
           <ShieldCheck className="size-4" aria-hidden />
-          {setup.isPending ? 'Creating…' : 'Create admin account'}
+          {setup.isPending ? t('auth.creating') : t('auth.createAdmin')}
         </button>
       </form>
     </AuthCard>

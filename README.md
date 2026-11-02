@@ -82,9 +82,11 @@ testdata/           parser corpus and generated sample media
 
 ## What works today (M1)
 
-- **Accounts**: first-run admin setup, login/logout, admin/user roles, admin user
-  management, self-service password change, HttpOnly sessions, per-user watch state and
-  collections; admin-only library/metadata/settings APIs.
+- **Accounts & permissions**: first-run admin setup, login/logout, admin/user roles,
+  admin user management, self-service password change, HttpOnly sessions, per-user watch
+  state/collections, per-library view permissions, content-rating ceilings, an admin
+  activity log, and an English/German/Chinese UI scaffold; admin-only
+  library/metadata/settings APIs.
 - **Libraries**: movie / TV / home-video libraries with multiple read-only folders,
   added by typing absolute paths or picking them from a server-side folder tree.
 - **Scanning**: incremental (size+mtime), durable jobs with live progress, results streamed
@@ -400,7 +402,7 @@ error responses automatically.
 | **M3** ✅ | Collections, selection/bulk actions, categories/facets, scheduler, task monitor |
 | **M4** ✅ | Player: subtitle tracks, resume, next episode |
 | **M5** | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |
-| **M6** 🟡 | Local accounts/roles, per-user watch state (delivered); per-library permissions, parental controls, share links, i18n (open) |
+| **M6** 🟡 | Accounts, roles, per-library permissions, rating ceilings, audit log, i18n scaffold (delivered); sharing/OG links deferred, OIDC/LDAP/2FA/PIN open |
 | **M7** | PWA, casting, trailers, offline conversion, metrics |
 
 Some M4 groundwork already ships: byte-range streaming, progress reporting and a minimal

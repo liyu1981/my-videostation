@@ -109,8 +109,26 @@ export interface User {
   displayName: string;
   role: UserRole;
   active: boolean;
+  ratingCeiling?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AuditEvent {
+  id: number;
+  userId?: number;
+  username: string;
+  action: string;
+  target?: string;
+  detail?: string;
+  ip?: string;
+  createdAt: string;
+}
+
+export interface LibraryAccess {
+  id: number;
+  name: string;
+  allowed: boolean;
 }
 
 export interface AuthStatus {
@@ -367,9 +385,16 @@ export const api = {
   users: () => request<{ users: User[] }>('/users'),
   createUser: (body: { username: string; displayName: string; password: string; role: UserRole }) =>
     request<User>('/users', { method: 'POST', body: JSON.stringify(body) }),
-  updateUser: (id: number, body: { displayName?: string; role?: UserRole; active?: boolean; password?: string }) =>
+  updateUser: (id: number, body: { displayName?: string; role?: UserRole; active?: boolean; password?: string; ratingCeiling?: string }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteUser: (id: number) => request<void>(`/users/${id}`, { method: 'DELETE' }),
+  userLibraries: (id: number) => request<{ libraries: LibraryAccess[] }>(`/users/${id}/libraries`),
+  setUserLibraries: (id: number, libraryIds: number[], unrestricted = false) =>
+    request<{ libraries: LibraryAccess[] }>(`/users/${id}/libraries`, {
+      method: 'PUT',
+      body: JSON.stringify({ libraryIds, unrestricted }),
+    }),
+  audit: (limit = 100) => request<{ events: AuditEvent[] }>(`/audit${qs({ limit })}`),
   libraries: () => request<{ libraries: Library[] }>('/libraries'),
   listFS: (path?: string) => request<FSListing>(`/fs${qs({ path })}`),
   library: (id: number) => request<Library>(`/libraries/${id}`),

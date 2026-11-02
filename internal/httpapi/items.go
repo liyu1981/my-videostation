@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/liyu1981/myvideostation/internal/store"
@@ -175,6 +176,7 @@ func (s *Server) handlePatchItem(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, "item.update", "item:"+strconv.FormatInt(id, 10), it.Title)
 	detail, err := s.itemDetail(r.Context(), it)
 	if err != nil {
 		s.fail(w, err)

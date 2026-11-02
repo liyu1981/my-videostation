@@ -186,7 +186,8 @@ item_collections (collection_id, item_id)
 tags             (id, name) · item_tags(item_id, tag_id)
 playback_progress(user_id, item_id, position_ms, duration_ms, played, updated_at)
 favorites        (user_id, item_id)
-library_perms    (user_id, library_id, can_view)
+library_permissions(user_id, library_id, can_view)
+audit_events     (id, user_id, username, action, target, detail, ip, created_at)
 jobs             (id, type, payload_json, status, progress, message, created_at,
                   started_at, finished_at, error)
 settings         (key, value_json)      -- app + per-library options
@@ -275,7 +276,7 @@ routes/
   show/$id.tsx               # seasons/episodes
   collection/$id.tsx
   settings/{libraries,metadata,transcoding}.tsx
-  login.tsx  setup.tsx  users.tsx
+  login.tsx  setup.tsx  users.tsx  activity.tsx
   admin/scan.tsx             # job monitor
 features/  browse/ detail/ player/ identify/ libraries/ scan/
 components/ poster-card, poster-grid, media-row, filters, player, …
@@ -383,12 +384,14 @@ Audit and implementation notes: [`MONITORING.md`](./MONITORING.md).
 - Optional HW accel (VA-API/QSV/NVENC) autodetect; subtitle burn-in
 - **Done when**: HEVC/AC3/DTS titles play in browser with seek.
 
-### M6 — Users, sharing, i18n
-- **Local accounts and roles delivered:** first-run admin setup, login/logout, sessions,
-  admin user management, admin/user permissions, self-service password change, and
-  per-user watch state/collections.
-- Still open: per-library permissions, parental rating ceilings/PIN, share links with
-  expiry, audit log, i18n (en + de/zh scaffold), OG metadata for shared links.
+### M6 — Users, permissions, i18n
+- **Delivered:** first-run admin setup, login/logout, sessions, admin user management,
+  admin/user roles, self-service password change, per-user watch state/collections,
+  per-library view permissions, content-rating ceilings, an admin activity log, and an
+  English/German/Chinese UI scaffold.
+- Deliberately deferred per request: share links and OG metadata for shared links.
+- Still open: OIDC/LDAP identity, 2FA, parental PIN/profile switching, per-library rating
+  overrides, playback events in the audit log.
 
 ### M7 — Polish / optional
 - PWA/offline shell, Chromecast, online subtitle search, trailers,

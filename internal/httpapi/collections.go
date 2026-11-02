@@ -231,6 +231,10 @@ func (s *Server) handleFolders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid library id")
 		return
 	}
+	if _, err := s.store.GetLibrary(r.Context(), id); err != nil {
+		s.fail(w, err)
+		return
+	}
 	folders, err := s.store.Folders(r.Context(), id)
 	if err != nil {
 		s.fail(w, err)

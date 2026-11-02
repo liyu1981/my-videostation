@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { LogIn } from 'lucide-react';
 import { api } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 import { AuthCard, authButtonClass, authInputClass } from '../components/AuthCard';
 import { Loading } from '../components/State';
 
@@ -11,6 +12,7 @@ export function LoginPage() {
   const qc = useQueryClient();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const { t } = useI18n();
   const status = useQuery({ queryKey: ['auth', 'status'], queryFn: api.authStatus, retry: false });
   const me = useQuery({ queryKey: ['auth', 'me'], queryFn: api.me, retry: false });
 
@@ -35,7 +37,7 @@ export function LoginPage() {
   if (status.data?.needsSetup || me.data?.user) return <Loading />;
 
   return (
-    <AuthCard title="Sign in" subtitle="Use your MyVideoStation account">
+    <AuthCard title={t('auth.signIn')} subtitle={t('auth.signInSubtitle')}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -44,7 +46,7 @@ export function LoginPage() {
         className="space-y-3"
       >
         <label className="block">
-          <span className="mb-1 block text-[12px] text-fg-muted">Username</span>
+          <span className="mb-1 block text-[12px] text-fg-muted">{t('auth.username')}</span>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -55,7 +57,7 @@ export function LoginPage() {
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-[12px] text-fg-muted">Password</span>
+          <span className="mb-1 block text-[12px] text-fg-muted">{t('auth.password')}</span>
           <input
             type="password"
             value={password}
@@ -68,7 +70,7 @@ export function LoginPage() {
         {login.isError ? <p className="text-[12px] text-active">{(login.error as Error).message}</p> : null}
         <button type="submit" disabled={login.isPending} className={`${authButtonClass} inline-flex items-center justify-center gap-2`}>
           <LogIn className="size-4" aria-hidden />
-          {login.isPending ? 'Signing in…' : 'Sign in'}
+          {login.isPending ? t('auth.signingIn') : t('auth.signIn')}
         </button>
       </form>
     </AuthCard>

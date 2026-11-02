@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/liyu1981/myvideostation/internal/store"
@@ -93,6 +94,7 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("library created", "id", lib.ID, "name", lib.Name, "type", lib.Type, "autoScanMinutes", autoScan, "watch", watch)
+	s.audit(r, "library.create", "library:"+strconv.FormatInt(lib.ID, 10), lib.Name)
 	if s.jobs != nil {
 		if _, err := s.jobs.Enqueue(r.Context(), "scan", map[string]any{"libraryId": lib.ID}); err != nil {
 			s.log.Warn("initial scan enqueue failed", "library", lib.ID, "err", err)
@@ -139,6 +141,7 @@ func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, "library.update", "library:"+strconv.FormatInt(id, 10), lib.Name)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -157,6 +160,7 @@ func (s *Server) handleDeleteLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("library deleted", "id", id)
+	s.audit(r, "library.delete", "library:"+strconv.FormatInt(id, 10), "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -186,6 +190,7 @@ func (s *Server) handleScanLibrary(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, "library.scan", "library:"+strconv.FormatInt(id, 10), jobAction(force))
 	writeJSON(w, http.StatusAccepted, job)
 }
 
@@ -213,4 +218,11 @@ func validatePaths(paths []string) error {
 		}
 	}
 	return nil
+}
+
+func jobAction(force bool) string {
+	if force {
+		return "force rescan"
+	}
+	return "scan"
 }

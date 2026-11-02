@@ -11,6 +11,7 @@ import {
   LibraryBig,
   ListVideo,
   LogOut,
+  ScrollText,
   Search,
   Settings,
   Tv,
@@ -18,21 +19,22 @@ import {
   Video,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useI18n, type I18nKey, type Locale } from '../lib/i18n';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { PlayerModal } from './Player';
 import { Loading } from './State';
 
-type NavItem = { label: string; to: string; search?: Record<string, string>; icon: typeof Home };
+type NavItem = { key: I18nKey; to: string; search?: Record<string, string>; icon: typeof Home };
 
 const navItems: NavItem[] = [
-  { label: 'Home', to: '/', icon: Home },
-  { label: 'Movies', to: '/browse', search: { kind: 'movie' }, icon: Clapperboard },
-  { label: 'TV Shows', to: '/browse', search: { kind: 'show' }, icon: Tv },
-  { label: 'Home Videos', to: '/browse', search: { kind: 'home_video' }, icon: Video },
-  { label: 'Playlists', to: '/playlists', icon: ListVideo },
+  { key: 'nav.home', to: '/', icon: Home },
+  { key: 'nav.movies', to: '/browse', search: { kind: 'movie' }, icon: Clapperboard },
+  { key: 'nav.tv', to: '/browse', search: { kind: 'show' }, icon: Tv },
+  { key: 'nav.homeVideos', to: '/browse', search: { kind: 'home_video' }, icon: Video },
+  { key: 'nav.playlists', to: '/playlists', icon: ListVideo },
 ];
 
-const adminPaths = ['/libraries', '/settings', '/tasks', '/users'];
+const adminPaths = ['/libraries', '/settings', '/tasks', '/users', '/activity'];
 
 export function Shell() {
   const navigate = useNavigate();
@@ -41,6 +43,7 @@ export function Shell() {
   const [query, setQuery] = useState('');
   const [userMenu, setUserMenu] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const { locale, setLocale, t } = useI18n();
 
   const currentKind =
     location.pathname === '/browse' ? ((location.search as { kind?: string }).kind ?? 'movie') : null;
@@ -151,8 +154,8 @@ export function Shell() {
           {isAdmin ? (
             <Link
               to="/settings"
-              aria-label="Settings"
-              title="Settings"
+              aria-label={t('nav.settings')}
+              title={t('nav.settings')}
               className={[
                 'grid size-9 place-items-center rounded-lg transition-colors',
                 location.pathname === '/settings' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
@@ -194,25 +197,44 @@ export function Shell() {
                         onClick={() => setUserMenu(false)}
                         className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
                       >
-                        <Settings className="size-3.5" aria-hidden /> Settings
+                        <Settings className="size-3.5" aria-hidden /> {t('nav.settings')}
                       </Link>
                       <Link
                         to="/users"
                         onClick={() => setUserMenu(false)}
                         className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
                       >
-                        <Users className="size-3.5" aria-hidden /> Users
+                        <Users className="size-3.5" aria-hidden /> {t('nav.users')}
+                      </Link>
+                      <Link
+                        to="/activity"
+                        onClick={() => setUserMenu(false)}
+                        className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
+                      >
+                        <ScrollText className="size-3.5" aria-hidden /> {t('nav.activity')}
                       </Link>
                       <Link
                         to="/tasks"
                         onClick={() => setUserMenu(false)}
                         className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
                       >
-                        <Activity className="size-3.5" aria-hidden /> Tasks
+                        <Activity className="size-3.5" aria-hidden /> {t('nav.tasks')}
                       </Link>
                     </>
                   ) : null}
                   <div className="my-1 h-px bg-hairline" />
+                  <label className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11.5px] text-fg-dim">
+                    {t('nav.language')}
+                    <select
+                      value={locale}
+                      onChange={(e) => setLocale(e.target.value as Locale)}
+                      className="rounded border border-hairline bg-surface-3 px-1.5 py-0.5 text-[11px] text-fg"
+                    >
+                      <option value="en">English</option>
+                      <option value="de">Deutsch</option>
+                      <option value="zh">中文</option>
+                    </select>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
@@ -221,14 +243,14 @@ export function Shell() {
                     }}
                     className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
                   >
-                    <KeyRound className="size-3.5" aria-hidden /> Change password
+                    <KeyRound className="size-3.5" aria-hidden /> {t('nav.changePassword')}
                   </button>
                   <button
                     type="button"
                     onClick={() => void logout()}
                     className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
                   >
-                    <LogOut className="size-3.5" aria-hidden /> Sign out
+                    <LogOut className="size-3.5" aria-hidden /> {t('nav.signOut')}
                   </button>
                 </div>
               </>
@@ -240,9 +262,10 @@ export function Shell() {
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 flex-col border-r border-hairline bg-surface md:flex">
           <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-3" aria-label="Main">
-            <p className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-fg-dim">Library</p>
+            <p className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-fg-dim">{t('nav.library')}</p>
             {navItems.map((nav) => {
-              const { label, to, icon: Icon } = nav;
+              const { key, to, icon: Icon } = nav;
+              const label = t(key);
               const active =
                 to === '/'
                   ? location.pathname === '/'
@@ -271,7 +294,7 @@ export function Shell() {
 
             {isAdmin ? (
               <>
-                <p className="px-2 pb-1 pt-5 text-[11px] font-medium uppercase tracking-wider text-fg-dim">Manage</p>
+                <p className="px-2 pb-1 pt-5 text-[11px] font-medium uppercase tracking-wider text-fg-dim">{t('nav.manage')}</p>
                 <Link
                   to="/libraries"
                   className={[
@@ -284,7 +307,7 @@ export function Shell() {
                     className={['size-[18px]', location.pathname === '/libraries' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
                     aria-hidden
                   />
-                  Libraries
+                  {t('nav.libraries')}
                 </Link>
                 <Link
                   to="/users"
@@ -298,7 +321,21 @@ export function Shell() {
                     className={['size-[18px]', location.pathname === '/users' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
                     aria-hidden
                   />
-                  Users
+                  {t('nav.users')}
+                </Link>
+                <Link
+                  to="/activity"
+                  className={[
+                    'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
+                    location.pathname === '/activity' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+                  ].join(' ')}
+                  aria-current={location.pathname === '/activity' ? 'page' : undefined}
+                >
+                  <ScrollText
+                    className={['size-[18px]', location.pathname === '/activity' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
+                    aria-hidden
+                  />
+                  {t('nav.activity')}
                 </Link>
                 <Link
                   to="/tasks"
@@ -312,7 +349,7 @@ export function Shell() {
                     className={['size-[18px]', location.pathname === '/tasks' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
                     aria-hidden
                   />
-                  Tasks
+                  {t('nav.tasks')}
                 </Link>
               </>
             ) : null}

@@ -16,29 +16,34 @@ const (
 
 // User is an account. PasswordHash is never serialized to the API.
 type User struct {
-	ID           int64     `json:"id"`
-	Username     string    `json:"username"`
-	DisplayName  string    `json:"displayName"`
-	Role         string    `json:"role"`
-	Active       bool      `json:"active"`
-	PasswordHash string    `json:"-"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID                int64     `json:"id"`
+	Username          string    `json:"username"`
+	DisplayName       string    `json:"displayName"`
+	Role              string    `json:"role"`
+	Active            bool      `json:"active"`
+	RatingCeiling     string    `json:"ratingCeiling,omitempty"`
+	LibraryRestricted bool      `json:"-"`
+	PasswordHash      string    `json:"-"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 const userColumns = `
-	id, username, display_name, role, active, COALESCE(password_hash,''), created_at, updated_at`
+	id, username, display_name, role, active, COALESCE(rating_ceiling,''), library_restricted,
+	COALESCE(password_hash,''), created_at, updated_at`
 
 const userColumnsQualified = `
-	u.id, u.username, u.display_name, u.role, u.active, COALESCE(u.password_hash,''), u.created_at, u.updated_at`
+	u.id, u.username, u.display_name, u.role, u.active, COALESCE(u.rating_ceiling,''), u.library_restricted,
+	COALESCE(u.password_hash,''), u.created_at, u.updated_at`
 
 func scanUser(row rowScanner, u *User) error {
-	var active int
+	var active, restricted int
 	var created, updated string
-	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &active, &u.PasswordHash, &created, &updated); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &active, &u.RatingCeiling, &restricted, &u.PasswordHash, &created, &updated); err != nil {
 		return err
 	}
 	u.Active = active != 0
+	u.LibraryRestricted = restricted != 0
 	u.CreatedAt, u.UpdatedAt = parseTime(created), parseTime(updated)
 	return nil
 }
@@ -182,7 +187,7 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName, passwordH
 }
 
 // UpdateUser changes an account. Nil fields are left untouched.
-func (s *Store) UpdateUser(ctx context.Context, id int64, displayName, role *string, active *bool, passwordHash *string) (*User, error) {
+func (s *Store) UpdateUser(ctx context.Context, id int64, displayName, role *string, active *bool, passwordHash, ratingCeiling *string) (*User, error) {
 	u, err := s.GetUserByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -205,6 +210,10 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, displayName, role *str
 	if active != nil {
 		newActive = *active
 	}
+	newRating := u.RatingCeiling
+	if ratingCeiling != nil {
+		newRating = strings.TrimSpace(*ratingCeiling)
+	}
 	if u.Active && u.Role == RoleAdmin && (!newActive || newRole != RoleAdmin) {
 		n, err := s.CountActiveAdmins(ctx)
 		if err != nil {
@@ -221,8 +230,8 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, displayName, role *str
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE users SET display_name = ?, role = ?, active = ?, updated_at = ? WHERE id = ?`,
-		newDisplay, newRole, boolInt(newActive), ts, id); err != nil {
+		UPDATE users SET display_name = ?, role = ?, active = ?, rating_ceiling = ?, updated_at = ? WHERE id = ?`,
+		newDisplay, newRole, boolInt(newActive), newRating, ts, id); err != nil {
 		return nil, wrap("update user", err)
 	}
 	if passwordHash != nil && *passwordHash != "" {
@@ -340,4 +349,123 @@ func (s *Store) UpdatePassword(ctx context.Context, id int64, passwordHash strin
 func (s *Store) DeleteOtherSessions(ctx context.Context, userID int64, keepHash string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?`, userID, keepHash)
 	return wrap("delete other sessions", err)
+}
+
+// LibraryAccess is one library with a user's view permission.
+type LibraryAccess struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Allowed bool   `json:"allowed"`
+}
+
+// UserLibraryAccess lists every library with the user's permission. No rows
+// means "all libraries" for backwards compatibility.
+func (s *Store) UserLibraryAccess(ctx context.Context, userID int64) ([]LibraryAccess, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM libraries ORDER BY name COLLATE NOCASE`)
+	if err != nil {
+		return nil, wrap("library access", err)
+	}
+	var out []LibraryAccess
+	for rows.Next() {
+		var a LibraryAccess
+		if err := rows.Scan(&a.ID, &a.Name); err != nil {
+			rows.Close()
+			return nil, wrap("scan library access", err)
+		}
+		a.Allowed = true
+		out = append(out, a)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, wrap("iterate library access", err)
+	}
+	u, err := s.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if u.LibraryRestricted {
+		perms, err := s.db.QueryContext(ctx, `SELECT library_id, can_view FROM library_permissions WHERE user_id = ?`, userID)
+		if err != nil {
+			return nil, wrap("user library permissions", err)
+		}
+		defer perms.Close()
+		allowed := map[int64]bool{}
+		for perms.Next() {
+			var id int64
+			var can int
+			if err := perms.Scan(&id, &can); err != nil {
+				return nil, wrap("scan library permission", err)
+			}
+			allowed[id] = can != 0
+		}
+		for i := range out {
+			out[i].Allowed = allowed[out[i].ID]
+		}
+	}
+	if out == nil {
+		out = []LibraryAccess{}
+	}
+	return out, nil
+}
+
+// SetUserLibraryPermissions replaces a user's library allow/deny matrix.
+func (s *Store) SetUserLibraryPermissions(ctx context.Context, userID int64, allowedIDs []int64) error {
+	allowed := map[int64]bool{}
+	for _, id := range allowedIDs {
+		allowed[id] = true
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM libraries ORDER BY id`)
+	if err != nil {
+		return wrap("list library ids", err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return wrap("scan library id", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return wrap("iterate library ids", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrap("begin library permissions", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM library_permissions WHERE user_id = ?`, userID); err != nil {
+		return wrap("clear library permissions", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET library_restricted = 1, updated_at = ? WHERE id = ?`, now(), userID); err != nil {
+		return wrap("restrict user libraries", err)
+	}
+	for _, id := range ids {
+		if !allowed[id] {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO library_permissions (user_id, library_id, can_view) VALUES (?,?,1)`, userID, id); err != nil {
+			return wrap("set library permission", err)
+		}
+	}
+	return wrap("commit library permissions", tx.Commit())
+}
+
+// SetUserLibraryUnrestricted removes an explicit library allow-list.
+func (s *Store) SetUserLibraryUnrestricted(ctx context.Context, userID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrap("begin unrestricted libraries", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM library_permissions WHERE user_id = ?`, userID); err != nil {
+		return wrap("clear library permissions", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET library_restricted = 0, updated_at = ? WHERE id = ?`, now(), userID); err != nil {
+		return wrap("unrestrict libraries", err)
+	}
+	return wrap("commit unrestricted libraries", tx.Commit())
 }

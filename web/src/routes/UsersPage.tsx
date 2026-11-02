@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Shield, Trash2, UserPlus } from 'lucide-react';
 import { api, type User, type UserRole } from '../lib/api';
 import { useCurrentUser } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
 import { Dialog, DialogButton } from '../components/Dialog';
 import { ErrorState, Loading } from '../components/State';
 
@@ -12,6 +13,7 @@ const inputClass =
 export function UsersPage() {
   const qc = useQueryClient();
   const { user: current } = useCurrentUser();
+  const { t } = useI18n();
   const users = useQuery({ queryKey: ['users'], queryFn: api.users });
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
@@ -29,17 +31,15 @@ export function UsersPage() {
     <div className="mx-auto max-w-5xl px-6 py-7 lg:px-8">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[20px] font-semibold tracking-tight text-fg-heading">Users</h1>
-          <p className="mt-1 text-[12px] text-fg-dim">
-            Admins manage libraries, metadata and settings. Users can browse, play and keep their own watch state.
-          </p>
+          <h1 className="text-[20px] font-semibold tracking-tight text-fg-heading">{t('users.title')}</h1>
+          <p className="mt-1 text-[12px] text-fg-dim">{t('users.subtitle')}</p>
         </div>
         <button
           type="button"
           onClick={() => setCreating(true)}
           className="inline-flex items-center gap-2 rounded-lg bg-progress/90 px-3.5 py-2 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
         >
-          <UserPlus className="size-4" aria-hidden /> Add user
+          <UserPlus className="size-4" aria-hidden /> {t('users.add')}
         </button>
       </header>
 
@@ -63,6 +63,9 @@ export function UsersPage() {
                   )}
                   {!user.active ? (
                     <span className="rounded-full border border-hairline px-2 py-0.5 text-[10.5px] text-fg-dim">Disabled</span>
+                  ) : null}
+                  {user.ratingCeiling ? (
+                    <span className="rounded-full border border-hairline px-2 py-0.5 text-[10.5px] text-fg-dim">{user.ratingCeiling}</span>
                   ) : null}
                   {self ? <span className="text-[10.5px] text-fg-dim">you</span> : null}
                 </div>
@@ -140,16 +143,36 @@ function UserDialog({
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>(user?.role ?? 'user');
   const [active, setActive] = useState(user?.active ?? true);
+  const [rating, setRating] = useState(user?.ratingCeiling ?? '');
+  const [libraryIDs, setLibraryIDs] = useState<number[] | null>(null);
+  const access = useQuery({
+    queryKey: ['user-libraries', user?.id],
+    queryFn: () => api.userLibraries(user!.id),
+    enabled: isEdit,
+  });
+
+  useEffect(() => {
+    if (!access.data) return;
+    setLibraryIDs(access.data.libraries.filter((l) => l.allowed).map((l) => l.id));
+  }, [access.data]);
+
+  const unrestrict = useMutation({
+    mutationFn: () => api.setUserLibraries(user!.id, [], true),
+    onSuccess: onSaved,
+  });
 
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (isEdit && user) {
-        return api.updateUser(user.id, {
+        await api.updateUser(user.id, {
           displayName: displayName.trim(),
           role,
           active,
+          ratingCeiling: rating,
           ...(password ? { password } : {}),
         });
+        if (libraryIDs !== null) await api.setUserLibraries(user.id, libraryIDs);
+        return;
       }
       return api.createUser({ username: username.trim(), displayName: displayName.trim(), password, role });
     },
@@ -166,7 +189,11 @@ function UserDialog({
           <span className="text-[10.5px] text-fg-dim">{isSelf ? 'This is your account.' : ''}</span>
           <span className="flex gap-2">
             <DialogButton onClick={onClose}>Cancel</DialogButton>
-            <DialogButton variant="primary" onClick={() => save.mutate()} disabled={save.isPending}>
+            <DialogButton
+              variant="primary"
+              onClick={() => save.mutate()}
+              disabled={save.isPending || (isEdit && !isSelf && access.isLoading)}
+            >
               {save.isPending ? 'Saving…' : isEdit ? 'Save' : 'Create'}
             </DialogButton>
           </span>
@@ -222,6 +249,68 @@ function UserDialog({
             Account enabled
           </label>
         </div>
+        {isEdit ? (
+          <label className="block">
+            <span className="mb-1 block text-[12px] text-fg-muted">Rating ceiling</span>
+            <select value={rating} onChange={(e) => setRating(e.target.value)} className={inputClass}>
+              <option value="">No limit (all ratings)</option>
+              <option value="G">G / TV-Y / TV-G</option>
+              <option value="PG">PG / TV-PG</option>
+              <option value="PG-13">PG-13 / TV-14</option>
+              <option value="R">R / TV-MA</option>
+              <option value="NC-17">NC-17</option>
+            </select>
+            <span className="mt-1 block text-[10.5px] text-fg-dim">
+              Unrated titles remain visible; unknown ratings are hidden when a ceiling is set. Admins bypass this.
+            </span>
+          </label>
+        ) : null}
+        {isEdit && !isSelf ? (
+          <div>
+            <span className="mb-1 block text-[12px] text-fg-muted">Library access</span>
+            {access.isLoading ? (
+              <p className="text-[11px] text-fg-dim">Loading libraries…</p>
+            ) : access.isError ? (
+              <p className="text-[11px] text-active">{(access.error as Error).message}</p>
+            ) : access.data && access.data.libraries.length > 0 ? (
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {access.data.libraries.map((lib) => (
+                  <label key={lib.id} className="flex items-center gap-2 text-[12px] text-fg-muted">
+                    <input
+                      type="checkbox"
+                      checked={libraryIDs?.includes(lib.id) ?? true}
+                      onChange={(e) =>
+                        setLibraryIDs((current) => {
+                          const base = current ?? access.data!.libraries.filter((l) => l.allowed).map((l) => l.id);
+                          return e.target.checked ? [...new Set([...base, lib.id])] : base.filter((id) => id !== lib.id);
+                        })
+                      }
+                      className="size-4 rounded border-hairline bg-surface-2"
+                    />
+                    <span className="truncate" title={lib.name}>
+                      {lib.name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-fg-dim">No libraries yet.</p>
+            )}
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <p className="text-[10.5px] text-fg-dim">
+                Saving an explicit list denies libraries added later; an unrestricted user sees all libraries.
+              </p>
+              <button
+                type="button"
+                onClick={() => unrestrict.mutate()}
+                disabled={unrestrict.isPending}
+                className="text-[10.5px] text-progress hover:underline disabled:opacity-50"
+              >
+                Allow all libraries
+              </button>
+            </div>
+          </div>
+        ) : null}
         <label className="block">
           <span className="mb-1 block text-[12px] text-fg-muted">
             {isEdit ? 'New password (leave blank to keep current)' : 'Password'}

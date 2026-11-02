@@ -6,7 +6,8 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 Public endpoints: `/health`, `/config`, `/auth/status`, `/auth/setup`, `/auth/login`.
 Everything else requires the `mvs_session` cookie. Endpoints marked **admin** additionally
 require the `admin` role; user accounts can browse, play, edit their own watch state and
-manage their own collections.
+manage their own collections. Per-library permissions and content-rating ceilings filter
+libraries, browse/home/search results, collections and media access; admins bypass them.
 
 | Method | Path | Description |
 |---|---|---|
@@ -20,8 +21,11 @@ manage their own collections.
 | POST | `/auth/password` | Self-service `{currentPassword,newPassword}`; other sessions are signed out |
 | GET | `/users` | **admin** — `{users[]}` |
 | POST | `/users` | **admin** — `{username,displayName,password,role}` (role `admin`/`user`) |
-| PATCH | `/users/{id}` | **admin** — display name, role, active flag, optional password reset |
+| PATCH | `/users/{id}` | **admin** — display name, role, active flag, rating ceiling (`ratingCeiling`), optional password reset |
 | DELETE | `/users/{id}` | **admin** — delete an account and its watch state/collections |
+| GET | `/users/{id}/libraries` | **admin** — `{libraries:[{id,name,allowed}]}` |
+| PUT | `/users/{id}/libraries` | **admin** — `{libraryIds[]}` allow-list (unlisted/new libraries denied); `{unrestricted:true}` restores all |
+| GET | `/audit?limit=` | **admin** — newest activity entries (`auth`, account, library, settings, metadata) |
 | GET | `/settings` | **admin** — provider settings (API key never returned) |
 | GET | `/libraries` | Libraries with paths + item counts |
 | POST | `/libraries` | **admin** — create `{name,type,language?,paths[],autoScanMinutes?,watchEnabled?}`; validates absolute, existing dirs; **queues the initial scan** (auto-scan defaults to 360 min, watcher on) |

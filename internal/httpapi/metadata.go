@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/liyu1981/myvideostation/internal/metadata"
@@ -67,6 +68,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("settings updated", "keys", len(values))
+	s.audit(r, "settings.update", "settings", "metadata settings updated")
 	s.handleGetSettings(w, r)
 }
 
@@ -85,6 +87,7 @@ func (s *Server) handleEnrichLibrary(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, "library.enrich", "library:"+strconv.FormatInt(id, 10), "")
 	writeJSON(w, http.StatusAccepted, job)
 }
 
@@ -148,6 +151,7 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, "item.match", "item:"+strconv.FormatInt(id, 10), in.ProviderID)
 	writeJSON(w, http.StatusOK, detail)
 }
 
@@ -165,6 +169,7 @@ func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
 		s.failMetadata(w, err)
 		return
 	}
+	s.audit(r, "item.refresh", "item:"+strconv.FormatInt(id, 10), "")
 	it, err := s.store.GetItem(r.Context(), id)
 	if err != nil {
 		s.fail(w, err)

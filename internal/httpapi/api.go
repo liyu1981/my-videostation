@@ -80,6 +80,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/users", s.admin(s.handleCreateUser))
 	mux.HandleFunc("PATCH /api/v1/users/{id}", s.admin(s.handleUpdateUser))
 	mux.HandleFunc("DELETE /api/v1/users/{id}", s.admin(s.handleDeleteUser))
+	mux.HandleFunc("GET /api/v1/users/{id}/libraries", s.admin(s.handleUserLibraries))
+	mux.HandleFunc("PUT /api/v1/users/{id}/libraries", s.admin(s.handleUserLibraries))
+	mux.HandleFunc("GET /api/v1/audit", s.admin(s.handleAudit))
 
 	mux.HandleFunc("GET /api/v1/libraries", s.auth(s.handleListLibraries))
 	mux.HandleFunc("POST /api/v1/libraries", s.admin(s.handleCreateLibrary))
