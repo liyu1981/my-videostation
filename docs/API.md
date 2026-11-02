@@ -47,6 +47,7 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | POST | `/items/{id}/keep-separate` | `{otherId}` — mark both items so scans never auto-merge them |
 | POST | `/items/{id}/apply-local` | `{sourceId}` — copy another same-kind item's metadata (title/overview/tagline/date/rating/artwork/genres/cast) onto this item; used by "Select from existing videos" |
 | POST | `/items/{id}/art` | `{kind:"poster"|"backdrop", url}` — download + cache artwork; an empty `url` clears it |
+| POST | `/items/{id}/art/upload` | multipart `kind=poster|backdrop` + `file` (JPEG/PNG/WebP/GIF, ≤20 MB) — store a user upload in the art cache |
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
 | GET | `/items/{id}/playback` | Player payload: stream URL, resume position, subtitle tracks, audio tracks, next episode |

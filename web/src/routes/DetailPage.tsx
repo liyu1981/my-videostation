@@ -456,7 +456,12 @@ export function DetailPage() {
             <h2 className="mt-3 text-[15px] text-fg-heading">Summary</h2>
             {detail.overview ? (
               <>
-                <p className={['mt-1 text-[13.5px] leading-relaxed text-fg-muted', expanded ? '' : 'line-clamp-5'].join(' ')}>
+                <p
+                  className={[
+                    'mt-1 whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-fg-muted',
+                    expanded ? '' : 'line-clamp-5',
+                  ].join(' ')}
+                >
                   {detail.overview}
                 </p>
                 {detail.overview.length > 420 && !expanded ? (

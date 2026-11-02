@@ -92,6 +92,11 @@ func run() error {
 	} else if n > 0 {
 		log.Info("re-pointed cached artwork paths", "count", n)
 	}
+	if n, err := st.NormalizeOverviews(ctx); err != nil {
+		log.Warn("overview paragraph normalization failed", "err", err)
+	} else if n > 0 {
+		log.Info("normalized overview paragraphs", "count", n)
+	}
 	enricher := enrich.NewWithRegistry(st, providers, cacheDir, log)
 	ffmpegPath := media.DetectFFmpeg("")
 	if ffmpegPath == "" {

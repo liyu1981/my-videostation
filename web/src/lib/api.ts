@@ -261,24 +261,32 @@ export class ApiError extends Error {
   }
 }
 
+async function responseError(res: Response): Promise<ApiError> {
+  let code = 'error';
+  let message = res.statusText || 'request failed';
+  try {
+    const body = (await res.json()) as { error?: { code?: string; message?: string } };
+    code = body.error?.code ?? code;
+    message = body.error?.message ?? message;
+  } catch {
+    /* non-JSON error */
+  }
+  return new ApiError(res.status, code, message);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/v1${path}`, {
     ...init,
     headers: { Accept: 'application/json', ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
   });
-  if (!res.ok) {
-    let code = 'error';
-    let message = res.statusText || 'request failed';
-    try {
-      const body = (await res.json()) as { error?: { code?: string; message?: string } };
-      code = body.error?.code ?? code;
-      message = body.error?.message ?? message;
-    } catch {
-      /* non-JSON error */
-    }
-    throw new ApiError(res.status, code, message);
-  }
+  if (!res.ok) throw await responseError(res);
   if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`/api/v1${path}`, { method: 'POST', body: form, headers: { Accept: 'application/json' } });
+  if (!res.ok) throw await responseError(res);
   return (await res.json()) as T;
 }
 
@@ -354,6 +362,12 @@ export const api = {
     request<ItemDetail>(`/items/${id}/refresh${qs({ language })}`, { method: 'POST' }),
   setArt: (id: number, kind: 'poster' | 'backdrop', url: string) =>
     request<ItemDetail>(`/items/${id}/art`, { method: 'POST', body: JSON.stringify({ kind, url }) }),
+  uploadArt: (id: number, kind: 'poster' | 'backdrop', file: File) => {
+    const form = new FormData();
+    form.append('kind', kind);
+    form.append('file', file);
+    return requestForm<ItemDetail>(`/items/${id}/art/upload`, form);
+  },
   enrichLibrary: (id: number) => request<Job>(`/libraries/${id}/enrich`, { method: 'POST' }),
 
   // collections

@@ -17,7 +17,7 @@ import { api, type Candidate, type Item, type ItemDetail, type ItemPatch } from 
 import { Dialog, DialogButton, DialogTab } from './Dialog';
 
 type Tab = 'info' | 'poster' | 'backdrop';
-type ArtChoice = 'original' | 'none' | 'url';
+type ArtChoice = 'original' | 'none' | 'url' | 'upload';
 
 const LANG_KEY = 'mvs.tmdbLanguage';
 const LANGUAGES: [string, string][] = [
@@ -85,6 +85,10 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   const [backdropChoice, setBackdropChoice] = useState<ArtChoice>('original');
   const [posterUrl, setPosterUrl] = useState('');
   const [backdropUrl, setBackdropUrl] = useState('');
+  const [posterFile, setPosterFile] = useState<File | null>(null);
+  const [backdropFile, setBackdropFile] = useState<File | null>(null);
+  const [posterPreview, setPosterPreview] = useState('');
+  const [backdropPreview, setBackdropPreview] = useState('');
 
   const applyDetail = (d: ItemDetail) => {
     setBase(d);
@@ -100,11 +104,39 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
     setCast(castOf(d));
     setLocks(d.locks);
     setLocked(d.locked);
+    if (posterPreview) URL.revokeObjectURL(posterPreview);
+    if (backdropPreview) URL.revokeObjectURL(backdropPreview);
     setPosterChoice('original');
     setBackdropChoice('original');
     setPosterUrl('');
     setBackdropUrl('');
+    setPosterFile(null);
+    setBackdropFile(null);
+    setPosterPreview('');
+    setBackdropPreview('');
     setTab('info');
+  };
+
+  useEffect(() => () => {
+    if (posterPreview) URL.revokeObjectURL(posterPreview);
+  }, [posterPreview]);
+  useEffect(() => () => {
+    if (backdropPreview) URL.revokeObjectURL(backdropPreview);
+  }, [backdropPreview]);
+
+  const setArtFile = (kind: 'poster' | 'backdrop', file: File | null) => {
+    const preview = file ? URL.createObjectURL(file) : '';
+    if (kind === 'poster') {
+      if (posterPreview) URL.revokeObjectURL(posterPreview);
+      setPosterFile(file);
+      setPosterPreview(preview);
+      setPosterChoice(file ? 'upload' : 'original');
+    } else {
+      if (backdropPreview) URL.revokeObjectURL(backdropPreview);
+      setBackdropFile(file);
+      setBackdropPreview(preview);
+      setBackdropChoice(file ? 'upload' : 'original');
+    }
   };
 
   const reset = () => applyDetail(base);
@@ -207,9 +239,11 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
       const r = Number(rating);
       if (rating.trim() !== '' && Number.isFinite(r)) patch.rating = r;
       await api.patchItem(item.id, patch);
-      if (posterChoice === 'none') await api.setArt(item.id, 'poster', '');
+      if (posterChoice === 'upload' && posterFile) await api.uploadArt(item.id, 'poster', posterFile);
+      else if (posterChoice === 'none') await api.setArt(item.id, 'poster', '');
       else if (posterChoice === 'url' && posterUrl.trim()) await api.setArt(item.id, 'poster', posterUrl.trim());
-      if (backdropChoice === 'none') await api.setArt(item.id, 'backdrop', '');
+      if (backdropChoice === 'upload' && backdropFile) await api.uploadArt(item.id, 'backdrop', backdropFile);
+      else if (backdropChoice === 'none') await api.setArt(item.id, 'backdrop', '');
       else if (backdropChoice === 'url' && backdropUrl.trim()) await api.setArt(item.id, 'backdrop', backdropUrl.trim());
     },
     onSuccess: () => {
@@ -413,6 +447,9 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                 onChoice={tab === 'poster' ? setPosterChoice : setBackdropChoice}
                 url={tab === 'poster' ? posterUrl : backdropUrl}
                 onUrl={tab === 'poster' ? setPosterUrl : setBackdropUrl}
+                file={tab === 'poster' ? posterFile : backdropFile}
+                previewUrl={tab === 'poster' ? posterPreview : backdropPreview}
+                onFile={(f) => setArtFile(tab, f)}
               />
             )}
         </Dialog>
@@ -614,6 +651,9 @@ function ArtPanel({
   onChoice,
   url,
   onUrl,
+  file,
+  previewUrl,
+  onFile,
 }: {
   kind: 'poster' | 'backdrop';
   currentUrl?: string;
@@ -621,8 +661,18 @@ function ArtPanel({
   onChoice: (c: ArtChoice) => void;
   url: string;
   onUrl: (v: string) => void;
+  file: File | null;
+  previewUrl: string;
+  onFile: (f: File | null) => void;
 }) {
-  const preview = choice === 'none' ? undefined : choice === 'url' && url.trim() ? url.trim() : currentUrl;
+  const preview =
+    choice === 'none'
+      ? undefined
+      : choice === 'upload' && previewUrl
+        ? previewUrl
+        : choice === 'url' && url.trim()
+          ? url.trim()
+          : currentUrl;
   return (
     <div className="flex flex-col gap-6 p-5 sm:flex-row">
       <div
@@ -662,10 +712,27 @@ function ArtPanel({
             />
           </span>
         </label>
+        <label className="flex items-start gap-2.5 text-[12.5px]">
+          <input type="radio" checked={choice === 'upload'} onChange={() => onChoice('upload')} className="mt-0.5 size-3.5 accent-[#e5484d]" />
+          <span className="min-w-0 flex-1">
+            <span className="block">Upload image</span>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+              className="mt-1.5 block w-full text-[11.5px] text-fg-muted file:mr-3 file:rounded-md file:border file:border-hairline-strong file:bg-surface-2 file:px-3 file:py-1.5 file:text-[11.5px] file:text-fg-muted hover:file:text-fg"
+            />
+            {file ? (
+              <span className="mt-1 block truncate text-[11px] text-fg-dim">
+                {file.name} · {(file.size / 1024).toFixed(0)} KB
+              </span>
+            ) : null}
+          </span>
+        </label>
         <p className="pt-1 text-[11.5px] leading-relaxed text-fg-dim">
           {kind === 'poster'
-            ? 'The poster is shown on cards, rows and the detail page.'
-            : 'The backdrop is shown behind the detail page and in the home hero.'}
+            ? 'JPEG, PNG, WebP or GIF up to 20 MB. The poster is shown on cards, rows and the detail page.'
+            : 'JPEG, PNG, WebP or GIF up to 20 MB. The backdrop is shown behind the detail page and in the home hero.'}
         </p>
       </div>
     </div>

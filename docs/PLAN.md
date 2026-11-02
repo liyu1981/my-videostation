@@ -526,7 +526,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 | Filename parser + corpus | ✅ 34-case table test (scene, SxxExx, 1x02, multi-ep, CJK, editions) |
 | Schema + FTS5 | ✅ single self-referencing `media_items`, `media_files`, people/genres/locks, `media_fts` |
 | Browse UI (grid/list/tile, sort, filter) | ✅ plus pagination, per-library filter, empty/error states |
-| Item detail + technical info | ✅ poster/backdrop, badges, cast/genres, media-info panel (audio/subtitle tracks) |
+| Item detail + technical info | ✅ poster/backdrop, badges, cast/genres, media-info panel (audio/subtitle tracks); the summary renders real paragraphs — provider/NFO separators (`\n\n`, `<br>`, ideographic-space runs) are normalized on import/save and backfilled at startup |
 | Manual metadata edit + locks | ✅ Video-Station-style **Edit video info** dialog opened from the detail overflow menu: Video Info / Poster / Backdrop tabs; title/tagline/release date/classification/rating/genre chips/cast chips/summary; Poster & Backdrop tabs with Original / No images / Enter URL; per-field lock chips and item-wide lock under "Keep locked after refresh" |
 | Extras indexing | ✅ trailers/featurettes hidden from browse, attached to the folder's item |
 | Multi-episode files | ✅ `episode_end` recorded and shown as `S01E01-E02` |
@@ -549,7 +549,7 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 | Metadata provider | ✅ `internal/metadata` interface + TMDb client (v3 key or v4 token), provider registry, provider-aware search/match/refresh APIs, `item_provider_ids` (migration 0012) and a search-dialog provider selector — the plumbing is ready for future plugins; only TMDb is registered today |
 | Matching | ✅ token-overlap + year + popularity score; auto-match uses a best-effort 35% threshold (low-confidence flagged), manual override wins |
 | Enrichment | ✅ background `enrich` job per library, per-item refresh, `metadata_status`/`match_confidence` |
-| Artwork | ✅ poster/backdrop downloaded to `<data>/cache/images` (content-addressed), URL picker in the edit dialog |
+| Artwork | ✅ poster/backdrop downloaded to `<data>/cache/images` (content-addressed); the edit dialog supports Original / No images / Enter URL / **Upload image** |
 | Cast/crew/genres/certification | ✅ applied transactionally; crew roles mapped to director/writer |
 | Locks | ✅ automatic enrichment skips locked fields; manual match overrides (explicit user choice) |
 | DB authority | ✅ local `.vsmeta` > `.nfo` applied at import; user edits and TMDb matches set `metadata_status = manual` and rescans never revert them |

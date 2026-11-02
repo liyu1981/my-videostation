@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/liyu1981/myvideostation/internal/textutil"
 )
 
 // Item is a media entity: movie, show, season, episode or home video.
@@ -591,7 +593,7 @@ func (s *Store) UpdateItem(ctx context.Context, id int64, p ItemPatch) (*Item, e
 		add("original_title", strings.TrimSpace(*p.OriginalTitle))
 	}
 	if p.Overview != nil {
-		add("overview", strings.TrimSpace(*p.Overview))
+		add("overview", textutil.NormalizeOverview(*p.Overview))
 	}
 	if p.Tagline != nil {
 		add("tagline", strings.TrimSpace(*p.Tagline))

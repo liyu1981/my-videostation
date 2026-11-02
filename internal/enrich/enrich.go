@@ -18,6 +18,7 @@ import (
 
 	"github.com/liyu1981/myvideostation/internal/metadata"
 	"github.com/liyu1981/myvideostation/internal/store"
+	"github.com/liyu1981/myvideostation/internal/textutil"
 )
 
 // MinConfidence is the score below which an automatic search result is rejected.
@@ -551,7 +552,7 @@ func (s *Service) apply(ctx context.Context, item *store.Item, provider metadata
 		e.Year = intPtr(d.Year)
 	}
 	if !locked("overview") && strings.TrimSpace(d.Overview) != "" {
-		e.Overview = strPtr(d.Overview)
+		e.Overview = strPtr(textutil.NormalizeOverview(d.Overview))
 	}
 	if !locked("tagline") && strings.TrimSpace(d.Tagline) != "" {
 		e.Tagline = strPtr(d.Tagline)

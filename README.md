@@ -99,8 +99,10 @@ testdata/           parser corpus and generated sample media
   dropdowns, pagination, global FTS5 search, show → season → episode navigation.
 - **Edit video info (VS parity)**: one overflow-menu entry opens a tabbed dialog
   (Video Info / Poster / Backdrop) with chip editors, per-field locks, artwork
-  Original / No images / URL, and a nested TMDb search with a remembered language
-  picker.
+  Original / No images / URL / **upload**, and a nested TMDb search with a remembered
+  language picker. Provider/NFO summaries are normalized to real paragraphs
+  (`\n\n`), including TMDb Chinese overviews that separate paragraphs with
+  ideographic spaces; existing rows are backfilled at startup.
 - **Item UI (VS parity)**: 270×388 poster with 76 px play overlay, unwatched chip + action
   icons, 36 px title, tagline, iconised info line (release date · stars · clock duration ·
   video codec · audio codec) with an age-classification chip, definition rows (genre/cast/

@@ -112,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/items/{id}/match", s.handleMatch)
 	mux.HandleFunc("POST /api/v1/items/{id}/refresh", s.handleRefreshMetadata)
 	mux.HandleFunc("POST /api/v1/items/{id}/art", s.handleSetArt)
+	mux.HandleFunc("POST /api/v1/items/{id}/art/upload", s.handleUploadArt)
 	mux.HandleFunc("POST /api/v1/items/{id}/progress", s.handleProgress)
 	mux.HandleFunc("GET /api/v1/items/{id}/poster", s.handleArt("poster"))
 	mux.HandleFunc("GET /api/v1/items/{id}/backdrop", s.handleArt("backdrop"))

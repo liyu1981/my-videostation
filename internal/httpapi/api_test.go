@@ -101,17 +101,21 @@ func TestScanPipelineAndAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// scan synchronously (no ffprobe in the test env)
-	sc := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	stats, err := sc.ScanLibrary(ctx, lib.ID, nil)
-	if err != nil {
-		t.Fatalf("scan: %v", err)
-	}
-	if stats.Created != 3 {
-		t.Fatalf("created = %d, want 3 (2 movies + 1 extra): %+v", stats.Created, stats)
-	}
-	if stats.Extras != 1 {
-		t.Errorf("extras = %d, want 1", stats.Extras)
+	// POST /libraries queues the initial scan; wait for that job instead of
+	// scanning again (a second scan would race with the manager).
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		active, err := st.HasActiveJob(ctx, "scan", lib.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !active {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("initial scan did not finish")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	// browse
@@ -218,6 +222,7 @@ func TestScanPipelineAndAPI(t *testing.T) {
 	}
 
 	// re-scan must be incremental (no re-probe, nothing created)
+	sc := scanner.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	stats2, err := sc.ScanLibrary(ctx, lib.ID, nil)
 	if err != nil {
 		t.Fatal(err)

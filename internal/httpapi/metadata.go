@@ -1,8 +1,13 @@
 package httpapi
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/liyu1981/myvideostation/internal/metadata"
@@ -260,4 +265,83 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"providers": s.enricher.ProviderInfos(r.Context())})
+}
+
+// handleUploadArt accepts a multipart image upload and stores it in the artwork
+// cache. kind is poster|backdrop; the file must be JPEG, PNG, WebP or GIF.
+func (s *Server) handleUploadArt(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	if _, err := s.store.GetItem(r.Context(), id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 25<<20)
+	if err := r.ParseMultipartForm(25 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid multipart form: "+err.Error())
+		return
+	}
+	kind := strings.TrimSpace(r.FormValue("kind"))
+	if kind != "poster" && kind != "backdrop" {
+		writeError(w, http.StatusBadRequest, "bad_request", "kind must be poster or backdrop")
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "file is required")
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 20<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "could not read upload: "+err.Error())
+		return
+	}
+	if len(data) == 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "uploaded file is empty")
+		return
+	}
+	var ext string
+	switch http.DetectContentType(data) {
+	case "image/jpeg":
+		ext = ".jpg"
+	case "image/png":
+		ext = ".png"
+	case "image/webp":
+		ext = ".webp"
+	case "image/gif":
+		ext = ".gif"
+	default:
+		writeError(w, http.StatusBadRequest, "unsupported_image", "only JPEG, PNG, WebP or GIF images are supported")
+		return
+	}
+	dir := filepath.Join(s.cacheDir, "images")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		s.fail(w, err)
+		return
+	}
+	sum := sha1.Sum(data)
+	path := filepath.Join(dir, "upload-"+hex.EncodeToString(sum[:])+ext)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.store.SetArt(r.Context(), id, kind, path); err != nil {
+		s.fail(w, err)
+		return
+	}
+	it, err := s.store.GetItem(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	detail, err := s.itemDetail(r.Context(), it)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }

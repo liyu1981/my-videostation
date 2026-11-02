@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/liyu1981/myvideostation/internal/textutil"
 )
 
 // ScannedFile is one discovered video file ready to be persisted.
@@ -426,7 +428,7 @@ func applyLocalMeta(ctx context.Context, tx *sql.Tx, itemID int64, m *LocalMetad
 		add("tagline", m.Tagline)
 	}
 	if !locks["overview"] && m.Overview != "" {
-		add("overview", m.Overview)
+		add("overview", textutil.NormalizeOverview(m.Overview))
 	}
 	if !locks["content_rating"] && m.Certification != "" {
 		add("content_rating", m.Certification)
