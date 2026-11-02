@@ -98,6 +98,9 @@ func run() error {
 	} else if n > 0 {
 		log.Info("normalized overview paragraphs", "count", n)
 	}
+	if err := st.CleanupSessions(ctx); err != nil {
+		log.Warn("session cleanup failed", "err", err)
+	}
 	enricher := enrich.NewWithRegistry(st, providers, cacheDir, log)
 	ffmpegPath := media.DetectFFmpeg("")
 	if ffmpegPath == "" {

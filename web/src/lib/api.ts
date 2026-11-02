@@ -101,6 +101,22 @@ export interface ItemDetail extends Item {
   showBackdropUrl?: string;
 }
 
+export type UserRole = 'admin' | 'user';
+
+export interface User {
+  id: number;
+  username: string;
+  displayName: string;
+  role: UserRole;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthStatus {
+  needsSetup: boolean;
+}
+
 export interface LibraryPath {
   id: number;
   path: string;
@@ -336,6 +352,24 @@ export const api = {
   neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
   progress: (id: number, body: { positionMs: number; durationMs: number; played: boolean }) =>
     request<{ ok: boolean }>(`/items/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),
+  authStatus: () => request<AuthStatus>('/auth/status'),
+  me: () => request<{ user: User }>('/auth/me'),
+  login: (username: string, password: string) =>
+    request<{ user: User }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  setup: (username: string, displayName: string, password: string) =>
+    request<{ user: User }>('/auth/setup', { method: 'POST', body: JSON.stringify({ username, displayName, password }) }),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+  users: () => request<{ users: User[] }>('/users'),
+  createUser: (body: { username: string; displayName: string; password: string; role: UserRole }) =>
+    request<User>('/users', { method: 'POST', body: JSON.stringify(body) }),
+  updateUser: (id: number, body: { displayName?: string; role?: UserRole; active?: boolean; password?: string }) =>
+    request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteUser: (id: number) => request<void>(`/users/${id}`, { method: 'DELETE' }),
   libraries: () => request<{ libraries: Library[] }>('/libraries'),
   listFS: (path?: string) => request<FSListing>(`/fs${qs({ path })}`),
   library: (id: number) => request<Library>(`/libraries/${id}`),

@@ -160,8 +160,9 @@ Logical items use **one table with self-referencing parents** so search,
 collections and watch state work uniformly.
 
 ```
-users            (id, username, password_hash, role, rating_ceiling, created_at)
-sessions         (id, user_id, expires_at, user_agent, ip)
+users            (id, username, display_name, password_hash, role, active, rating_ceiling,
+                  created_at, updated_at)
+sessions         (token_hash, user_id, expires_at, user_agent, ip)
 libraries        (id, name, type[movie|tv|home_video], language, scanner_opts_json,
                   metadata_provider, created_at)
 library_paths    (id, library_id, path, recursive, last_scan_at)
@@ -273,7 +274,8 @@ routes/
   item/$id.tsx               # movie/episode detail + play + edit
   show/$id.tsx               # seasons/episodes
   collection/$id.tsx
-  settings/{libraries,metadata,transcoding,users}.tsx
+  settings/{libraries,metadata,transcoding}.tsx
+  login.tsx  setup.tsx  users.tsx
   admin/scan.tsx             # job monitor
 features/  browse/ detail/ player/ identify/ libraries/ scan/
 components/ poster-card, poster-grid, media-row, filters, player, …
@@ -382,9 +384,11 @@ Audit and implementation notes: [`MONITORING.md`](./MONITORING.md).
 - **Done when**: HEVC/AC3/DTS titles play in browser with seek.
 
 ### M6 — Users, sharing, i18n
-- Accounts, roles, per-library permissions, parental rating ceilings
-- Share links with expiry, optional passcode; watch history per user
-- i18n (en + de/zh scaffold), OG metadata for shared links
+- **Local accounts and roles delivered:** first-run admin setup, login/logout, sessions,
+  admin user management, admin/user permissions, self-service password change, and
+  per-user watch state/collections.
+- Still open: per-library permissions, parental rating ceilings/PIN, share links with
+  expiry, audit log, i18n (en + de/zh scaffold), OG metadata for shared links.
 
 ### M7 — Polish / optional
 - PWA/offline shell, Chromecast, online subtitle search, trailers,
@@ -680,7 +684,7 @@ each job is pruned to its newest 50,000 lines when it finishes; the API/UI fetch
 1. **sqlc deferred** — hand-written typed store until the schema settles (post-M2).
 2. **goose replaced** by an embedded ~80-line migration runner.
 3. **TanStack Router is code-based** (no plugin/codegen) to keep the build simple.
-4. **No auth**, and the default bind is `127.0.0.1` (M6 adds sessions; Docker opts into
+4. **Local sessions**, and the default bind is `127.0.0.1` (Docker opts into
    `0.0.0.0` via env).
 
 ### Known M1 limitations

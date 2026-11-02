@@ -9,6 +9,9 @@ import { SettingsPage } from './routes/SettingsPage';
 import { PlaylistsPage } from './routes/PlaylistsPage';
 import { CollectionPage } from './routes/CollectionPage';
 import { TasksPage } from './routes/TasksPage';
+import { LoginPage } from './routes/LoginPage';
+import { SetupPage } from './routes/SetupPage';
+import { UsersPage } from './routes/UsersPage';
 
 const toNum = (v: unknown): number | undefined => {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -95,6 +98,24 @@ const tasksRoute = createRoute({
   component: TasksPage,
 });
 
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: LoginPage,
+});
+
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/setup',
+  component: SetupPage,
+});
+
+const usersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/users',
+  component: UsersPage,
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   browseRoute,
@@ -105,6 +126,9 @@ const routeTree = rootRoute.addChildren([
   playlistsRoute,
   collectionRoute,
   tasksRoute,
+  loginRoute,
+  setupRoute,
+  usersRoute,
 ]);
 
 export const router = createRouter({

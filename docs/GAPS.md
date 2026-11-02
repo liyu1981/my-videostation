@@ -249,7 +249,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | GAP-023 | DLNA/UPnP media server | VS exposes libraries to TVs/consoles over DLNA | `GAP-NEVER` (v1) | S2 | — | Large, cursed spec; Jellyfin/minidlna can front our files if needed. Revisit only on demand. |
 | GAP-024 | Multi-audio-track switching during transcode | VS switches tracks and keeps position | `GAP-LATER` | S2 | M5 | Requires restarting the HLS session at the current offset; design it in from the start of the transcode session model. |
 | GAP-025 | Per-user bandwidth / concurrent stream limits | VS has bandwidth control and device/stream limits | `GAP-LATER` | S3 | M6 | Needed before exposing to a family/Internet; cheap token-bucket + per-user session cap. |
-| GAP-026 | Resume playback across devices | VS syncs position per DSM user | `CLOSED` | S3 | M4 | Implemented: `/items/{id}/playback` returns `resumeMs`, the player seeks and saves progress. Works per user record (single user until M6). |
+| GAP-026 | Resume playback across devices | VS syncs position per DSM user | `CLOSED` | S3 | M4 | Implemented: `/items/{id}/playback` returns `resumeMs`, the player seeks and saves progress. Now scoped to the authenticated account (local accounts delivered in M6). |
 | GAP-065 | Capture a frame/screenshot during playback | VS can save a still from the player | `GAP-LATER` | S3 | M7 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Trivial once we have an ffmpeg worker; needs a storage policy (write to `/data`, never the media folder). |
 
 ## 6. Clients & remote access
@@ -264,11 +264,11 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
-| GAP-040 | DSM/LDAP/AD identity integration | VS uses DSM accounts, so NAS permissions and VS permissions are one system | `GAP-LATER` | S2 | M6 | We own accounts. OIDC (and optionally LDAP) is the modern equivalent; must not become a blocker for family installs. |
+| GAP-040 | DSM/LDAP/AD identity integration | VS uses DSM accounts, so NAS permissions and VS permissions are one system | `GAP-LATER` | S2 | M6 | Local username/password accounts with admin/user roles are delivered. DSM/LDAP/OIDC integration is still open; must not become a blocker for family installs. |
 | GAP-041 | 2FA, password policy, lockout, session management | Handled by DSM for VS | `GAP-LATER` | S2 | M6 | TOTP + lockout + active-session revocation. Also mandatory before any Internet exposure. |
 | GAP-042 | Parental controls (content-rating ceiling, PIN) | VS restricts libraries/items by age rating per user | `GAP-LATER` | S2 | M6 | **[confirmed]** `SYNO.VideoStation2.ParentalControl`. `users.rating_ceiling` is reserved in the schema; needs per-library override + PIN for profile switching. |
-| GAP-043 | Per-library view permissions | VS supports allow/deny per library per user | `GAP-LATER` | S2 | M6 | `library_perms` table reserved; must be enforced in queries, not just in the UI. |
-| GAP-044 | Audit/activity log (logins, playback, admin actions) | VS surfaces DSM logs and per-user history | `GAP-LATER` | S3 | M6 | We have `slog`; a queryable `events` table is the parity item. |
+| GAP-043 | Per-library view permissions | VS supports allow/deny per library per user | `GAP-LATER` | S2 | M6 | Roles are delivered, but per-library allow/deny is still open; must be enforced in queries, not just in the UI. |
+| GAP-044 | Audit/activity log (logins, playback, admin actions) | VS surfaces DSM logs and per-user history | `GAP-LATER` | S3 | M6 | We have `slog`; local logins/sessions exist but there is no queryable `events` table yet. |
 | GAP-045 | Public share links with expiry | VS shares videos/collections via link | `GAP-LATER` | S2 | M6 | Already planned (signed, expiring tokens). Must be rate-limited and revocable. |
 
 ## 8. Admin, ops, i18n

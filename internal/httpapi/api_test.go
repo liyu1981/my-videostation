@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/liyu1981/myvideostation/internal/auth"
 
 	"github.com/liyu1981/myvideostation/internal/db"
 	"github.com/liyu1981/myvideostation/internal/enrich"
@@ -25,8 +28,45 @@ import (
 	"github.com/liyu1981/myvideostation/internal/store"
 )
 
-// newTestServer builds an isolated stack (temp DB, temp media dir).
+// newTestServer builds an isolated stack, creates a test admin and authenticates
+// the shared HTTP client so existing API tests keep working.
 func newTestServer(t *testing.T) (*httptest.Server, *store.Store, string) {
+	t.Helper()
+	srv, st, dir := newRawTestServer(t)
+	setupTestAdmin(t, srv, st)
+	return srv, st, dir
+}
+
+func setupTestAdmin(t *testing.T, srv *httptest.Server, st *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	hash, err := auth.HashPassword("test-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetupAdmin(ctx, "admin", "Admin", hash); err != nil {
+		t.Fatalf("setup test admin: %v", err)
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	body, _ := json.Marshal(map[string]string{"username": "admin", "password": "test-password-123"})
+	res, err := client.Post(srv.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("test login: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("test login: %d %s", res.StatusCode, b)
+	}
+	http.DefaultClient.Jar = jar
+}
+
+// newRawTestServer builds an isolated stack without an account/session.
+func newRawTestServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -419,6 +459,7 @@ func TestMetadataMatchingFlow(t *testing.T) {
 		Store: st, Jobs: manager, Logger: log, Provider: factory, Enricher: enricher,
 	}).Handler())
 	t.Cleanup(srv.Close)
+	setupTestAdmin(t, srv, st)
 
 	mediaDir := filepath.Join(dir, "media")
 	writeFile(t, filepath.Join(mediaDir, "The King's Speech (2010)", "The King's Speech (2010) 1080p.mkv"))
@@ -1052,6 +1093,7 @@ func TestLocalSidecarMetadata(t *testing.T) {
 		Store: st, Jobs: manager, Logger: log, Provider: factory, Enricher: enricher, CacheDir: cacheDir,
 	}).Handler())
 	t.Cleanup(srv.Close)
+	setupTestAdmin(t, srv, st)
 
 	mediaDir := filepath.Join(dir, "media")
 	nfoPath := filepath.Join(mediaDir, "NFO Movie (2010)", "NFO Movie (2010).mkv")

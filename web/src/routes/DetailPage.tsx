@@ -22,6 +22,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { api, type Item, type ItemDetail } from '../lib/api';
+import { useCurrentUser } from '../lib/auth';
 import { audioSummary, certLabel, episodeLabel, formatClock, formatReleaseDate, resolutionLabel } from '../lib/format';
 import { playerAtom } from '../atoms/ui';
 import { ErrorState, Loading } from '../components/State';
@@ -48,6 +49,8 @@ export function DetailPage() {
     }
   };
   const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
+  const { user } = useCurrentUser();
+  const isAdmin = user?.role === 'admin';
 
   const item = useQuery({ queryKey: ['item', id], queryFn: () => api.item(id), enabled: id > 0 });
   const neighbors = useQuery({
@@ -241,10 +244,12 @@ export function DetailPage() {
               <>
                 <button type="button" className="fixed inset-0 z-30 cursor-default" aria-hidden onClick={() => setMenuOpen(false)} />
                 <div className="absolute right-0 top-full z-40 mt-1 w-56 rounded-lg border border-hairline bg-surface-2 p-1 shadow-2xl">
-                  <MenuItem onClick={() => { setMenuOpen(false); setEditing(detail); }} icon={<Pencil className="size-3.5" aria-hidden />}>
-                    Edit video info
-                  </MenuItem>
-                  {detail.providerId ? (
+                  {isAdmin ? (
+                    <MenuItem onClick={() => { setMenuOpen(false); setEditing(detail); }} icon={<Pencil className="size-3.5" aria-hidden />}>
+                      Edit video info
+                    </MenuItem>
+                  ) : null}
+                  {isAdmin && detail.providerId ? (
                     <MenuItem onClick={() => { setMenuOpen(false); refreshMeta.mutate(); }} icon={<RefreshCw className="size-3.5" aria-hidden />}>
                       Refresh metadata
                     </MenuItem>
@@ -331,9 +336,11 @@ export function DetailPage() {
                   >
                     <ListPlus className="size-4" aria-hidden />
                   </ActionIcon>
-                  <ActionIcon label="Edit video info" onClick={() => setEditing(detail)}>
-                    <Pencil className="size-4" aria-hidden />
-                  </ActionIcon>
+                  {isAdmin ? (
+                    <ActionIcon label="Edit video info" onClick={() => setEditing(detail)}>
+                      <Pencil className="size-4" aria-hidden />
+                    </ActionIcon>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -475,7 +482,7 @@ export function DetailPage() {
                 ) : null}
               </>
             ) : (
-              <p className="mt-1 text-[12.5px] text-fg-dim">No overview yet — use Edit metadata or Identify.</p>
+              <p className="mt-1 text-[12.5px] text-fg-dim">No overview yet.</p>
             )}
           </div>
         </div>
@@ -504,7 +511,7 @@ export function DetailPage() {
             {episodes.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-4">
                 {episodes.map((e) => (
-                  <EpisodeCard key={e.id} item={e} onEdit={() => void openEpisodeEdit(e.id)} />
+                  <EpisodeCard key={e.id} item={e} onEdit={isAdmin ? () => void openEpisodeEdit(e.id) : undefined} />
                 ))}
               </div>
             ) : null}
@@ -516,7 +523,7 @@ export function DetailPage() {
             <h2 className="mb-3 text-[17px] font-semibold text-fg-heading">Episodes</h2>
             <div className="flex flex-wrap gap-4">
               {episodes.map((e) => (
-                <EpisodeCard key={e.id} item={e} onEdit={() => void openEpisodeEdit(e.id)} />
+                <EpisodeCard key={e.id} item={e} onEdit={isAdmin ? () => void openEpisodeEdit(e.id) : undefined} />
               ))}
             </div>
           </section>

@@ -4,10 +4,11 @@
 and your existing folders — point it at a library and it identifies, organises, and plays
 your movies and shows.
 
-> **Status: M0 + M1 implemented.** A single static binary with an embedded React UI can
-> index movie / TV / home-video libraries, probe files with ffprobe, group shows into
-> seasons and episodes, browse (poster/tile/list), search, edit metadata with per-field
-> locks, and direct-play. Metadata providers, users and transcoding are the next milestones.
+> **Status: M0–M4 plus M3.x monitoring and local accounts.** A single static binary with an
+> embedded React UI indexes movie / TV / home-video libraries, probes with ffprobe, groups
+> shows into seasons and episodes, browses and searches, edits metadata, direct-plays,
+> and now has first-run admin setup, local user/admin accounts and per-user watch state.
+> Transcoding, per-library permissions and sharing are still open.
 
 ---
 
@@ -81,6 +82,9 @@ testdata/           parser corpus and generated sample media
 
 ## What works today (M1)
 
+- **Accounts**: first-run admin setup, login/logout, admin/user roles, admin user
+  management, self-service password change, HttpOnly sessions, per-user watch state and
+  collections; admin-only library/metadata/settings APIs.
 - **Libraries**: movie / TV / home-video libraries with multiple read-only folders,
   added by typing absolute paths or picking them from a server-side folder tree.
 - **Scanning**: incremental (size+mtime), durable jobs with live progress, results streamed
@@ -180,8 +184,10 @@ The dev server binds `0.0.0.0`, so you can open the UI from another device on th
 | `pnpm docker` | build the Alpine image with version metadata |
 | `pnpm clean` | remove build artifacts (`pnpm clean -- --data` also drops the DB) |
 
-Open <http://127.0.0.1:6500> (or :5173 in dev), go to **Libraries → Add library**, point it at
-a folder, and it creates + starts a scan.
+Open <http://127.0.0.1:6500> (or :5173 in dev). The first visit opens the **admin setup**
+page; after creating the admin account, go to **Libraries → Add library**, point it at a
+folder, and it creates + starts a scan. Admins can add `user` or `admin` accounts under
+**Manage → Users**; users can browse, play and keep their own watch state/collections.
 
 Docker (media mounts are read-only by design):
 
@@ -362,9 +368,10 @@ docker run --rm --network host --entrypoint sh \
 These are network-path fixes; the API key itself is fine. API keys are now redacted from
 logs, job errors and API error responses automatically.
 
-> **Security:** M1 has no authentication. The `mvs` binary defaults to `127.0.0.1`, but the
-> **dev loop binds `0.0.0.0`** so you can test from a TV/phone on your LAN. Run dev only on a
-> trusted network, and do not expose either port to the internet until M6 (users/sessions).
+> **Security:** accounts are local (PBKDF2 password hashes and HttpOnly sessions), with a
+> first-run admin setup. There is no OIDC/LDAP/2FA yet, and no TLS. The `mvs` binary
+> defaults to `127.0.0.1`; the dev loop and Docker bind `0.0.0.0`. Use a trusted LAN or a
+> reverse proxy/Tailscale for remote access; do not expose the port directly to the internet.
 
 Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file lands later).
 
@@ -391,7 +398,7 @@ error responses automatically.
 | **M3** ✅ | Collections, selection/bulk actions, categories/facets, scheduler, task monitor |
 | **M4** ✅ | Player: subtitle tracks, resume, next episode |
 | **M5** | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |
-| **M6** | Users, permissions, parental controls, share links, i18n |
+| **M6** 🟡 | Local accounts/roles, per-user watch state (delivered); per-library permissions, parental controls, share links, i18n (open) |
 | **M7** | PWA, casting, trailers, offline conversion, metrics |
 
 Some M4 groundwork already ships: byte-range streaming, progress reporting and a minimal

@@ -3,27 +3,43 @@
 Base path: `/api/v1`. JSON, camelCase. Errors are `{"error":{"code","message"}}` with
 matching HTTP status. No pagination cursor yet — pages are numeric.
 
+Public endpoints: `/health`, `/config`, `/auth/status`, `/auth/setup`, `/auth/login`.
+Everything else requires the `mvs_session` cookie. Endpoints marked **admin** additionally
+require the `admin` role; user accounts can browse, play, edit their own watch state and
+manage their own collections.
+
 | Method | Path | Description |
 |---|---|---|
 | GET | `/health` | Liveness + DB ping + version |
-| GET | `/config` | Version, build info, current (single) user |
+| GET | `/config` | Version and build info |
+| GET | `/auth/status` | `{needsSetup}` — first-run admin setup required |
+| POST | `/auth/setup` | First-run `{username,displayName,password}` → `{user}` + session cookie |
+| POST | `/auth/login` | `{username,password}` → `{user}` + session cookie |
+| GET | `/auth/me` | Current account `{user}` |
+| POST | `/auth/logout` | Delete the current session |
+| POST | `/auth/password` | Self-service `{currentPassword,newPassword}`; other sessions are signed out |
+| GET | `/users` | **admin** — `{users[]}` |
+| POST | `/users` | **admin** — `{username,displayName,password,role}` (role `admin`/`user`) |
+| PATCH | `/users/{id}` | **admin** — display name, role, active flag, optional password reset |
+| DELETE | `/users/{id}` | **admin** — delete an account and its watch state/collections |
+| GET | `/settings` | **admin** — provider settings (API key never returned) |
 | GET | `/libraries` | Libraries with paths + item counts |
-| POST | `/libraries` | Create `{name,type,language?,paths[],autoScanMinutes?,watchEnabled?}`; validates absolute, existing dirs; **queues the initial scan** (auto-scan defaults to 360 min, watcher on) |
+| POST | `/libraries` | **admin** — create `{name,type,language?,paths[],autoScanMinutes?,watchEnabled?}`; validates absolute, existing dirs; **queues the initial scan** (auto-scan defaults to 360 min, watcher on) |
 | GET | `/libraries/{id}` | One library |
-| PATCH | `/libraries/{id}` | Rename / change language / replace paths / `autoScanMinutes` / `watchEnabled` |
-| DELETE | `/libraries/{id}` | Remove library and derived data (never touches media files) |
-| POST | `/libraries/{id}/scan` | Enqueue a scan job → `202 {job}`; optional body `{force:true}` re-probes every file |
-| POST | `/libraries/{id}/enrich` | Enqueue metadata matching for unmatched items → `202 {job}` |
-| GET | `/jobs?limit=` | Recent jobs |
-| GET | `/jobs/{id}` | Job status/progress/message |
-| GET | `/jobs/{id}/logs?limit=` | Persisted log lines (`info`/`warn`/`error`) |
-| DELETE | `/jobs/{id}` | Delete one task and its logs |
-| DELETE | `/jobs` | Delete all finished tasks and their logs → `{deleted}` |
+| PATCH | `/libraries/{id}` | **admin** — rename / change language / replace paths / `autoScanMinutes` / `watchEnabled` |
+| DELETE | `/libraries/{id}` | **admin** — remove library and derived data (never touches media files) |
+| POST | `/libraries/{id}/scan` | **admin** — enqueue a scan job → `202 {job}`; optional body `{force:true}` re-probes every file |
+| POST | `/libraries/{id}/enrich` | **admin** — enqueue metadata matching for unmatched items → `202 {job}` |
+| GET | `/jobs?limit=` | **admin** — recent jobs |
+| GET | `/jobs/{id}` | **admin** — job status/progress/message |
+| GET | `/jobs/{id}/logs?limit=` | **admin** — persisted log lines (`info`/`warn`/`error`) |
+| DELETE | `/jobs/{id}` | **admin** — delete one task and its logs |
+| DELETE | `/jobs` | **admin** — delete all finished tasks and their logs → `{deleted}` |
 | GET | `/home` | `{continue,recent,shelves[]}` for the landing page |
 | GET | `/browse` | `?kind=&libraryId=&sort=&page=&perPage=&q=&metadataStatus=&category=&genre=&year=&watched=&folder=` → `{items,page,perPage,total,totalPages}` |
 | GET | `/libraries/{id}/facets?kind=` | Genre/year counts for filters |
 | GET | `/libraries/{id}/folders` | Folder prefixes with file counts |
-| GET | `/fs?path=` | Read-only server folder browser for the library path picker: `{path,parent?,roots[],entries[]}`; directories only, hides `@eaDir`/`#recycle` |
+| GET | `/fs?path=` | **admin** — read-only server folder browser for the library path picker: `{path,parent?,roots[],entries[]}`; directories only, hides `@eaDir`/`#recycle` |
 | GET | `/collections` | Collections (Favorites, Watchlist, user) with item counts |
 | POST | `/collections` | `{name}` |
 | PATCH | `/collections/{id}` | `{name}` (system collections rejected) |
@@ -33,22 +49,21 @@ matching HTTP status. No pagination cursor yet — pages are numeric.
 | DELETE | `/collections/{id}/items/{itemId}` | Remove one item |
 | POST | `/items/batch` | `{action: watched\|unwatched\|add_collection\|remove_collection, itemIds[], collectionId?}` |
 | GET | `/search?q=&limit=` | FTS5 across title, original title, overview, people |
-| GET | `/items/{id}` | Detail: item + genres + people + files + locks + children (seasons/episodes) |
+| GET | `/items/{id}` | Detail: item + genres + people + files + locks + children (seasons/episodes), including the current user’s watch state |
 | GET | `/items/{id}/children?kind=` | Seasons for a show, episodes for a season |
 | GET | `/items/{id}/neighbors` | Previous/next item in browse order (`prev`, `next`) |
-| PATCH | `/items/{id}` | Metadata patch (`title, year, overview, tagline, genres[], locks[], locked, …`) |
-| POST | `/items/{id}/progress` | `{positionMs, durationMs, played}` (upsert) |
-| GET | `/settings` | Provider settings (API key is never returned) |
-| PUT | `/settings` | `{tmdbApiKey?, language?, region?}` (empty key clears it) |
-| GET | `/items/{id}/matches?q=&year=&language=` | Provider candidates, best first; `language` overrides the provider search language (default `en-US`). For episodes and seasons the query searches **TV shows** (default: the parent show's title). `year` is only applied when explicitly passed; the item's stored year is not used implicitly |
-| POST | `/items/{id}/match` | `{providerId, language?, season?, episode?}` — manual match; `language` fetches the provider details in that language (overrides locks). For episodes `providerId` is the **show id**; optional `season`/`episode` select which episode to fetch (default: the item's numbers). For seasons `providerId` is the show id and `season` selects the season |
-| POST | `/items/{id}/refresh?language=` | Re-fetch from the stored provider id (respects locks); optional language override. Episodes use their stored show id + season/episode |
-| GET | `/items/{id}/duplicate` | Another same-title item in the library (`{item}`), or `{}` (movies, home videos and shows) |
-| POST | `/items/{id}/merge` | `{fromId}` — move the other item's files/credits/locks/progress into this item, then delete it; for shows, seasons/episodes are merged by season/episode number |
-| POST | `/items/{id}/keep-separate` | `{otherId}` — mark both items so scans never auto-merge them |
-| POST | `/items/{id}/apply-local` | `{sourceId}` — copy another same-kind item's metadata (title/overview/tagline/date/rating/artwork/genres/cast) onto this item; used by "Select from existing videos" |
-| POST | `/items/{id}/art` | `{kind:"poster"|"backdrop", url}` — download + cache artwork; an empty `url` clears it |
-| POST | `/items/{id}/art/upload` | multipart `kind=poster|backdrop` + `file` (JPEG/PNG/WebP/GIF, ≤20 MB) — store a user upload in the art cache |
+| PATCH | `/items/{id}` | **admin** — metadata patch (`title, year, overview, tagline, genres[], locks[], locked, …`) |
+| POST | `/items/{id}/progress` | `{positionMs, durationMs, played}` (upsert for the current user) |
+| PUT | `/settings` | **admin** — `{tmdbApiKey?, language?, region?}` (empty key clears it) |
+| GET | `/items/{id}/matches?q=&year=&language=` | **admin** — Provider candidates, best first; `language` overrides the provider search language (default `en-US`). For episodes and seasons the query searches **TV shows** (default: the parent show's title). `year` is only applied when explicitly passed; the item's stored year is not used implicitly |
+| POST | `/items/{id}/match` | **admin** — `{providerId, language?, season?, episode?}` — manual match; `language` fetches the provider details in that language (overrides locks). For episodes `providerId` is the **show id**; optional `season`/`episode` select which episode to fetch (default: the item's numbers). For seasons `providerId` is the show id and `season` selects the season |
+| POST | `/items/{id}/refresh?language=` | **admin** — Re-fetch from the stored provider id (respects locks); optional language override. Episodes use their stored show id + season/episode |
+| GET | `/items/{id}/duplicate` | **admin** — Another same-title item in the library (`{item}`), or `{}` (movies, home videos and shows) |
+| POST | `/items/{id}/merge` | **admin** — `{fromId}` — move the other item's files/credits/locks/progress into this item, then delete it; for shows, seasons/episodes are merged by season/episode number |
+| POST | `/items/{id}/keep-separate` | **admin** — `{otherId}` — mark both items so scans never auto-merge them |
+| POST | `/items/{id}/apply-local` | **admin** — `{sourceId}` — copy another same-kind item's metadata (title/overview/tagline/date/rating/artwork/genres/cast) onto this item; used by "Select from existing videos" |
+| POST | `/items/{id}/art` | **admin** — `{kind:"poster"|"backdrop", url}` — download + cache artwork; an empty `url` clears it |
+| POST | `/items/{id}/art/upload` | **admin** — multipart `kind=poster|backdrop` + `file` (JPEG/PNG/WebP/GIF, ≤20 MB) — store a user upload in the art cache |
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
 | GET | `/items/{id}/playback` | Player payload: stream URL, resume position, subtitle tracks, audio tracks, next episode |
@@ -102,4 +117,5 @@ subtitleStreams[{codec,language,title,forced}], missing, streamUrl`.
 - `metadataStatus` is one of `unmatched`, `matched`, `manual`, `local` or `failed`.
   `local` means metadata came from a `.nfo`/`.vsmeta` sidecar (`provider` shows which).
 - Progress is per user; M1 has a single built-in user (`id=1`).
-- No authentication in M1; the server binds to `127.0.0.1` by default.
+- Local accounts use a first-run admin setup. There is no OIDC/LDAP/2FA yet; use a
+  reverse proxy/Tailscale for remote access, not a direct internet-exposed port.

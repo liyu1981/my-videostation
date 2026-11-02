@@ -31,7 +31,8 @@ func (s *Store) ListCollections(ctx context.Context) ([]Collection, error) {
 		SELECT c.id, c.name, COALESCE(c.system_key,''), c.created_at, c.updated_at,
 		       (SELECT COUNT(*) FROM item_collections ic WHERE ic.collection_id = c.id) AS items
 		FROM collections c
-		ORDER BY CASE WHEN c.system_key IS NULL THEN 1 ELSE 0 END, c.name COLLATE NOCASE`)
+		WHERE c.user_id = ?
+		ORDER BY CASE WHEN c.system_key IS NULL THEN 1 ELSE 0 END, c.name COLLATE NOCASE`, UserID(ctx))
 	if err != nil {
 		return nil, wrap("list collections", err)
 	}
@@ -56,7 +57,7 @@ func (s *Store) GetCollection(ctx context.Context, id int64) (*Collection, error
 	err := s.db.QueryRowContext(ctx, `
 		SELECT c.id, c.name, COALESCE(c.system_key,''), c.created_at, c.updated_at,
 		       (SELECT COUNT(*) FROM item_collections ic WHERE ic.collection_id = c.id)
-		FROM collections c WHERE c.id = ?`, id).
+		FROM collections c WHERE c.id = ? AND c.user_id = ?`, id, UserID(ctx)).
 		Scan(&c.ID, &c.Name, &c.SystemKey, &created, &updated, &c.ItemCount)
 	if err != nil {
 		return nil, wrap("get collection", err)
@@ -73,7 +74,8 @@ func (s *Store) CreateCollection(ctx context.Context, name string) (*Collection,
 	}
 	ts := now()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO collections (name, created_at, updated_at) VALUES (?,?,?)`, name, ts, ts)
+		`INSERT INTO collections (user_id, name, created_at, updated_at) VALUES (?,?,?,?)`,
+		UserID(ctx), name, ts, ts)
 	if err != nil {
 		if sqliteErrIsUnique(err) {
 			return nil, wrap("create collection", errInvalid("a collection with that name already exists"))
@@ -97,7 +99,8 @@ func (s *Store) RenameCollection(ctx context.Context, id int64, name string) err
 	if c.SystemKey != "" {
 		return wrap("rename collection", errInvalid("system collections cannot be renamed"))
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE collections SET name = ?, updated_at = ? WHERE id = ?`, name, now(), id); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE collections SET name = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+		name, now(), id, UserID(ctx)); err != nil {
 		if sqliteErrIsUnique(err) {
 			return wrap("rename collection", errInvalid("a collection with that name already exists"))
 		}
@@ -115,7 +118,7 @@ func (s *Store) DeleteCollection(ctx context.Context, id int64) error {
 	if c.SystemKey != "" {
 		return wrap("delete collection", errInvalid("system collections cannot be deleted"))
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM collections WHERE id = ?`, id); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM collections WHERE id = ? AND user_id = ?`, id, UserID(ctx)); err != nil {
 		return wrap("delete collection", err)
 	}
 	return nil
@@ -124,7 +127,7 @@ func (s *Store) DeleteCollection(ctx context.Context, id int64) error {
 // SystemCollection returns the id of a system collection, creating it if needed.
 func (s *Store) SystemCollection(ctx context.Context, key string) (int64, error) {
 	var id int64
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM collections WHERE system_key = ?`, key).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM collections WHERE user_id = ? AND system_key = ?`, UserID(ctx), key).Scan(&id)
 	if err == nil {
 		return id, nil
 	}
@@ -136,18 +139,29 @@ func (s *Store) SystemCollection(ctx context.Context, key string) (int64, error)
 		return 0, wrap("system collection", errInvalid("unknown system collection"))
 	}
 	ts := now()
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO collections (name, system_key, created_at, updated_at) VALUES (?,?,?,?)`, name, key, ts, ts)
+	res, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO collections (user_id, name, system_key, created_at, updated_at)
+		VALUES (?,?,?,?,?)`, UserID(ctx), name, key, ts, ts)
 	if err != nil {
 		return 0, wrap("create system collection", err)
 	}
-	return res.LastInsertId()
+	if id, _ := res.LastInsertId(); id > 0 {
+		return id, nil
+	}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM collections WHERE user_id = ? AND system_key = ?`, UserID(ctx), key).Scan(&id); err != nil {
+		return 0, wrap("load system collection", err)
+	}
+	return id, nil
 }
 
 // AddToCollection inserts items (idempotent).
 func (s *Store) AddToCollection(ctx context.Context, collectionID int64, itemIDs []int64) error {
 	if len(itemIDs) == 0 {
 		return nil
+	}
+	if _, err := s.GetCollection(ctx, collectionID); err != nil {
+		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -161,7 +175,8 @@ func (s *Store) AddToCollection(ctx context.Context, collectionID int64, itemIDs
 			return wrap("add to collection", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE collections SET updated_at = ? WHERE id = ?`, now(), collectionID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE collections SET updated_at = ? WHERE id = ? AND user_id = ?`,
+		now(), collectionID, UserID(ctx)); err != nil {
 		return wrap("touch collection", err)
 	}
 	return wrap("commit", tx.Commit())
@@ -169,6 +184,9 @@ func (s *Store) AddToCollection(ctx context.Context, collectionID int64, itemIDs
 
 // RemoveFromCollection removes one item.
 func (s *Store) RemoveFromCollection(ctx context.Context, collectionID, itemID int64) error {
+	if _, err := s.GetCollection(ctx, collectionID); err != nil {
+		return err
+	}
 	if _, err := s.db.ExecContext(ctx,
 		`DELETE FROM item_collections WHERE collection_id = ? AND item_id = ?`, collectionID, itemID); err != nil {
 		return wrap("remove from collection", err)
@@ -179,6 +197,9 @@ func (s *Store) RemoveFromCollection(ctx context.Context, collectionID, itemID i
 // ToggleCollectionItem flips membership and reports the new state.
 func (s *Store) ToggleCollectionItem(ctx context.Context, collectionID, itemID int64) (bool, error) {
 	var exists int
+	if _, err := s.GetCollection(ctx, collectionID); err != nil {
+		return false, err
+	}
 	err := s.db.QueryRowContext(ctx,
 		`SELECT 1 FROM item_collections WHERE collection_id = ? AND item_id = ?`, collectionID, itemID).Scan(&exists)
 	switch {
@@ -193,8 +214,11 @@ func (s *Store) ToggleCollectionItem(ctx context.Context, collectionID, itemID i
 
 // ItemCollectionIDs lists collections containing an item.
 func (s *Store) ItemCollectionIDs(ctx context.Context, itemID int64) ([]int64, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT collection_id FROM item_collections WHERE item_id = ? ORDER BY collection_id`, itemID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ic.collection_id FROM item_collections ic
+		JOIN collections c ON c.id = ic.collection_id
+		WHERE ic.item_id = ? AND c.user_id = ?
+		ORDER BY ic.collection_id`, itemID, UserID(ctx))
 	if err != nil {
 		return nil, wrap("item collections", err)
 	}
@@ -218,6 +242,9 @@ func (s *Store) ListCollectionItems(ctx context.Context, collectionID int64, pag
 	if page <= 0 {
 		page = 1
 	}
+	if _, err := s.GetCollection(ctx, collectionID); err != nil {
+		return nil, 0, err
+	}
 	var total int
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM item_collections WHERE collection_id = ?`, collectionID).Scan(&total); err != nil {
@@ -227,7 +254,7 @@ func (s *Store) ListCollectionItems(ctx context.Context, collectionID int64, pag
 		SELECT `+itemColumns+`, `+itemStateColumns+`
 		FROM media_items m
 		JOIN item_collections ic ON ic.item_id = m.id
-		`+fmt.Sprintf(itemJoin, DefaultUserID)+`
+		`+fmt.Sprintf(itemJoin, UserID(ctx))+`
 		WHERE ic.collection_id = ? AND m.hidden = 0
 		ORDER BY ic.added_at DESC, m.id DESC LIMIT ? OFFSET ?`,
 		collectionID, perPage, (page-1)*perPage)
@@ -271,7 +298,7 @@ func (s *Store) MarkPlayed(ctx context.Context, itemIDs []int64, played bool) er
 			ON CONFLICT(user_id, item_id) DO UPDATE SET
 				position_ms = excluded.position_ms, duration_ms = excluded.duration_ms,
 				played = excluded.played, updated_at = excluded.updated_at`,
-			DefaultUserID, id, position, duration, p, now()); err != nil {
+			UserID(ctx), id, position, duration, p, now()); err != nil {
 			return wrap("bulk progress", err)
 		}
 	}

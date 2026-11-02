@@ -210,7 +210,7 @@ func (s *Store) UnmatchedItems(ctx context.Context, libraryID int64, limit int) 
 		limit = 200
 	}
 	q := `SELECT ` + itemColumns + `, ` + itemStateColumns + `
-		FROM media_items m ` + fmt.Sprintf(itemJoin, DefaultUserID) + `
+		FROM media_items m ` + fmt.Sprintf(itemJoin, UserID(ctx)) + `
 		WHERE m.kind IN ('movie','show') AND m.metadata_status = 'unmatched' AND m.hidden = 0`
 	args := []any{}
 	if libraryID > 0 {

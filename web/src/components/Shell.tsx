@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
+  KeyRound,
   ChevronDown,
   Clapperboard,
   Film,
   Home,
   LibraryBig,
   ListVideo,
+  LogOut,
   Search,
   Settings,
   Tv,
+  Users,
   Video,
 } from 'lucide-react';
+import { api } from '../lib/api';
+import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { PlayerModal } from './Player';
+import { Loading } from './State';
 
 type NavItem = { label: string; to: string; search?: Record<string, string>; icon: typeof Home };
 
@@ -26,11 +32,15 @@ const navItems: NavItem[] = [
   { label: 'Playlists', to: '/playlists', icon: ListVideo },
 ];
 
+const adminPaths = ['/libraries', '/settings', '/tasks', '/users'];
+
 export function Shell() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const location = useRouterState({ select: (s) => s.location });
   const [query, setQuery] = useState('');
   const [userMenu, setUserMenu] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   const currentKind =
     location.pathname === '/browse' ? ((location.search as { kind?: string }).kind ?? 'movie') : null;
@@ -45,10 +55,32 @@ export function Shell() {
 
   const config = useQuery({
     queryKey: ['config'],
-    queryFn: () => fetch('/api/v1/config').then((r) => r.json() as Promise<{ version: string; user: { name: string; role: string } }>),
+    queryFn: () => fetch('/api/v1/config').then((r) => r.json() as Promise<{ version: string }>),
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   });
+  const auth = useQuery({ queryKey: ['auth', 'me'], queryFn: api.me, retry: false, staleTime: 30_000 });
+  const status = useQuery({ queryKey: ['auth', 'status'], queryFn: api.authStatus, retry: false, staleTime: 10_000 });
+
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/setup';
+  const user = auth.data?.user;
+  const isAdmin = user?.role === 'admin';
+  const userName = user?.displayName || user?.username || '';
+
+  useEffect(() => {
+    if (isAuthPage || status.isLoading || auth.isLoading) return;
+    if (status.data?.needsSetup) {
+      void navigate({ to: '/setup' });
+      return;
+    }
+    if (auth.isError || !auth.data) {
+      void navigate({ to: '/login' });
+      return;
+    }
+    if (auth.data.user.role !== 'admin' && adminPaths.some((p) => location.pathname === p || location.pathname.startsWith(p + '/'))) {
+      void navigate({ to: '/' });
+    }
+  }, [isAuthPage, status.isLoading, status.data, auth.isLoading, auth.isError, auth.data, location.pathname, navigate]);
 
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,7 +88,32 @@ export function Shell() {
     if (q) void navigate({ to: '/search', search: { q } });
   };
 
-  const userName = config.data?.user?.name ?? 'Admin';
+  const logout = async () => {
+    setUserMenu(false);
+    try {
+      await api.logout();
+    } catch {
+      /* the session may already be gone */
+    }
+    qc.clear();
+    await navigate({ to: '/login' });
+  };
+
+  if (isAuthPage) return <Outlet />;
+  if (status.isLoading || auth.isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg">
+        <Loading label="Checking session…" />
+      </div>
+    );
+  }
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg">
+        <Loading label="Redirecting…" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg text-fg">
@@ -91,17 +148,19 @@ export function Shell() {
         </form>
 
         <div className="ml-auto flex items-center gap-1">
-          <Link
-            to="/settings"
-            aria-label="Settings"
-            title="Settings"
-            className={[
-              'grid size-9 place-items-center rounded-lg transition-colors',
-              location.pathname === '/settings' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
-            ].join(' ')}
-          >
-            <Settings className="size-[18px]" aria-hidden />
-          </Link>
+          {isAdmin ? (
+            <Link
+              to="/settings"
+              aria-label="Settings"
+              title="Settings"
+              className={[
+                'grid size-9 place-items-center rounded-lg transition-colors',
+                location.pathname === '/settings' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+              ].join(' ')}
+            >
+              <Settings className="size-[18px]" aria-hidden />
+            </Link>
+          ) : null}
 
           <div className="relative">
             <button
@@ -124,24 +183,53 @@ export function Shell() {
                   <div className="px-2.5 py-2">
                     <p className="text-[12.5px] font-medium text-fg">{userName}</p>
                     <p className="text-[10.5px] uppercase tracking-wide text-fg-dim">
-                      {config.data?.user?.role ?? 'admin'} · v{config.data?.version ?? 'dev'}
+                      {user.role} · v{config.data?.version ?? 'dev'}
                     </p>
                   </div>
                   <div className="my-1 h-px bg-hairline" />
-                  <Link
-                    to="/settings"
-                    onClick={() => setUserMenu(false)}
-                    className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
+                  {isAdmin ? (
+                    <>
+                      <Link
+                        to="/settings"
+                        onClick={() => setUserMenu(false)}
+                        className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
+                      >
+                        <Settings className="size-3.5" aria-hidden /> Settings
+                      </Link>
+                      <Link
+                        to="/users"
+                        onClick={() => setUserMenu(false)}
+                        className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
+                      >
+                        <Users className="size-3.5" aria-hidden /> Users
+                      </Link>
+                      <Link
+                        to="/tasks"
+                        onClick={() => setUserMenu(false)}
+                        className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
+                      >
+                        <Activity className="size-3.5" aria-hidden /> Tasks
+                      </Link>
+                    </>
+                  ) : null}
+                  <div className="my-1 h-px bg-hairline" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenu(false);
+                      setPasswordOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
                   >
-                    <Settings className="size-3.5" aria-hidden /> Settings
-                  </Link>
-                  <Link
-                    to="/tasks"
-                    onClick={() => setUserMenu(false)}
-                    className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
+                    <KeyRound className="size-3.5" aria-hidden /> Change password
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void logout()}
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
                   >
-                    <Activity className="size-3.5" aria-hidden /> Tasks
-                  </Link>
+                    <LogOut className="size-3.5" aria-hidden /> Sign out
+                  </button>
                 </div>
               </>
             ) : null}
@@ -181,35 +269,53 @@ export function Shell() {
               );
             })}
 
-            <p className="px-2 pb-1 pt-5 text-[11px] font-medium uppercase tracking-wider text-fg-dim">Manage</p>
-            <Link
-              to="/libraries"
-              className={[
-                'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
-                location.pathname === '/libraries' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
-              ].join(' ')}
-              aria-current={location.pathname === '/libraries' ? 'page' : undefined}
-            >
-              <LibraryBig
-                className={['size-[18px]', location.pathname === '/libraries' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
-                aria-hidden
-              />
-              Libraries
-            </Link>
-            <Link
-              to="/tasks"
-              className={[
-                'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
-                location.pathname === '/tasks' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
-              ].join(' ')}
-              aria-current={location.pathname === '/tasks' ? 'page' : undefined}
-            >
-              <Activity
-                className={['size-[18px]', location.pathname === '/tasks' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
-                aria-hidden
-              />
-              Tasks
-            </Link>
+            {isAdmin ? (
+              <>
+                <p className="px-2 pb-1 pt-5 text-[11px] font-medium uppercase tracking-wider text-fg-dim">Manage</p>
+                <Link
+                  to="/libraries"
+                  className={[
+                    'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
+                    location.pathname === '/libraries' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+                  ].join(' ')}
+                  aria-current={location.pathname === '/libraries' ? 'page' : undefined}
+                >
+                  <LibraryBig
+                    className={['size-[18px]', location.pathname === '/libraries' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
+                    aria-hidden
+                  />
+                  Libraries
+                </Link>
+                <Link
+                  to="/users"
+                  className={[
+                    'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
+                    location.pathname === '/users' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+                  ].join(' ')}
+                  aria-current={location.pathname === '/users' ? 'page' : undefined}
+                >
+                  <Users
+                    className={['size-[18px]', location.pathname === '/users' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
+                    aria-hidden
+                  />
+                  Users
+                </Link>
+                <Link
+                  to="/tasks"
+                  className={[
+                    'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
+                    location.pathname === '/tasks' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+                  ].join(' ')}
+                  aria-current={location.pathname === '/tasks' ? 'page' : undefined}
+                >
+                  <Activity
+                    className={['size-[18px]', location.pathname === '/tasks' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
+                    aria-hidden
+                  />
+                  Tasks
+                </Link>
+              </>
+            ) : null}
           </nav>
 
           <div className="border-t border-hairline px-5 py-3 text-[11px] text-fg-dim">
@@ -222,6 +328,7 @@ export function Shell() {
         </main>
       </div>
       <PlayerModal />
+      {passwordOpen ? <ChangePasswordDialog onClose={() => setPasswordOpen(false)} /> : null}
     </div>
   );
 }

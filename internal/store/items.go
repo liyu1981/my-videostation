@@ -219,7 +219,7 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 	if f.Category == "recent_watched" {
 		where = append(where, "p.updated_at IS NOT NULL")
 	}
-	join := fmt.Sprintf(itemJoin, DefaultUserID)
+	join := fmt.Sprintf(itemJoin, UserID(ctx))
 	if q := strings.TrimSpace(f.Query); q != "" {
 		join += " JOIN media_fts ft ON ft.rowid = m.id"
 		where = append(where, "media_fts MATCH ?")
@@ -278,7 +278,7 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 // GetItem loads a single item with user state.
 func (s *Store) GetItem(ctx context.Context, id int64) (*Item, error) {
 	q := `SELECT ` + itemColumns + `, ` + itemStateColumns + `
-		FROM media_items m ` + fmt.Sprintf(itemJoin, DefaultUserID) + ` WHERE m.id = ?`
+		FROM media_items m ` + fmt.Sprintf(itemJoin, UserID(ctx)) + ` WHERE m.id = ?`
 	var it Item
 	if err := scanItem(s.db.QueryRowContext(ctx, q, id), &it); err != nil {
 		return nil, wrap("get item", err)
@@ -321,7 +321,7 @@ func (s *Store) Neighbors(ctx context.Context, itemID int64) (*Item, *Item, erro
 
 	fetch := func(dir string, cmp string, limit int) (*Item, error) {
 		q := `SELECT ` + itemColumns + `, ` + itemStateColumns + `
-			FROM media_items m ` + fmt.Sprintf(itemJoin, DefaultUserID) + `
+			FROM media_items m ` + fmt.Sprintf(itemJoin, UserID(ctx)) + `
 			WHERE ` + scopeSQL + ` AND m.hidden = 0 AND (` + orderKey + `, m.id) ` + cmp + ` (?, ?)
 			ORDER BY ` + orderKey + ` ` + dir + `, m.id ` + dir + ` LIMIT 1`
 		qargs := append(append([]any{}, args...), curValue, item.ID)
@@ -354,7 +354,7 @@ func (s *Store) Neighbors(ctx context.Context, itemID int64) (*Item, *Item, erro
 func (s *Store) ListExtras(ctx context.Context, itemID int64) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`
-		FROM media_items m `+fmt.Sprintf(itemJoin, DefaultUserID)+`
+		FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
 		WHERE m.parent_id = ? AND m.kind = 'extra'
 		ORDER BY m.title, m.id`, itemID)
 	if err != nil {
@@ -481,7 +481,7 @@ func (s *Store) NextEpisode(ctx context.Context, itemID int64) (*Item, error) {
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`
-		FROM media_items m `+fmt.Sprintf(itemJoin, DefaultUserID)+`
+		FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
 		WHERE m.parent_id = ? AND m.kind = 'episode' AND m.episode_number > ?
 		ORDER BY m.episode_number LIMIT 1`, seasonID, number)
 	if err != nil {
@@ -712,7 +712,7 @@ func (s *Store) SetProgress(ctx context.Context, itemID, positionMS, durationMS 
 			duration_ms = excluded.duration_ms,
 			played = excluded.played,
 			updated_at = excluded.updated_at`,
-		DefaultUserID, itemID, positionMS, durationMS, p, now())
+		UserID(ctx), itemID, positionMS, durationMS, p, now())
 	return wrap("set progress", err)
 }
 
@@ -736,7 +736,7 @@ func (s *Store) GetHome(ctx context.Context) (*Home, error) {
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`
-		FROM media_items m `+fmt.Sprintf(itemJoin, DefaultUserID)+`
+		FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
 		WHERE m.hidden = 0 AND p.position_ms > 0 AND p.played = 0
 		ORDER BY p.updated_at DESC LIMIT 12`)
 	if err != nil {
@@ -748,7 +748,7 @@ func (s *Store) GetHome(ctx context.Context) (*Home, error) {
 
 	rows, err = s.db.QueryContext(ctx, `
 		SELECT `+itemColumns+`, `+itemStateColumns+`
-		FROM media_items m `+fmt.Sprintf(itemJoin, DefaultUserID)+`
+		FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
 		WHERE m.hidden = 0 AND m.kind IN ('movie','show','home_video')
 		ORDER BY m.added_at DESC, m.id DESC LIMIT 24`)
 	if err != nil {
@@ -772,7 +772,7 @@ func (s *Store) GetHome(ctx context.Context) (*Home, error) {
 		}
 		rows, err := s.db.QueryContext(ctx, `
 			SELECT `+itemColumns+`, `+itemStateColumns+`
-			FROM media_items m `+fmt.Sprintf(itemJoin, DefaultUserID)+`
+			FROM media_items m `+fmt.Sprintf(itemJoin, UserID(ctx))+`
 			WHERE m.hidden = 0 AND m.library_id = ? AND m.kind = ?
 			ORDER BY m.added_at DESC, m.id DESC LIMIT 24`, lib.ID, kind)
 		if err != nil {
@@ -839,7 +839,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Item, er
 		SELECT `+itemColumns+`, `+itemStateColumns+`, bm25(media_fts) AS rank
 		FROM media_items m
 		JOIN media_fts ft ON ft.rowid = m.id
-		`+fmt.Sprintf(itemJoin, DefaultUserID)+`
+		`+fmt.Sprintf(itemJoin, UserID(ctx))+`
 		WHERE media_fts MATCH ? AND m.hidden = 0 AND m.kind != 'season'
 		ORDER BY rank, m.sort_title LIMIT ?`, ftsQuery(query), limit)
 	if err != nil {
