@@ -160,8 +160,8 @@ Logical items use **one table with self-referencing parents** so search,
 collections and watch state work uniformly.
 
 ```
-users            (id, username, display_name, password_hash, role, active, rating_ceiling,
-                  created_at, updated_at)
+users            (id, username, display_name, password_hash, role, active, birth_year,
+                  rating_ceiling, created_at, updated_at)
 sessions         (token_hash, user_id, expires_at, user_agent, ip)
 libraries        (id, name, type[movie|tv|home_video], language, scanner_opts_json,
                   metadata_provider, created_at)
@@ -387,8 +387,8 @@ Audit and implementation notes: [`MONITORING.md`](./MONITORING.md).
 ### M6 — Users, permissions, i18n
 - **Delivered:** first-run admin setup, login/logout, sessions, admin user management,
   admin/user roles, self-service password change, per-user watch state/collections,
-  per-library view permissions, content-rating ceilings, an admin activity log, and an
-  English/German/Chinese UI scaffold.
+  per-library view permissions, birth-year age-based content-rating ceilings (plus stricter
+  manual overrides), an admin activity log, and an English/German/Chinese UI scaffold.
 - Deliberately deferred per request: share links and OG metadata for shared links.
 - Still open: OIDC/LDAP identity, 2FA, parental PIN/profile switching, per-library rating
   overrides, playback events in the audit log.

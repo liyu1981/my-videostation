@@ -8,6 +8,7 @@ import (
 	"net/http/cookiejar"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/liyu1981/myvideostation/internal/scanner"
 	"github.com/liyu1981/myvideostation/internal/store"
@@ -105,6 +106,36 @@ func TestLibraryPermissionsAndRatingCeiling(t *testing.T) {
 		"ratingCeiling": "",
 	}, nil); code != http.StatusOK {
 		t.Fatalf("clear rating ceiling = %d", code)
+	}
+	if code := jsonDo(t, viewer, http.MethodGet, itemURL, nil, nil); code != http.StatusOK {
+		t.Fatalf("viewer item after clearing ceiling = %d, want 200", code)
+	}
+
+	// A birth year derives a ceiling; a manual ceiling can only tighten it.
+	kidYear := time.Now().Year() - 10 // age 10 => PG
+	if code := jsonDo(t, http.DefaultClient, http.MethodPatch, srv.URL+"/api/v1/users/"+itoa(created.ID), map[string]any{
+		"birthYear": kidYear,
+	}, nil); code != http.StatusOK {
+		t.Fatalf("set birth year = %d", code)
+	}
+	if code := jsonDo(t, viewer, http.MethodGet, itemURL, nil, nil); code != http.StatusNotFound {
+		t.Fatalf("age-derived ceiling did not hide R item: %d", code)
+	}
+	if code := jsonDo(t, http.DefaultClient, http.MethodPatch, srv.URL+"/api/v1/users/"+itoa(created.ID), map[string]any{
+		"ratingCeiling": "R",
+	}, nil); code != http.StatusOK {
+		t.Fatalf("set manual ceiling = %d", code)
+	}
+	if code := jsonDo(t, viewer, http.MethodGet, itemURL, nil, nil); code != http.StatusNotFound {
+		t.Fatalf("manual ceiling widened the age-derived limit: %d", code)
+	}
+	if code := jsonDo(t, http.DefaultClient, http.MethodPatch, srv.URL+"/api/v1/users/"+itoa(created.ID), map[string]any{
+		"birthYear": 0, "ratingCeiling": "",
+	}, nil); code != http.StatusOK {
+		t.Fatalf("clear birth year = %d", code)
+	}
+	if code := jsonDo(t, viewer, http.MethodGet, itemURL, nil, nil); code != http.StatusOK {
+		t.Fatalf("viewer item after clearing birth year = %d, want 200", code)
 	}
 
 	// Admin audit log contains the account and login events.

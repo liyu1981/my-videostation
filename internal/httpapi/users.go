@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/liyu1981/myvideostation/internal/auth"
 	"github.com/liyu1981/myvideostation/internal/store"
@@ -23,6 +24,7 @@ type createUserInput struct {
 	DisplayName string `json:"displayName"`
 	Password    string `json:"password"`
 	Role        string `json:"role"`
+	BirthYear   *int   `json:"birthYear"`
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
@@ -47,12 +49,16 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "role must be admin or user")
 		return
 	}
+	if in.BirthYear != nil && *in.BirthYear != 0 && !validBirthYear(*in.BirthYear) {
+		writeError(w, http.StatusBadRequest, "bad_request", "birth year is out of range")
+		return
+	}
 	hash, err := auth.HashPassword(in.Password)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	u, err := s.store.CreateUser(r.Context(), in.Username, in.DisplayName, hash, in.Role)
+	u, err := s.store.CreateUser(r.Context(), in.Username, in.DisplayName, hash, in.Role, in.BirthYear)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -67,6 +73,7 @@ type updateUserInput struct {
 	Active        *bool   `json:"active"`
 	Password      *string `json:"password"`
 	RatingCeiling *string `json:"ratingCeiling"`
+	BirthYear     *int    `json:"birthYear"`
 }
 
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +102,10 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid rating ceiling")
 		return
 	}
+	if in.BirthYear != nil && *in.BirthYear != 0 && !validBirthYear(*in.BirthYear) {
+		writeError(w, http.StatusBadRequest, "bad_request", "birth year is out of range")
+		return
+	}
 	var passwordHash *string
 	if in.Password != nil && *in.Password != "" {
 		if err := auth.ValidatePassword(*in.Password); err != nil {
@@ -108,7 +119,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		passwordHash = &hash
 	}
-	u, err := s.store.UpdateUser(r.Context(), id, in.DisplayName, in.Role, in.Active, passwordHash, in.RatingCeiling)
+	u, err := s.store.UpdateUser(r.Context(), id, in.DisplayName, in.Role, in.Active, passwordHash, in.RatingCeiling, in.BirthYear)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -190,6 +201,11 @@ func (s *Server) handleUserLibraries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"libraries": libs})
+}
+
+func validBirthYear(year int) bool {
+	now := time.Now().UTC().Year()
+	return year >= 1900 && year <= now
 }
 
 func validRatingCeiling(v string) bool {

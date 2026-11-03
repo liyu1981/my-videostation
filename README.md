@@ -180,7 +180,7 @@ testdata/           parser corpus and generated sample media
 | Area | Capabilities |
 |---|---|
 | Accounts & roles | First-run admin setup, login/logout, PBKDF2 passwords, HttpOnly sessions, admin/user roles, admin user management, self-service password change, per-user watch state and collections. |
-| Access control | Per-library allow-lists and content-rating ceilings, enforced server-side for libraries, browse, search, item, collection and media access. |
+| Access control | Per-library allow-lists and age/birth-year content-rating ceilings with optional stricter manual overrides, enforced server-side for libraries, browse, search, item, collection and media access. |
 | Audit | Admin Activity log for auth, account, library, settings and metadata actions. |
 | Localisation | English / German / Chinese UI scaffold with an account-menu language selector. |
 | Libraries | Movie / TV / home-video libraries, multiple read-only paths, server-side folder picker, scheduled scans and an fsnotify watcher. |

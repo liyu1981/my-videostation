@@ -20,8 +20,8 @@ libraries, browse/home/search results, collections and media access; admins bypa
 | POST | `/auth/logout` | Delete the current session |
 | POST | `/auth/password` | Self-service `{currentPassword,newPassword}`; other sessions are signed out |
 | GET | `/users` | **admin** — `{users[]}` |
-| POST | `/users` | **admin** — `{username,displayName,password,role}` (role `admin`/`user`) |
-| PATCH | `/users/{id}` | **admin** — display name, role, active flag, rating ceiling (`ratingCeiling`), optional password reset |
+| POST | `/users` | **admin** — `{username,displayName,password,role,birthYear?}` (role `admin`/`user`) |
+| PATCH | `/users/{id}` | **admin** — display name, role, active flag, `birthYear`, optional `ratingCeiling` (can only tighten the age limit), optional password reset |
 | DELETE | `/users/{id}` | **admin** — delete an account and its watch state/collections |
 | GET | `/users/{id}/libraries` | **admin** — `{libraries:[{id,name,allowed}]}` |
 | PUT | `/users/{id}/libraries` | **admin** — `{libraryIds[]}` allow-list (unlisted/new libraries denied); `{unrestricted:true}` restores all |

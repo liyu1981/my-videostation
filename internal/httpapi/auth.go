@@ -53,7 +53,7 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		ctx = context.WithValue(ctx, authTokenKey{}, cookie.Value)
 		ctx = store.WithUserID(ctx, u.ID)
 		ctx = store.WithUserRole(ctx, u.Role)
-		ctx = store.WithUserRating(ctx, u.RatingCeiling)
+		ctx = store.WithUserRating(ctx, u.EffectiveRatingCeiling)
 		ctx = store.WithUserLibraryRestricted(ctx, u.LibraryRestricted)
 		next(w, r.WithContext(ctx))
 	}

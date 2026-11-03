@@ -16,34 +16,38 @@ const (
 
 // User is an account. PasswordHash is never serialized to the API.
 type User struct {
-	ID                int64     `json:"id"`
-	Username          string    `json:"username"`
-	DisplayName       string    `json:"displayName"`
-	Role              string    `json:"role"`
-	Active            bool      `json:"active"`
-	RatingCeiling     string    `json:"ratingCeiling,omitempty"`
-	LibraryRestricted bool      `json:"-"`
-	PasswordHash      string    `json:"-"`
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
+	ID                     int64     `json:"id"`
+	Username               string    `json:"username"`
+	DisplayName            string    `json:"displayName"`
+	Role                   string    `json:"role"`
+	Active                 bool      `json:"active"`
+	RatingCeiling          string    `json:"ratingCeiling,omitempty"`
+	EffectiveRatingCeiling string    `json:"effectiveRatingCeiling,omitempty"`
+	BirthYear              int       `json:"birthYear,omitempty"`
+	LibraryRestricted      bool      `json:"-"`
+	PasswordHash           string    `json:"-"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 const userColumns = `
-	id, username, display_name, role, active, COALESCE(rating_ceiling,''), library_restricted,
-	COALESCE(password_hash,''), created_at, updated_at`
+	id, username, display_name, role, active, COALESCE(rating_ceiling,''), COALESCE(birth_year,0),
+	library_restricted, COALESCE(password_hash,''), created_at, updated_at`
 
 const userColumnsQualified = `
-	u.id, u.username, u.display_name, u.role, u.active, COALESCE(u.rating_ceiling,''), u.library_restricted,
-	COALESCE(u.password_hash,''), u.created_at, u.updated_at`
+	u.id, u.username, u.display_name, u.role, u.active, COALESCE(u.rating_ceiling,''), COALESCE(u.birth_year,0),
+	u.library_restricted, COALESCE(u.password_hash,''), u.created_at, u.updated_at`
 
 func scanUser(row rowScanner, u *User) error {
 	var active, restricted int
 	var created, updated string
-	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &active, &u.RatingCeiling, &restricted, &u.PasswordHash, &created, &updated); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &active, &u.RatingCeiling,
+		&u.BirthYear, &restricted, &u.PasswordHash, &created, &updated); err != nil {
 		return err
 	}
 	u.Active = active != 0
 	u.LibraryRestricted = restricted != 0
+	u.EffectiveRatingCeiling = effectiveRatingCeiling(u.BirthYear, u.RatingCeiling, time.Now())
 	u.CreatedAt, u.UpdatedAt = parseTime(created), parseTime(updated)
 	return nil
 }
@@ -149,7 +153,7 @@ func (s *Store) SetupAdmin(ctx context.Context, username, displayName, passwordH
 }
 
 // CreateUser adds an account and its Favorites/Watchlist collections.
-func (s *Store) CreateUser(ctx context.Context, username, displayName, passwordHash, role string) (*User, error) {
+func (s *Store) CreateUser(ctx context.Context, username, displayName, passwordHash, role string, birthYear *int) (*User, error) {
 	username = strings.TrimSpace(username)
 	displayName = strings.TrimSpace(displayName)
 	if username == "" {
@@ -167,9 +171,13 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName, passwordH
 		return nil, wrap("begin create user", err)
 	}
 	defer tx.Rollback()
+	var by any
+	if birthYear != nil && *birthYear > 0 {
+		by = *birthYear
+	}
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO users (username, display_name, password_hash, role, active, created_at, updated_at)
-		VALUES (?,?,?,?,1,?,?)`, username, displayName, passwordHash, role, ts, ts)
+		INSERT INTO users (username, display_name, password_hash, role, active, birth_year, created_at, updated_at)
+		VALUES (?,?,?,?,1,?,?,?)`, username, displayName, passwordHash, role, by, ts, ts)
 	if err != nil {
 		if sqliteErrIsUnique(err) {
 			return nil, errInvalid("that username is already taken")
@@ -187,7 +195,7 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName, passwordH
 }
 
 // UpdateUser changes an account. Nil fields are left untouched.
-func (s *Store) UpdateUser(ctx context.Context, id int64, displayName, role *string, active *bool, passwordHash, ratingCeiling *string) (*User, error) {
+func (s *Store) UpdateUser(ctx context.Context, id int64, displayName, role *string, active *bool, passwordHash, ratingCeiling *string, birthYear *int) (*User, error) {
 	u, err := s.GetUserByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -214,6 +222,10 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, displayName, role *str
 	if ratingCeiling != nil {
 		newRating = strings.TrimSpace(*ratingCeiling)
 	}
+	newBirthYear := u.BirthYear
+	if birthYear != nil {
+		newBirthYear = *birthYear
+	}
 	if u.Active && u.Role == RoleAdmin && (!newActive || newRole != RoleAdmin) {
 		n, err := s.CountActiveAdmins(ctx)
 		if err != nil {
@@ -230,8 +242,8 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, displayName, role *str
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE users SET display_name = ?, role = ?, active = ?, rating_ceiling = ?, updated_at = ? WHERE id = ?`,
-		newDisplay, newRole, boolInt(newActive), newRating, ts, id); err != nil {
+		UPDATE users SET display_name = ?, role = ?, active = ?, rating_ceiling = ?, birth_year = ?, updated_at = ?
+		WHERE id = ?`, newDisplay, newRole, boolInt(newActive), newRating, newBirthYear, ts, id); err != nil {
 		return nil, wrap("update user", err)
 	}
 	if passwordHash != nil && *passwordHash != "" {
@@ -325,6 +337,35 @@ func (s *Store) DeleteUserSessions(ctx context.Context, userID int64) error {
 func (s *Store) CleanupSessions(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, now())
 	return wrap("cleanup sessions", err)
+}
+
+// effectiveRatingCeiling combines the manual ceiling with the age-derived limit.
+// The stricter of the two wins; adults with no manual limit are unrestricted.
+func effectiveRatingCeiling(birthYear int, manual string, now time.Time) string {
+	auto := ""
+	if birthYear > 0 {
+		age := now.Year() - birthYear
+		switch {
+		case age < 7:
+			auto = "G"
+		case age < 13:
+			auto = "PG"
+		case age < 17:
+			auto = "PG-13"
+		case age < 18:
+			auto = "R"
+		}
+	}
+	if manual == "" {
+		return auto
+	}
+	if auto == "" {
+		return manual
+	}
+	if ratingRank(manual) < ratingRank(auto) {
+		return manual
+	}
+	return auto
 }
 
 func ensureSystemCollections(ctx context.Context, tx *sql.Tx, userID int64) error {

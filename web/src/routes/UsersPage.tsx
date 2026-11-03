@@ -64,8 +64,15 @@ export function UsersPage() {
                   {!user.active ? (
                     <span className="rounded-full border border-hairline px-2 py-0.5 text-[10.5px] text-fg-dim">Disabled</span>
                   ) : null}
-                  {user.ratingCeiling ? (
-                    <span className="rounded-full border border-hairline px-2 py-0.5 text-[10.5px] text-fg-dim">{user.ratingCeiling}</span>
+                  {user.birthYear ? (
+                    <span className="rounded-full border border-hairline px-2 py-0.5 text-[10.5px] text-fg-dim">
+                      age {new Date().getFullYear() - user.birthYear} · born {user.birthYear}
+                    </span>
+                  ) : null}
+                  {user.effectiveRatingCeiling ? (
+                    <span className="rounded-full border border-hairline px-2 py-0.5 text-[10.5px] text-fg-dim" title="Effective content-rating ceiling">
+                      ≤ {user.effectiveRatingCeiling}
+                    </span>
                   ) : null}
                   {self ? <span className="text-[10.5px] text-fg-dim">you</span> : null}
                 </div>
@@ -144,6 +151,7 @@ function UserDialog({
   const [role, setRole] = useState<UserRole>(user?.role ?? 'user');
   const [active, setActive] = useState(user?.active ?? true);
   const [rating, setRating] = useState(user?.ratingCeiling ?? '');
+  const [birthYear, setBirthYear] = useState(user?.birthYear ? String(user.birthYear) : '');
   const [libraryIDs, setLibraryIDs] = useState<number[] | null>(null);
   const [permissionsDirty, setPermissionsDirty] = useState(false);
   const access = useQuery({
@@ -170,12 +178,19 @@ function UserDialog({
           role,
           active,
           ratingCeiling: rating,
+          birthYear: birthYear.trim() ? Number(birthYear) : 0,
           ...(password ? { password } : {}),
         });
         if (libraryIDs !== null && permissionsDirty) await api.setUserLibraries(user.id, libraryIDs);
         return;
       }
-      return api.createUser({ username: username.trim(), displayName: displayName.trim(), password, role });
+      return api.createUser({
+        username: username.trim(),
+        displayName: displayName.trim(),
+        password,
+        role,
+        birthYear: birthYear.trim() ? Number(birthYear) : 0,
+      });
     },
     onSuccess: onSaved,
   });
@@ -250,9 +265,24 @@ function UserDialog({
             Account enabled
           </label>
         </div>
+        <label className="block">
+          <span className="mb-1 block text-[12px] text-fg-muted">Birth year (parental controls)</span>
+          <input
+            type="number"
+            min={1900}
+            max={new Date().getFullYear()}
+            value={birthYear}
+            onChange={(e) => setBirthYear(e.target.value)}
+            placeholder="e.g. 2012"
+            className={inputClass}
+          />
+          <span className="mt-1 block text-[10.5px] text-fg-dim">
+            The age-derived ceiling is applied after save; admins bypass it. Leave blank for no age limit.
+          </span>
+        </label>
         {isEdit ? (
           <label className="block">
-            <span className="mb-1 block text-[12px] text-fg-muted">Rating ceiling</span>
+            <span className="mb-1 block text-[12px] text-fg-muted">Manual rating ceiling</span>
             <select value={rating} onChange={(e) => setRating(e.target.value)} className={inputClass}>
               <option value="">No limit (all ratings)</option>
               <option value="G">G / TV-Y / TV-G</option>
@@ -262,7 +292,8 @@ function UserDialog({
               <option value="NC-17">NC-17</option>
             </select>
             <span className="mt-1 block text-[10.5px] text-fg-dim">
-              Unrated titles remain visible; unknown ratings are hidden when a ceiling is set. Admins bypass this.
+              Optional; the stricter of this and the age-derived ceiling wins. Unrated titles remain visible; unknown
+              ratings are hidden when a ceiling is set.
             </span>
           </label>
         ) : null}

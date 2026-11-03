@@ -110,6 +110,8 @@ export interface User {
   role: UserRole;
   active: boolean;
   ratingCeiling?: string;
+  effectiveRatingCeiling?: string;
+  birthYear?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -403,9 +405,9 @@ export const api = {
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
   users: () => request<{ users: User[] }>('/users'),
-  createUser: (body: { username: string; displayName: string; password: string; role: UserRole }) =>
+  createUser: (body: { username: string; displayName: string; password: string; role: UserRole; birthYear?: number }) =>
     request<User>('/users', { method: 'POST', body: JSON.stringify(body) }),
-  updateUser: (id: number, body: { displayName?: string; role?: UserRole; active?: boolean; password?: string; ratingCeiling?: string }) =>
+  updateUser: (id: number, body: { displayName?: string; role?: UserRole; active?: boolean; password?: string; ratingCeiling?: string; birthYear?: number }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteUser: (id: number) => request<void>(`/users/${id}`, { method: 'DELETE' }),
   userLibraries: (id: number) => request<{ libraries: LibraryAccess[] }>(`/users/${id}/libraries`),
