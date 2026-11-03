@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/liyu1981/myvideostation/internal/buildinfo"
@@ -29,9 +30,13 @@ type Server struct {
 	enricher *enrich.Service
 	ffmpeg   string
 	cacheDir string
+	dataDir  string
+	restart  func()
 
 	castMu  sync.Mutex
 	castKey []byte
+
+	maintenance atomic.Bool
 }
 
 // Options configures the HTTP server.
@@ -44,6 +49,8 @@ type Options struct {
 	Enricher   *enrich.Service
 	FFmpeg     string
 	CacheDir   string
+	DataDir    string
+	Restart    func()
 }
 
 // New creates the API server.
@@ -55,7 +62,7 @@ func New(o Options) *Server {
 		o.Version = buildinfo.Version
 	}
 	return &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
-		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: o.CacheDir}
+		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: o.CacheDir, dataDir: o.DataDir, restart: o.Restart}
 }
 
 // Handler builds the root HTTP handler (API + UI).
@@ -83,6 +90,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/audit", s.admin(s.handleAudit))
 	mux.HandleFunc("POST /api/v1/cast/dlna/discover", s.auth(s.handleCastDLNADiscover))
 	mux.HandleFunc("POST /api/v1/cast/dlna/play", s.auth(s.handleCastDLNAPlay))
+	mux.HandleFunc("GET /api/v1/backup/status", s.handleBackupStatus)
+	mux.HandleFunc("GET /api/v1/backup/exports", s.admin(s.handleBackupExports))
+	mux.HandleFunc("POST /api/v1/backup/export", s.admin(s.handleBackupExport))
+	mux.HandleFunc("GET /api/v1/backup/imports", s.admin(s.handleBackupImports))
+	mux.HandleFunc("POST /api/v1/backup/import", s.admin(s.handleBackupImport))
 
 	mux.HandleFunc("GET /api/v1/libraries", s.auth(s.handleListLibraries))
 	mux.HandleFunc("POST /api/v1/libraries", s.admin(s.handleCreateLibrary))
@@ -158,6 +170,13 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
+
+		if s.maintenance.Load() && strings.HasPrefix(r.URL.Path, "/api/") &&
+			r.URL.Path != "/api/v1/health" && r.URL.Path != "/api/v1/config" &&
+			r.URL.Path != "/api/v1/backup/status" {
+			writeError(w, http.StatusServiceUnavailable, "maintenance", "import in progress; the server is restarting")
+			return
+		}
 
 		defer func() {
 			if rec := recover(); rec != nil {

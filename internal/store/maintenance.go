@@ -88,3 +88,16 @@ func (s *Store) RebaseCachePaths(ctx context.Context, cacheDir string) (int, err
 	}
 	return len(updates), nil
 }
+
+// Snapshot writes a consistent, self-contained SQLite copy to dst.
+func (s *Store) Snapshot(ctx context.Context, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return wrap("snapshot dir", err)
+	}
+	_ = os.Remove(dst)
+	quoted := strings.ReplaceAll(dst, "'", "''")
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO '"+quoted+"'"); err != nil {
+		return wrap("snapshot", err)
+	}
+	return nil
+}

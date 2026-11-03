@@ -272,6 +272,18 @@ export interface CastInfo {
   reason?: string;
 }
 
+export interface BackupArchive {
+  name: string;
+  path?: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface BackupStatus {
+  maintenance: boolean;
+  pendingImport: boolean;
+}
+
 export interface DLNADevice {
   id: string;
   name: string;
@@ -417,6 +429,15 @@ export const api = {
       body: JSON.stringify({ libraryIds, unrestricted }),
     }),
   audit: (limit = 100) => request<{ events: AuditEvent[] }>(`/audit${qs({ limit })}`),
+  backupStatus: () => request<BackupStatus>('/backup/status'),
+  backupExports: () => request<{ exports: BackupArchive[] }>('/backup/exports'),
+  backupImports: () => request<{ imports: BackupArchive[] }>('/backup/imports'),
+  createExport: () => request<BackupArchive>('/backup/export', { method: 'POST' }),
+  importBackup: (name: string) =>
+    request<{ status: string; name: string; export: string }>('/backup/import', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
   libraries: () => request<{ libraries: Library[] }>('/libraries'),
   listFS: (path?: string) => request<FSListing>(`/fs${qs({ path })}`),
   library: (id: number) => request<Library>(`/libraries/${id}`),

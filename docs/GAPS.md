@@ -54,14 +54,14 @@ Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
 
 | Area | Open gaps | S1 | S2 | S3 | Notable |
 |---|---|---|---|---|---|
-| Library & indexing | 8 | 1 | 3 | 4 | 1 planned (multi-path) |
+| Library & indexing | 7 | 1 | 2 | 4 | 1 planned (multi-path) |
 | Metadata | 4 | 0 | 2 | 2 | NFO + field locks (ADV) |
 | Playback & transcoding | 11 | 2 | 4 | 5 | — |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
 | Users, security, permissions | 5 | 0 | 4 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
 | Integrations | 4 | 0 | 0 | 4 | all permanent |
-| **Total** | **41** | **6** | **17** | **18** | 10 advantages, 1 planned |
+| **Total** | **40** | **6** | **16** | **18** | 10 advantages, 1 planned |
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
@@ -94,7 +94,6 @@ flowchart TB
     G5["GAP-005 indexing rules"]
     G6["GAP-006 thumbnails"]
     G7["GAP-007 scrub previews"]
-    G8["GAP-008 VS DB import"]
     G10["GAP-010 provider plugins"]
     G11["GAP-011 trailers"]
     G12["GAP-012 subtitle search"]
@@ -171,7 +170,6 @@ parity-completeness, not a hard feature blocker.
 | GAP-005 | — | — | globs, min-size and exclusion rules |
 | GAP-006 | — | — | thumbnail worker; GAP-055 depends on it |
 | GAP-007 | GAP-016, GAP-006 | hard / soft | sprites need ffmpeg; shares the thumbnail pipeline |
-| GAP-008 | — | — | VS database importer; `.vsmeta` is already imported |
 | GAP-010 | — | — | provider interface/registry in place; plugin UX is GAP-064 (non-goal) |
 | GAP-011 | GAP-010 | soft | provider trailer keys |
 | GAP-012 | — | — | OpenSubtitles policy/API and rate limits |
@@ -212,7 +210,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `GAP-LATER` | S3 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.{Scheduler,IndexFolder}`. We ship sane defaults; user-configurable globs, min-size, and "skip extras" toggles come with bulk edit. |
 | GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails, and choose per-item poster/backdrop (Original / URL / from folders), with a global cover setting under Settings › Advanced | `GAP-LATER` | S2 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.ThumbnailQuality`; per-item art picker verified in the Edit dialog (see `UI-PROBE.md` §6). Controls (on/off, size, regenerate, cache budget) land with the first thumbnail worker. |
 | GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
-| GAP-008 | Import/migration from an existing Video Station library | N/A (VS is the source) | `GAP-UNDECIDED` | S2 | post-M3 | **[verify]** storage is believed to be PostgreSQL. **`.vsmeta` sidecars are now imported natively**, so titles/plots/art work without the VS database; a DB importer would only add watch state and library paths. |
+| GAP-008 | Export/import MyVideoStation data (re-scoped from VS DB import) | N/A (VS is no longer the target) | `CLOSED` | S2 | post-M3 | Implemented in-app bundles: consistent SQLite snapshot + artwork/subtitle cache + manifest under `data/export`; newest bundle in `data/import` can be staged, preceded by a safety export, then applied on restart with a maintenance UI. VS PostgreSQL import is intentionally not pursued. |
 | GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; cloud sources need host mounts (GAP-001). |
 | GAP-068 | Auto-scan on library creation + default monitoring | VS indexes a newly added folder immediately and keeps monitoring it | `CLOSED` | S2 | M3.x | Implemented: `POST /libraries` enqueues the initial scan; new libraries default `autoScanMinutes = 360` and `watchEnabled = true`; the Add/Edit forms expose both. |
 | GAP-071 | Best-effort indexing of unparseable files | VS adds files to the library even when it cannot identify them | `CLOSED` | S2 | M3.x | Implemented: unparseable files are added as `home_video` placeholders with a filename title and `metadataStatus = unmatched`; they appear in the unmatched/Needs-attention views and are editable/identifiable. |
@@ -354,7 +352,7 @@ public stylesheet and the unauth API inventory; deeper items still need a DSM se
 | # | Question | Default proposal |
 |---|---|---|
 | D-1 | Do we want a **Jellyfin-compatible API** layer so existing TV/mobile clients work (closes GAP-030/031 cheaply)? | Yes, but only after M5 — as an adapter over our own API. |
-| D-2 | Import tool from Video Station's PostgreSQL DB (GAP-008)? | Yes, M4-ish; big switching-cost reducer. |
+| D-2 | Import tool from Video Station's PostgreSQL DB (GAP-008)? | Re-scoped: MyVideoStation export/import bundles are implemented; a VS PostgreSQL importer is intentionally not pursued. |
 | D-3 | Subtitle download integration (GAP-012): include or leave to the user? | Leave out of v1; revisit on request. |
 | D-4 | Allow opt-in writes to media folders (`.nfo`, `poster.jpg`) for Kodi interop? | Yes, opt-in per library, default off. |
 | D-5 | DLNA (GAP-023): never, or "minidlna recipe + docs"? | Docs recipe only. |

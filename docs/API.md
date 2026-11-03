@@ -8,6 +8,8 @@ Everything else requires the `mvs_session` cookie. Endpoints marked **admin** ad
 require the `admin` role; user accounts can browse, play, edit their own watch state and
 manage their own collections. Per-library permissions and content-rating ceilings filter
 libraries, browse/home/search results, collections and media access; admins bypass them.
+During a backup import, API requests except `/health`, `/config` and `/backup/status` return
+`503 maintenance` until the server restarts with the imported data.
 
 | Method | Path | Description |
 |---|---|---|
@@ -26,6 +28,11 @@ libraries, browse/home/search results, collections and media access; admins bypa
 | GET | `/users/{id}/libraries` | **admin** — `{libraries:[{id,name,allowed}]}` |
 | PUT | `/users/{id}/libraries` | **admin** — `{libraryIds[]}` allow-list (unlisted/new libraries denied); `{unrestricted:true}` restores all |
 | GET | `/audit?limit=` | **admin** — newest activity entries (`auth`, account, library, settings, metadata) |
+| GET | `/backup/status` | Public — `{maintenance, pendingImport}` for the maintenance page |
+| GET | `/backup/exports` | **admin** — bundles in `<data>/export` |
+| POST | `/backup/export` | **admin** — create a snapshot bundle (DB + cache + manifest) in `<data>/export` |
+| GET | `/backup/imports` | **admin** — bundles in `<data>/import` |
+| POST | `/backup/import` | **admin** — `{name?}`; creates a safety export, stages the newest/named bundle, enters maintenance and restarts the server |
 | POST | `/cast/dlna/discover` | Discover LAN DLNA MediaRenderers → `{devices:[{id,name,controlUrl}]}` |
 | POST | `/cast/dlna/play` | `{fileId,controlUrl,title}` — best-effort DLNA `SetAVTransportURI` + `Play`; returns `422 needs_transcoding` for unsupported formats |
 | GET | `/settings` | **admin** — provider settings (API key never returned) |

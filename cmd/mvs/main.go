@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/liyu1981/myvideostation/internal/backup"
 	"github.com/liyu1981/myvideostation/internal/buildinfo"
 	"github.com/liyu1981/myvideostation/internal/config"
 	"github.com/liyu1981/myvideostation/internal/db"
@@ -49,6 +50,11 @@ func run() error {
 
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
+	}
+	if applied, err := backup.ApplyPending(cfg.DataDir); err != nil {
+		log.Error("pending import failed", "err", err)
+	} else if applied {
+		log.Info("pending import applied", "data", cfg.DataDir)
 	}
 
 	database, err := db.Open(ctx, cfg.DBPath)
@@ -248,6 +254,11 @@ func run() error {
 		Enricher:   enricher,
 		FFmpeg:     ffmpegPath,
 		CacheDir:   cacheDir,
+		DataDir:    cfg.DataDir,
+		Restart: func() {
+			log.Info("restarting for import")
+			os.Exit(0)
+		},
 	})
 
 	srv := &http.Server{

@@ -13,6 +13,8 @@ import { LoginPage } from './routes/LoginPage';
 import { SetupPage } from './routes/SetupPage';
 import { UsersPage } from './routes/UsersPage';
 import { ActivityPage } from './routes/ActivityPage';
+import { BackupPage } from './routes/BackupPage';
+import { MaintenancePage } from './routes/MaintenancePage';
 
 const toNum = (v: unknown): number | undefined => {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -123,6 +125,18 @@ const activityRoute = createRoute({
   component: ActivityPage,
 });
 
+const backupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/backup',
+  component: BackupPage,
+});
+
+const maintenanceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/maintenance',
+  component: MaintenancePage,
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   browseRoute,
@@ -137,6 +151,8 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   usersRoute,
   activityRoute,
+  backupRoute,
+  maintenanceRoute,
 ]);
 
 export const router = createRouter({

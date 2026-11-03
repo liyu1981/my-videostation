@@ -197,7 +197,7 @@ testdata/           parser corpus and generated sample media
 | Player | Direct play with resume/watched state, audio-track list, speed, fullscreen, keyboard shortcuts and browser-Back close. |
 | Continuous play | Next-up autoplay with countdown, same-season and cross-season rollover, and Play all/Shuffle episode queues with queue-aware previous/next. |
 | Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
-| Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich, backup/restore docs and cache-path repair. |
+| Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich; in-app export/import bundles in `data/export` / `data/import` with maintenance restart; backup/restore docs and cache-path repair. |
 | Casting | Best-effort Chromecast/AirPlay via browser remote playback and DLNA renderer discovery + SOAP playback. MP4/H.264/AAC only; unsupported formats report that transcoding is required. |
 | Packaging | Single static Go binary with embedded SPA; Alpine Docker image for linux/amd64 and linux/arm64; Synology deployment guide. |
 
@@ -487,9 +487,9 @@ Apache/OFL-licensed (Inter/Roboto).
 
 ## Backup
 
-The whole state is the data directory (`mvs.db` + `cache/`). Stop the server and
-copy it, or take an online `sqlite3 .backup` snapshot; restore to the same path.
-Docker volume, path-move caveats and verification are in
+The whole state is the data directory (`mvs.db` + `cache/`). Use **Manage → Backup** for
+in-app export/import bundles in `data/export` / `data/import`, or stop the server and copy
+the directory. Docker volume, path-move caveats and verification are in
 [`docs/BACKUP.md`](docs/BACKUP.md).
 
 ## Releases

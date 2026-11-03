@@ -98,7 +98,7 @@ func newRawTestServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 	})
 	manager.Start(ctx)
 
-	api := httpapi.New(httpapi.Options{Store: st, Jobs: manager, Logger: log})
+	api := httpapi.New(httpapi.Options{Store: st, Jobs: manager, Logger: log, DataDir: dir})
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
 	return srv, st, dir

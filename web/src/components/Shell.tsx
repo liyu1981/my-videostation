@@ -6,6 +6,7 @@ import {
   KeyRound,
   ChevronDown,
   Clapperboard,
+  DatabaseBackup,
   Film,
   Home,
   LibraryBig,
@@ -34,7 +35,7 @@ const navItems: NavItem[] = [
   { key: 'nav.playlists', to: '/playlists', icon: ListVideo },
 ];
 
-const adminPaths = ['/libraries', '/settings', '/tasks', '/users', '/activity'];
+const adminPaths = ['/libraries', '/settings', '/tasks', '/users', '/activity', '/backup'];
 
 export function Shell() {
   const navigate = useNavigate();
@@ -65,7 +66,8 @@ export function Shell() {
   const auth = useQuery({ queryKey: ['auth', 'me'], queryFn: api.me, retry: false, staleTime: 30_000 });
   const status = useQuery({ queryKey: ['auth', 'status'], queryFn: api.authStatus, retry: false, staleTime: 10_000 });
 
-  const isAuthPage = location.pathname === '/login' || location.pathname === '/setup';
+  const isMaintenance = location.pathname === '/maintenance';
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/setup' || isMaintenance;
   const user = auth.data?.user;
   const isAdmin = user?.role === 'admin';
   const userName = user?.displayName || user?.username || '';
@@ -214,6 +216,13 @@ export function Shell() {
                         <ScrollText className="size-3.5" aria-hidden /> {t('nav.activity')}
                       </Link>
                       <Link
+                        to="/backup"
+                        onClick={() => setUserMenu(false)}
+                        className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
+                      >
+                        <DatabaseBackup className="size-3.5" aria-hidden /> {t('nav.backup')}
+                      </Link>
+                      <Link
                         to="/tasks"
                         onClick={() => setUserMenu(false)}
                         className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] text-fg-muted hover:bg-surface-3 hover:text-fg"
@@ -336,6 +345,20 @@ export function Shell() {
                     aria-hidden
                   />
                   {t('nav.activity')}
+                </Link>
+                <Link
+                  to="/backup"
+                  className={[
+                    'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
+                    location.pathname === '/backup' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+                  ].join(' ')}
+                  aria-current={location.pathname === '/backup' ? 'page' : undefined}
+                >
+                  <DatabaseBackup
+                    className={['size-[18px]', location.pathname === '/backup' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
+                    aria-hidden
+                  />
+                  {t('nav.backup')}
                 </Link>
                 <Link
                   to="/tasks"

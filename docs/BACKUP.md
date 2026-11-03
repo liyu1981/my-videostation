@@ -43,6 +43,30 @@ cp -a data/cache /backup/mvs-data-2026-11-01/
 `sqlite3 ... ".backup ..."` (or `VACUUM INTO`) is consistent while the server runs;
 the copied DB is self-contained (no WAL needed).
 
+## In-app export and import (MyVideoStation bundles)
+
+The admin **Manage → Backup** page manages portable bundles inside the data directory.
+
+- **Export** writes `data/export/mvs-export-<timestamp>.tar.gz` containing:
+  - a consistent `VACUUM INTO` snapshot of `mvs.db`;
+  - the `cache/` artwork/subtitle store;
+  - `manifest.json` (format/version/created time).
+  - Media files are **not** included.
+- **Import**: copy a bundle into `data/import/` (Docker: `/data/import/`), refresh the
+  Backup page, choose the newest/desired bundle and confirm.
+  - The app creates a **safety export** of current data first.
+  - It validates the archive and SQLite integrity, stages it, enters maintenance mode and
+    restarts the server. The staged bundle is applied before the database is reopened.
+  - The UI shows a dedicated **Import in progress** page and returns automatically when the
+    server is healthy again.
+  - Docker's `--restart unless-stopped` (or the compose restart policy) is required for the
+    automatic restart; otherwise restart the container/binary manually.
+  - Media paths inside the bundle are absolute. If the bundle came from a different host or
+    mount layout, update the library paths after import and rescan.
+
+Both operations are admin-only. Treat exports as secrets: the database contains the TMDb API
+key and user password hashes.
+
 ## Docker (compose volume)
 
 The compose file uses the `mvs-data` volume mounted at `/data`. Use `docker compose run`
