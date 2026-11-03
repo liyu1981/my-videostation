@@ -98,6 +98,11 @@ func (s *Server) validCastToken(ctx context.Context, token string, fileID int64)
 	if err != nil {
 		return false
 	}
+	// Reject non-canonical base64 encodings so a tampered token cannot
+	// decode to the same bytes as the original.
+	if base64.RawURLEncoding.EncodeToString(raw) != token {
+		return false
+	}
 	lastDot := strings.LastIndexByte(string(raw), '.')
 	if lastDot <= 0 {
 		return false
