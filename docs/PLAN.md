@@ -14,6 +14,8 @@ labels, field lists, and a parity checklist for M1–M3.
 [`MONITORING.md`](./MONITORING.md) — library monitoring + auto-scrape audit and plan.
 [`SUBTITLE-INDEX.md`](./SUBTITLE-INDEX.md) — local subtitle full-text index design (GAP-012).
 [`DISC-IMAGES.md`](./DISC-IMAGES.md) — ISO/disc images non-goal + rip workaround (GAP-003).
+[`NETWORK-STORAGE.md`](./NETWORK-STORAGE.md) — SMB/NFS/cloud non-goal + host-mount recipes (GAP-001).
+[`TRAILERS.md`](./TRAILERS.md) — online trailers non-goal + local-extras workflow (GAP-011).
 [`JELLYFIN-COMPAT.md`](./JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan (GAP-030/031).
 [`adr/`](./adr) — accepted architecture decisions.
 
@@ -39,7 +41,10 @@ MyVideoStation aims at:
 
 Non-goals for v1: live TV/DVR, DLNA/UPnP server, native mobile/TV apps,
 plugin marketplace, cloud sync, distributed multi-node, optical/disc-image
-playback (`docs/DISC-IMAGES.md`), online subtitle download.
+playback (`docs/DISC-IMAGES.md`), online subtitle download, in-app
+SMB/NFS/cloud source configuration (mount on the host instead:
+`docs/NETWORK-STORAGE.md`), and online trailer fetching (`docs/TRAILERS.md`;
+local trailer files are indexed as extras).
 
 ---
 
@@ -47,7 +52,7 @@ playback (`docs/DISC-IMAGES.md`), online subtitle download.
 
 | Video Station capability | Our equivalent | Phase |
 |---|---|---|
-| Multiple libraries (Movies / TV / Home video / TV recording) | `libraries` with type + multiple paths | M1 |
+| Multiple libraries (Movies / TV / Home video / TV recording) | `libraries` with type + multiple paths (local/host-mounted filesystems only) | M1 |
 | Scheduled folder indexing | Incremental scanner + persisted job queue + scheduler | M1 |
 | Online metadata scrape (posters, fanart, cast, plot) | Provider layer (TMDb primary; future plugins) | M2 |
 | TV hierarchy Season/Episode, next-up | `shows → seasons → episodes`, auto-advance | M2/M3 |
@@ -411,7 +416,9 @@ seek-by-session-restart, audio/quality switching and image-subtitle burn-in.
 
 ### M7 — Polish / optional
 - PWA/offline shell, local subtitle full-text search (`docs/SUBTITLE-INDEX.md`),
-  trailers, duplicate detection, file-move re-link, Prometheus metrics, ARM builds
+  duplicate detection, file-move re-link, Prometheus metrics, ARM builds
+  (online trailer fetching is a non-goal — local trailer extras already work,
+  see `docs/TRAILERS.md`)
 - Casting: best-effort Chromecast/AirPlay remote playback and DLNA renderer
   discovery/SOAP delivery are in place; full SDK/AirPlay format breadth waits on M5 HLS.
 
@@ -494,7 +501,8 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
     specific client (Safari/iOS) constraint we must design for now? (default: HLS)
 14. Hardware transcoding: needed in v1? Which GPU/NAS (Intel QSV, AMD VA-API, Nvidia)?
 15. Media locations: local paths only for v1; SMB/NFS assumed pre-mounted by host.
-    Remote backends (S3/WebDAV) later? (default: yes)
+    In-app remote backends (SMB/NFS/S3/WebDAV) are a **non-goal** (GAP-001);
+    see `docs/NETWORK-STORAGE.md`.
 16. Live watcher (fsnotify) default **off**, scheduled scans default every 6h? (default: yes)
 
 **D. Stack & repo**

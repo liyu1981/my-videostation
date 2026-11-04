@@ -54,14 +54,14 @@ Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
 
 | Area | Open gaps | S1 | S2 | S3 | Notable |
 |---|---|---|---|---|---|
-| Library & indexing | 4 | 1 | 1 | 2 | 1 planned (multi-path) |
-| Metadata | 4 | 0 | 2 | 2 | NFO + field locks (ADV) |
+| Library & indexing | 3 | 1 | 0 | 2 | 1 planned (multi-path) |
+| Metadata | 3 | 0 | 2 | 1 | NFO + field locks (ADV) |
 | Playback & transcoding | 11 | 2 | 4 | 5 | — |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
 | Users, security, permissions | 5 | 0 | 4 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
 | Integrations | 4 | 0 | 0 | 4 | all permanent |
-| **Total** | **37** | **6** | **15** | **16** | 10 advantages, 1 planned |
+| **Total** | **35** | **6** | **14** | **15** | 10 advantages, 1 planned |
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
@@ -89,14 +89,11 @@ are excluded (they have no planned work or are already done).
 flowchart TB
   subgraph Library["Library & metadata"]
     direction TB
-    G1["GAP-001 network/cloud sources"]
     G7["GAP-007 scrub previews"]
     G10["GAP-010 provider plugins"]
-    G11["GAP-011 trailers"]
     G12["GAP-012 subtitle search"]
 
     G7 --> G16
-    G11 -.-> G10
   end
 
   subgraph Playback["Playback & transcoding"]
@@ -159,10 +156,8 @@ parity-completeness, not a hard feature blocker.
 
 | gap | depends on | kind | note |
 |---|---|---|---|
-| GAP-001 | — | — | storage abstraction; host mounts today |
 | GAP-007 | GAP-016 | hard | sprite sheets need ffmpeg; the resize/cache layer exists in `internal/artwork` |
 | GAP-010 | — | — | provider interface/registry in place; plugin UX is GAP-064 (non-goal) |
-| GAP-011 | GAP-010 | soft | provider trailer keys |
 | GAP-012 | — | — | local subtitle FTS index; no online provider (`docs/SUBTITLE-INDEX.md`) |
 | GAP-016 | — | — | core transcode/codec pipeline |
 | GAP-017 | — | — | SMI subtitles |
@@ -183,7 +178,8 @@ parity-completeness, not a hard feature blocker.
 | GAP-055 | GAP-016 | soft | thumbnails already have size/clear/rebuild; art + transcode caches still need UI |
 | GAP-065 | GAP-016 | soft | ffmpeg screenshot |
 
-Non-goals (not in the graph): GAP-003 (ISO/disc images), GAP-004 (TV recording),
+Non-goals (not in the graph): GAP-001 (in-app SMB/NFS/cloud sources), GAP-003 (ISO/disc images),
+GAP-004 (TV recording), GAP-011 (online trailers),
 GAP-021 (ISO/3D), GAP-023 (DLNA),
 GAP-030 (mobile apps), GAP-031 (TV apps), GAP-032 (remote access), GAP-052 (DSM package),
 GAP-060 (DSM apps), GAP-061 (cloud sync), GAP-062 (DSM SSO), GAP-063 (DSM cloud sources),
@@ -195,15 +191,15 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
-| GAP-001 | Network/cloud sources configured in-app | VS indexes SMB/NFS shares and cloud folders configured inside DSM | `GAP-LATER` | S2 | post-M7 | v1 requires host-mounted paths (compose `volumes:`). SMB/NFS clients and S3/WebDAV/SFTP backends are a separate storage-abstraction project. |
-| GAP-002 | Real-time index watching on by default | VS has real-time indexing plus scheduled indexing | `CLOSED` | S3 | M3.x | Implemented: fsnotify watcher for local/bind-mounted libraries (the Synology Docker deployment), debounced scans; CIFS/SMB/NFS and Docker Desktop shares are detected and fall back to scheduled scans; inotify `ENOSPC`/overflow disables the watcher with a warning. Per-library watch toggle. |
+| GAP-001 | Network/cloud sources configured in-app (SMB/NFS/S3/WebDAV/SFTP) | VS indexes SMB/NFS shares and cloud folders configured inside DSM | `GAP-NEVER` (v1) | S2 | — | **Decision (2026-11-04): non-goal.** MyVideoStation indexes local filesystem paths only. Workaround: mount the share on the host (NFS/CIFS/`rclone mount`) or bind-mount it into the container, then add the mount point as a library path — recipes and caveats in `docs/NETWORK-STORAGE.md`. In-app backends would be a separate storage-abstraction project. |
+| GAP-002 | Real-time index watching on by default | VS has real-time indexing plus scheduled indexing | `CLOSED` | S3 | M3.x | Implemented: fsnotify watcher for local/bind-mounted libraries (the Synology Docker deployment), debounced scans; CIFS/SMB/NFS and Docker Desktop shares are detected and fall back to scheduled scans; inotify `ENOSPC`/overflow disables the watcher with a warning. Per-library watch toggle. Host-mounted shares therefore need a scan interval (see `docs/NETWORK-STORAGE.md`). |
 | GAP-003 | Optical/ISO image playback (`ISO`, `BDMV/`, `VIDEO_TS/`) | VS can play DVD/BD folder structures and ISOs | `GAP-NEVER` (v1) | S3 | — | **Decision (2026-11-04): non-goal.** ffmpeg can demux these, but playlist/chapter/seek semantics and multi-title disc navigation are a product of their own. Workaround: rip/remux to MKV before scanning — see `docs/DISC-IMAGES.md`. |
 | GAP-004 | TV recording library + EPG + scheduled recording | VS records from USB DTV dongles / HDHomeRun, with EPG and series recording | `GAP-NEVER` (v1) | S1 | — | **[confirmed]** `SYNO.VideoStation2.DTV.{Tuner,Channel,ChannelScan,Program,Schedule,Statistic,Streaming}`. Requires tuner abstraction, EPG ingestion, conflict resolution, post-processing. Live TV is a separate product. Revisit only with a dedicated design. |
 | GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `CLOSED` | S3 | M3 | **Delivered:** per-library `excludeGlobs` / `includeGlobs` (segment patterns and `**` paths, case-insensitive, relative to each root), `minFileSizeMb` and `skipExtras`; `@eaDir`/`#recycle`/hidden folders are always skipped and samples never indexed. Rules are validated (`400` on absolute/`..`/malformed globs), applied while walking (dirs pruned), re-scan automatically on save, and excluded items are soft-hidden (not deleted) and restored when a rule is removed. Samples are always skipped. Rules are configured **per library** and matched relative to each of its roots; per-path overrides are not implemented (a library with different rules per folder needs separate libraries). |
 | GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails, and choose per-item poster/backdrop (Original / URL / from folders), with a global cover setting under Settings › Advanced | `CLOSED` | S2 | M3 | **Delivered:** Settings › Artwork & thumbnails — on/off, poster width (200/320/480), backdrop width (original/960/1280/1920), JPEG quality (70/82/92), global cover setting (provider artwork vs local files), thumbnail cache size, **Rebuild thumbnails** (job) and **Clear cache**. Variants are generated on demand under `/data/cache/thumbs` (never upscaled, originals untouched) and `?original=1` bypasses them. Per-item poster/backdrop picking was already closed (GAP-067). |
 | GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
 | GAP-008 | Export/import MyVideoStation data (re-scoped from VS DB import) | N/A (VS is no longer the target) | `CLOSED` | S2 | post-M3 | Implemented in-app bundles: consistent SQLite snapshot + artwork/subtitle cache + manifest under `data/export`; newest bundle in `data/import` can be staged, preceded by a safety export, then applied on restart with a maintenance UI. VS PostgreSQL import is intentionally not pursued. |
-| GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; cloud sources need host mounts (GAP-001). |
+| GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; DSM cloud mounts must be mounted on the host (`docs/NETWORK-STORAGE.md`). |
 | GAP-068 | Auto-scan on library creation + default monitoring | VS indexes a newly added folder immediately and keeps monitoring it | `CLOSED` | S2 | M3.x | Implemented: `POST /libraries` enqueues the initial scan; new libraries default `autoScanMinutes = 360` and `watchEnabled = true`; the Add/Edit forms expose both. |
 | GAP-071 | Best-effort indexing of unparseable files | VS adds files to the library even when it cannot identify them | `CLOSED` | S2 | M3.x | Implemented: unparseable files are added as `home_video` placeholders with a filename title and `metadataStatus = unmatched`; they appear in the unmatched/Needs-attention views and are editable/identifiable. |
 
@@ -212,7 +208,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
 | GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. **M2 ships TMDb behind a provider interface; the provider registry, provider-aware search/match/refresh, `item_provider_ids` and the search-dialog provider selector plumbing are now in place** (only TMDb is registered; plugin UX and extra providers are still missing — TheTVDB was deferred, see ADR 0002). Automatic first-time scraping was implemented in M3.x (GAP-070, closed). |
-| GAP-011 | Trailer playback (YouTube) | VS fetches and plays trailers | `GAP-LATER` | S3 | M7 | Requires provider trailer keys + an embed/privacy decision (no third-party iframe by default). |
+| GAP-011 | Online trailer fetching/streaming (YouTube/TMDb videos) | VS fetches and plays trailers | `GAP-NEVER` (v1) | S3 | — | **Decision (2026-11-04): non-goal.** No third-party iframes or provider video extraction (privacy, ToS, region locks, offline use). Workaround: local trailer/teaser files are already indexed as extras and play normally; add files manually and rescan — see `docs/TRAILERS.md`. |
 | GAP-012 | Subtitle full-text search (re-scoped from online subtitle download) | VS has a "Search for subtitles" flow with Language / File name / Source columns and downloads from a provider | `GAP-LATER` | S2 | M7 | **Decision (2026-11-04): no online subtitle download** (provider account/rate limits/copyright). Instead: index the text of subtitles we already have (sidecar SRT/ASS/VTT and embedded text tracks) into a **disposable, separate SQLite+FTS5 database**, and search it locally with timestamp jump-to-cue. Design recorded in `docs/SUBTITLE-INDEX.md`; not yet coded. |
 | GAP-013 | Metadata language/region per library | VS selects scraper language per library | `PLANNED` | S3 | M1 | Already in the plan (`libraries.language` + provider language param); listed to confirm parity intent rather than claim a gap. |
 | GAP-014 | Rich person pages / filmography | VS shows cast lists only | `ADV` | — | M2 | We store `people` as first-class rows, so filmography pages are cheap and exceed VS. |
@@ -272,7 +268,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
 | GAP-060 | Download Station / File Station / Photos integration | VS links into DSM apps (open folder, download management) | `GAP-NEVER` | S3 | — | No DSM. Equivalent: documented "completed downloads" watch folder + optional file browser later. |
-| GAP-061 | Cloud sync (Synology C2, Google Drive, OneDrive) | VS indexes cloud-mounted folders | `GAP-NEVER` (v1) | S3 | — | Folded into GAP-001's storage abstraction if ever needed. |
+| GAP-061 | Cloud sync (Synology C2, Google Drive, OneDrive) | VS indexes cloud-mounted folders | `GAP-NEVER` (v1) | S3 | — | No in-app cloud accounts (GAP-001 is a non-goal too). Workaround: `rclone mount` on the host, then add the mount as a library path (`docs/NETWORK-STORAGE.md`). |
 | GAP-062 | DSM single sign-on / QuickConnect identity | One login for DSM + VS | `GAP-NEVER` | S3 | — | Covered by GAP-032/GAP-040 alternatives. |
 | GAP-066 | Voice assistant integration (Alexa/Google) | VS can be controlled by voice assistants | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{VoiceAssistant,Setting.VoiceAssistant}`. Requires cloud account linking + an intent model; out of scope permanently for a self-hosted, account-free product. |
 

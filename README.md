@@ -465,7 +465,7 @@ error responses automatically.
 | **M4** ✅ | Player: subtitle tracks, resume, next episode |
 | **M5** | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |
 | **M6** 🟡 | Accounts, roles, per-library permissions, rating ceilings, audit log, i18n scaffold (delivered); sharing/OG links deferred, OIDC/LDAP/2FA/PIN open |
-| **M7** | PWA, casting, trailers, offline conversion, metrics |
+| **M7** | PWA, casting, offline conversion, metrics |
 
 Some M4 groundwork already ships: byte-range streaming, progress reporting and a minimal
 direct-play modal (see [ADR 0001](docs/adr/0001-m0-m1-decisions.md)).
@@ -480,6 +480,9 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/VSMETA-FORMAT.md`](./docs/VSMETA-FORMAT.md) — reverse-engineered `.vsmeta` protobuf layout
 - [`docs/SUBTITLE-INDEX.md`](./docs/SUBTITLE-INDEX.md) — local subtitle full-text search design (GAP-012)
 - [`docs/DISC-IMAGES.md`](./docs/DISC-IMAGES.md) — why ISO/disc images are a non-goal and how to rip them
+- [`docs/NETWORK-STORAGE.md`](./docs/NETWORK-STORAGE.md) — why SMB/NFS/cloud sources are a non-goal and how to mount them
+- [`docs/TRAILERS.md`](./docs/TRAILERS.md) — why online trailers are a non-goal and how local trailer extras work
+- [`docs/JELLYFIN-COMPAT.md`](./docs/JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan and endpoint matrix
 - [`docs/adr/`](./docs/adr) — architecture decisions (M0/M1 deviations, HLS transcoding, thumbnails/cover settings)
 - [`AGENTS.md`](./AGENTS.md) — working rules for contributors and coding agents
 
@@ -487,7 +490,11 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 
 Live TV/DVR, DLNA/UPnP serving, native mobile/TV apps, a plugin marketplace, cloud sync,
 optical/disc-image playback (rip to MKV instead: [`docs/DISC-IMAGES.md`](./docs/DISC-IMAGES.md)),
-online subtitle downloads, and zero-config remote access (use Tailscale/Cloudflare Tunnel).
+in-app SMB/NFS/cloud sources (mount them on the host instead:
+[`docs/NETWORK-STORAGE.md`](./docs/NETWORK-STORAGE.md)), online subtitle downloads,
+online trailer fetching (local trailer files are indexed as extras:
+[`docs/TRAILERS.md`](./docs/TRAILERS.md)), and zero-config remote access (use
+Tailscale/Cloudflare Tunnel).
 Workarounds for each are documented alongside the gap entries.
 
 ## License

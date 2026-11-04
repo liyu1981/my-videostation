@@ -4,9 +4,10 @@
 > content served by MyVideoStation, without shipping native TV apps. This closes
 > GAP-030/031 cheaply (see `GAPS.md`).
 
-Status: **research + plan, not yet implemented**. Prerequisites are now met:
-M5 (HLS transcode sessions) and M6 (accounts/sessions) shipped, so phase J1 can start
-whenever the decision below is confirmed.
+Status: **J0.5 in progress** (readiness audit recorded 2026-11-04). Prerequisites
+(M5 HLS sessions, M6 accounts/sessions) are met; no hard blockers remain. Target
+clients and the claimed server version are pinned in §10; the endpoint matrix in
+§11 is the working checklist.
 
 ---
 
@@ -106,23 +107,42 @@ TV playback works.
 - M6 auth/users complete.
 - Media stream model (codecs) persisted (M4/M5).
 
-### Phase J1 — Read-only discovery + auth shim (small)
-1. Add route group `/jellyfin` (or root aliases) in `internal/httpapi`.
-2. Implement `/System/Info/Public`, `/System/Info`, `/Health`.
-3. Implement `/Users/AuthenticateByName` delegating to our auth; return Jellyfin-shaped
-   token. Store mapping token→our session.
-4. Add middleware parsing `X-Emby-Authorization` / `api_key` query.
-5. `GET /Items/{id}`, `GET /Items` (basic filtering, pagination) for movies/series/episodes.
-6. Images endpoint serving artwork.
+### Phase J0.5 — Core enablers (in progress)
+1. Token auth middleware: `X-Emby-Authorization`, `X-Emby-Token`, `?api_key=` accepted
+   on adapter routes, `/hls/*` and `/api/v1/media/*` (native clients have no cookie).
+2. `internal/jellyfin`: reversible 32-hex ID codec (user/library/item/file), stable
+   server ID, DTOs.
+3. `/System/Info/Public`, `/System/Info`, `/Branding/Configuration`, `/QuickConnect/Enabled`.
+4. `POST /Users/AuthenticateByName`, `GET /Users/Public`, `GET /Users/Me`, `GET /Users/{id}`.
+5. `GET /Users/{id}/Views`, `GET /Users/{id}/Items`, `GET /Items`, `GET /Items/{id}`,
+   image endpoints, `GET /Search/Hints`.
 
-Deliverable: a Jellyfin client can log in and browse library + see posters.
+Deliverable: a real Jellyfin mobile client logs in, lists libraries and browses
+posters/titles (no playback yet).
+
+### Phase J1 — Read-only discovery completeness
+1. Broader `IncludeItemTypes`/`Filters`/`Fields` coverage (favorites, playlists, years).
+2. `GET /Items/{id}/Similar`, `ThemeMedia`, `LocalTrailers`, `SpecialFeatures` stubs.
+3. Collection/folder browsing edges (box sets) where our model has them.
+
+### Phase J1.5 — Detail pages
+1. Series → seasons → episodes tree with `SeriesId`/`SeasonId`/`IndexNumber`.
+2. `People`, `ProviderIds`, `OfficialRating`, `CommunityRating`, `ImageTags`.
+3. User data (`Played`, `PlaybackPositionTicks`, `PlayCount`).
+
+Deliverable: mobile client shows a full item page with cast/art/resume state.
 
 ### Phase J2 — Playback (M5 landed; adapter still needed)
-1. `GET /Items/{id}/PlaybackInfo` building MediaSources from our streams.
-2. Direct-play URL issuance (signed, byte-range capable) matching `/Videos/{id}/stream`.
-3. HLS: adapt our M5 master playlist to Jellyfin's `/Videos/{id}/master.m3u8` + segment
-   paths; or redirect. Prefer adapting paths to avoid client quirks.
-4. Subtitle endpoints.
+1. `GET/POST /Items/{id}/PlaybackInfo` building MediaSources from our streams; the
+   request's `DeviceProfile` is **ignored** initially (we transcode unless our own
+   direct-play matrix says native) — see §10.
+2. Stable manifest URL `/Videos/{id}/master.m3u8?...&StartTimeTicks=...` that starts or
+   reuses an M5 session at the requested offset and returns the playlist with segment
+   URIs rewritten to absolute `/hls/{session}/...` paths (no redirects).
+3. Direct-play URL `/Videos/{id}/stream?static=true&api_key=...` (range capable) when
+   `SupportsDirectPlay` is true.
+4. Subtitle tracks: text → `MediaStream.DeliveryUrl` (`.vtt`); bitmap → force burn-in
+   (`SubtitleStreamIndex` → transcode `subtitleIndex`).
 
 Deliverable: playback works in Jellyfin mobile + TV for direct-play and transcode cases.
 
@@ -140,9 +160,15 @@ Deliverable: playback works in Jellyfin mobile + TV for direct-play and transcod
 
 ## 5. Risks / open questions
 
-- **Client version skew**: Jellyfin clients pin minimum server versions. We may need to
-  spoof `Version` and implement enough of `/System/Info` to pass client gating.
-  `[verify]` against real clients.
+- **Client version skew**: Jellyfin clients pin minimum server versions. We claim a
+  pinned version (§10) and test against pinned client builds. `[verify]` against real
+  clients — this remains the main ongoing maintenance cost.
+- **Device profile**: ignored in v1 of the adapter, so clients that could direct-play
+  MKV/HEVC will still get HLS. Costs CPU, buys simplicity; revisit after J2. `[verify]`
+  CPU headroom on NAS hardware with two TVs + a phone.
+- **Transcode session cap**: `MVS_TRANSCODE_SESSIONS=2` is too low for family use; raise
+  to 3–4 (or per-token caps) when J2 ships. Session eviction is LRU by segment
+  request, so an actively playing session is not evicted first.
 - **HLS path shapes**: clients construct segment URLs from `PlaybackInfo`'s
   `TranscodingUrl`. We control that string, so we can point at our own paths — no need
   to mimic Jellyfin's exactly, as long as relative/absolute URLs are valid. Verify with
@@ -184,3 +210,79 @@ Deliverable: playback works in Jellyfin mobile + TV for direct-play and transcod
 Confirm D-1 (yes, adapter after M5). If approved, schedule J1 after M6 and add a
 tracking row to `GAPS.md` (GAP-031 → `GAP-LATER`/M7, note "Jellyfin API adapter").
 No code changes in this commit.
+
+---
+
+## 9. Readiness audit (2026-11-04)
+
+No hard blockers. Everything the adapter needs already exists; the five enablers in
+§3 (J0.5) are small and adapter-local except the token middleware.
+
+| Need | Existing implementation | Adapter work |
+|---|---|---|
+| Mint an `AccessToken` from username/password | `auth.VerifyPassword` + `store.CreateSession(tokenHash)` + `auth.NewSessionToken()` | `POST /Users/AuthenticateByName` returns the raw token; no schema change |
+| Token auth for native clients | Cookie sessions only (`s.auth`); `/hls` is cookie-auth; `/api/v1/media` is cookie or signed `?cast=` | Flexible middleware (cookie **or** token) for adapter routes, `/hls/*`, `/api/v1/media/*` |
+| Per-user permissions enforced in queries | `store.WithUserRole/LibraryRestricted/Rating` → `accessScope` in every item query | Set the same context from the token's user |
+| Stream facts (codecs, indices) | `media_files.container/video_codec/audio_streams/subtitle_streams`; playback DTO | DTO mapping only |
+| Transcode with audio/subtitle/quality/seek | M5 `POST /playback/{id}/transcode` (`audioIndex`, `subtitleIndex`, `maxHeight`, `startMs`) | Session-backed manifest URL |
+| Artwork + stable tags | `/items/{id}/poster|backdrop`, `internal/artwork` thumbnails, source mtime | `ImageTags` from path+mtime hash |
+| Resume / watched / next-up / continue watching | `playback_progress`, `NextEpisode`, `ContinueWatching` | Ticks conversion |
+| Browse/filter/paginate/search | `store.ListItems`, FTS5 `store.Search` | Param translation |
+| Durable jobs | `jobs` queue + progress | Not needed for playback |
+
+## 10. Pinned targets & compatibility contract
+
+- **Claimed server version**: `10.10.7` (Jellyfin "stable" line). Returned by
+  `/System/Info` and `/System/Info/Public`. It is a compatibility claim, not a real
+  Jellyfin build; bump it deliberately and re-run the matrix when a client requires a
+  newer minimum.
+- **Target clients (test matrix)**: Jellyfin **Android** (mobile) and **Android TV**
+  (Google TV) first; Jellyfin **iOS** second. The Jellyfin **web** client is out of
+  scope for v1 (it exercises a much larger API surface, including the plugin/playlist/
+  config UI we do not implement).
+- **ID format**: 32 lowercase hex, reversible (`kind` + `id`). Clients treat IDs as
+  opaque, so this is stable across restarts and does not leak our numeric ids.
+- **Auth**: opaque opaque session token (same format as our cookie session), accepted
+  via `X-Emby-Authorization`, `X-Emby-Token`, or `?api_key=`/`?ApiKey=`. 30-day
+  expiry. Plain HTTP on a LAN means the password crosses the wire on login — document
+  HTTPS/reverse proxy; identical trade-off to Jellyfin itself.
+- **Out of scope**: plugin/config UI endpoints, playlist management, live TV, sync,
+  QuickConnect (returns `false`), lyrics, theme media, HDHR.
+- **Reserved paths**: adapter routes are mounted at the root (`/System`, `/Users`,
+  `/Items`, `/Items/{id}/Images`, ...). They must never collide with SPA routes; the
+  SPA catch-all remains the fallback.
+
+## 11. Endpoint coverage matrix (J0.5 scope)
+
+`[ ]` = not implemented, `[x]` = implemented in this slice.
+
+| Endpoint | Purpose |
+|---|---|
+| `[ ] GET /System/Info/Public` | discovery; server id/name/version |
+| `[ ] GET /System/Info` | full info (auth) |
+| `[ ] GET /Branding/Configuration` | login screen branding defaults |
+| `[ ] GET /QuickConnect/Enabled` | `false` (QuickConnect is not implemented) |
+| `[ ] GET /Users/Public` | login-screen profile list |
+| `[ ] POST /Users/AuthenticateByName` | username/password → token + user |
+| `[ ] GET /Users/Me` | current user (auth) |
+| `[ ] GET /Users/{userId}` | one user (auth) |
+| `[ ] GET /Users/{userId}/Views` | libraries as `CollectionFolder`s |
+| `[ ] GET /Users/{userId}/Items` | browse/search list |
+| `[ ] GET /Items` | browse/search list (alternate path) |
+| `[ ] GET /Items/{itemId}` | item detail |
+| `[ ] GET /Items/{itemId}/Images/{type}` | poster/backdrop (thumbnails) |
+| `[ ] GET /Items/{itemId}/Images/{type}/{index}` | poster/backdrop variants |
+| `[ ] GET /Search/Hints` | search suggestions |
+
+Later slices: `PlaybackInfo`, `/Videos/*`, `/Sessions/Playing*`, `/Shows/*`,
+`/Items/Resume`, `/Items/Latest`, favorites/played mutations, SSDP.
+
+## 12. Build order for J0.5
+
+1. Token middleware + `userContext` refactor (core, testable in isolation).
+2. `internal/jellyfin` ID codec + server ID + DTO structs (unit tests).
+3. Info/auth/user handlers.
+4. Views/browse/item/image handlers (reuse `store.ListItems`, `ItemFiles`, `serveArt`).
+5. Search hints.
+6. Tests: DTO round-trips, auth/token flow, browse mapping, image tags.
+7. Manual probe against a real Jellyfin Android client (manual step; record results).
