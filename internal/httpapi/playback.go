@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liyu1981/myvideostation/internal/playback"
 	"github.com/liyu1981/myvideostation/internal/store"
 	"github.com/liyu1981/myvideostation/internal/subtitle"
 )
@@ -21,7 +22,8 @@ type subtitleTrackDTO struct {
 	Label    string `json:"label"`
 	Language string `json:"language,omitempty"`
 	URL      string `json:"url"`
-	Source   string `json:"source"` // external | embedded
+	Source   string `json:"source"`           // external | embedded
+	BurnIn   bool   `json:"burnIn,omitempty"` // image subtitles: only via transcode
 	Default  bool   `json:"default,omitempty"`
 }
 
@@ -32,6 +34,7 @@ type audioTrackDTO struct {
 	Language string `json:"language,omitempty"`
 	Title    string `json:"title,omitempty"`
 	Default  bool   `json:"default,omitempty"`
+	Direct   bool   `json:"direct"` // playable without transcoding
 }
 
 type nextUpDTO struct {
@@ -51,6 +54,16 @@ type playbackDTO struct {
 	Audio      []audioTrackDTO    `json:"audio"`
 	Next       *nextUpDTO         `json:"next,omitempty"`
 	Cast       castInfoDTO        `json:"cast"`
+
+	// Container/stream facts used by the player to pick direct play vs HLS.
+	Container  string                   `json:"container,omitempty"`
+	VideoCodec string                   `json:"videoCodec,omitempty"`
+	Height     int                      `json:"height,omitempty"`
+	Width      int                      `json:"width,omitempty"`
+	DirectPlay bool                     `json:"directPlay"`
+	HLS        bool                     `json:"hls"`
+	Reasons    []string                 `json:"reasons,omitempty"`
+	Qualities  []playback.QualityOption `json:"qualities"`
 }
 
 // handlePlayback resolves everything the player needs for one item.
@@ -94,6 +107,32 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 		out.ResumeMS = item.PositionMS
 	}
 	out.Cast = s.castInfo(r, file)
+	out.Container = playback.ContainerFromPath(file.Path, file.Container)
+	out.VideoCodec = file.VideoCodec
+	out.Height = file.Height
+	out.Width = file.Width
+
+	// Direct play only needs the default audio track to be browser-native; other
+	// tracks can be switched later by restarting a transcode session.
+	var defaultAudio *store.AudioStream
+	for i := range file.AudioStreams {
+		if file.AudioStreams[i].Default {
+			defaultAudio = &file.AudioStreams[i]
+			break
+		}
+	}
+	if defaultAudio == nil && len(file.AudioStreams) > 0 {
+		defaultAudio = &file.AudioStreams[0]
+	}
+	audioCodecs := []string{}
+	if defaultAudio != nil {
+		audioCodecs = append(audioCodecs, defaultAudio.Codec)
+	}
+	direct := playback.EvaluateDirectPlay(out.Container, file.VideoCodec, audioCodecs)
+	out.DirectPlay = direct.OK
+	out.Reasons = direct.Reasons
+	out.HLS = s.transcoder.Available()
+	out.Qualities = playback.QualityLadder(file.Height)
 
 	exts, err := s.store.ExternalSubtitles(r.Context(), file.ID)
 	if err != nil {
@@ -113,12 +152,10 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 		out.Audio = append(out.Audio, audioTrackDTO{
 			Index: a.Index, Codec: a.Codec, Channels: a.Channels,
 			Language: a.Language, Title: a.Title, Default: a.Default,
+			Direct: playback.EvaluateDirectPlay(out.Container, file.VideoCodec, []string{a.Codec}).OK,
 		})
 	}
 	for _, st := range file.SubtitleStreams {
-		if imageBasedSubtitle(st.Codec) {
-			continue // burn-in arrives with transcoding (M5)
-		}
 		label := st.Title
 		if label == "" {
 			label = st.Language
@@ -126,23 +163,40 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 		if label == "" {
 			label = fmt.Sprintf("Track %d", st.Index)
 		}
-		out.Subtitles = append(out.Subtitles, subtitleTrackDTO{
+		track := subtitleTrackDTO{
 			ID:       fmt.Sprintf("emb-%d", st.Index),
 			Label:    label,
 			Language: st.Language,
-			URL:      fmt.Sprintf("/api/v1/media/%d/subtitle?embedded=%d", file.ID, st.Index),
 			Source:   "embedded",
-		})
+		}
+		if imageBasedSubtitle(st.Codec) {
+			// Bitmap subtitles (PGS/VobSub) can only be burned in.
+			track.BurnIn = true
+			out.Subtitles = append(out.Subtitles, track)
+			continue
+		}
+		track.URL = fmt.Sprintf("/api/v1/media/%d/subtitle?embedded=%d", file.ID, st.Index)
+		out.Subtitles = append(out.Subtitles, track)
 	}
+	// Text tracks are auto-enabled; image tracks are only chosen explicitly
+	// because enabling them forces a burn-in transcode.
 	for i := range out.Subtitles {
+		if out.Subtitles[i].BurnIn {
+			continue
+		}
 		lang := strings.ToLower(out.Subtitles[i].Language)
 		if lang == "en" || lang == "eng" || lang == "english" {
 			out.Subtitles[i].Default = true
 			break
 		}
 	}
-	if len(out.Subtitles) > 0 && !hasDefault(out.Subtitles) {
-		out.Subtitles[0].Default = true
+	if !hasDefault(out.Subtitles) {
+		for i := range out.Subtitles {
+			if !out.Subtitles[i].BurnIn {
+				out.Subtitles[i].Default = true
+				break
+			}
+		}
 	}
 
 	if item.Kind == store.KindEpisode {

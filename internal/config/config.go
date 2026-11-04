@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the process configuration. Precedence: flags > MVS_* env > defaults.
@@ -17,6 +19,13 @@ type Config struct {
 	FFprobe   string // explicit ffprobe path (optional; auto-detected)
 	LogLevel  string // debug|info|warn|error
 	LogFormat string // text|json
+
+	// Transcoding (M5).
+	TranscodeSessions int           // concurrent HLS sessions (default 2)
+	TranscodeIdle     time.Duration // idle session timeout (default 3m)
+	TranscodeEncoder  string        // libx264 | h264_nvenc | h264_qsv
+	TranscodeHWAccel  string        // optional ffmpeg -hwaccel value
+	TranscodePaced    bool          // throttle ffmpeg to ~1x (default true)
 }
 
 // Defaults returns the baseline configuration.
@@ -29,6 +38,12 @@ func Defaults() Config {
 		FFprobe:   envOr("MVS_FFPROBE", ""),
 		LogLevel:  envOr("MVS_LOG_LEVEL", "info"),
 		LogFormat: envOr("MVS_LOG_FORMAT", "text"),
+
+		TranscodeSessions: envInt("MVS_TRANSCODE_SESSIONS", 2),
+		TranscodeIdle:     time.Duration(envInt("MVS_TRANSCODE_IDLE_SECONDS", 180)) * time.Second,
+		TranscodeEncoder:  envOr("MVS_TRANSCODE_ENCODER", "libx264"),
+		TranscodeHWAccel:  envOr("MVS_TRANSCODE_HWACCEL", ""),
+		TranscodePaced:    envBool("MVS_TRANSCODE_PACED", true),
 	}
 }
 
@@ -80,6 +95,27 @@ func Load(args []string) (Config, error) {
 		return Config{}, fmt.Errorf("invalid log format %q (want text|json)", cfg.LogFormat)
 	}
 	return cfg, nil
+}
+
+func envInt(key string, fallback int) int {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		switch strings.ToLower(v) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
+	}
+	return fallback
 }
 
 func envOr(key, fallback string) string {

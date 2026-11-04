@@ -16,22 +16,24 @@ import (
 	"github.com/liyu1981/myvideostation/internal/buildinfo"
 	"github.com/liyu1981/myvideostation/internal/enrich"
 	"github.com/liyu1981/myvideostation/internal/jobs"
+	"github.com/liyu1981/myvideostation/internal/playback"
 	"github.com/liyu1981/myvideostation/internal/store"
 	"github.com/liyu1981/myvideostation/internal/web"
 )
 
 // Server wires the API handlers.
 type Server struct {
-	store    *store.Store
-	jobs     *jobs.Manager
-	log      *slog.Logger
-	cors     []string
-	version  string
-	enricher *enrich.Service
-	ffmpeg   string
-	cacheDir string
-	dataDir  string
-	restart  func()
+	store      *store.Store
+	jobs       *jobs.Manager
+	log        *slog.Logger
+	cors       []string
+	version    string
+	enricher   *enrich.Service
+	ffmpeg     string
+	cacheDir   string
+	transcoder *playback.Manager
+	dataDir    string
+	restart    func()
 
 	castMu  sync.Mutex
 	castKey []byte
@@ -51,6 +53,13 @@ type Options struct {
 	CacheDir   string
 	DataDir    string
 	Restart    func()
+
+	// Transcoding tunables (zero values pick safe defaults).
+	TranscodeSessions int
+	TranscodeIdle     time.Duration
+	TranscodeEncoder  string
+	TranscodeHWAccel  string
+	TranscodePaced    bool
 }
 
 // New creates the API server.
@@ -61,8 +70,19 @@ func New(o Options) *Server {
 	if o.Version == "" {
 		o.Version = buildinfo.Version
 	}
+	t := playback.New(playback.Options{
+		CacheDir:    o.CacheDir,
+		FFmpeg:      o.FFmpeg,
+		MaxSessions: o.TranscodeSessions,
+		IdleTimeout: o.TranscodeIdle,
+		Encoder:     o.TranscodeEncoder,
+		HWAccel:     o.TranscodeHWAccel,
+		Paced:       o.TranscodePaced,
+		Logger:      o.Logger,
+	})
 	return &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
-		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: o.CacheDir, dataDir: o.DataDir, restart: o.Restart}
+		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: o.CacheDir, dataDir: o.DataDir, restart: o.Restart,
+		transcoder: t}
 }
 
 // Handler builds the root HTTP handler (API + UI).
@@ -145,6 +165,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/items/{id}/backdrop", s.auth(s.handleArt("backdrop")))
 
 	mux.HandleFunc("GET /api/v1/media/{fileId}", s.mediaAuth(s.handleStream))
+	mux.HandleFunc("POST /api/v1/playback/{itemId}/transcode", s.auth(s.handleStartTranscode))
+	mux.HandleFunc("GET /api/v1/playback/sessions/{session}", s.auth(s.handleTranscodeStatus))
+	mux.HandleFunc("DELETE /api/v1/playback/sessions/{session}", s.auth(s.handleStopTranscode))
+	mux.HandleFunc("GET /api/v1/playback/capabilities", s.auth(s.handlePlaybackCapabilities))
+	mux.HandleFunc("GET /hls/{session}/{file...}", s.auth(s.handleHLS))
 	mux.HandleFunc("GET /api/v1/media/{fileId}/subtitle", s.auth(s.handleSubtitle))
 	mux.HandleFunc("GET /api/v1/items/{id}/playback", s.auth(s.handlePlayback))
 
@@ -406,4 +431,11 @@ func (s *Server) itemDetail(ctx context.Context, it *store.Item) (*itemDetailDTO
 		d.Children = s.itemDTOs(children)
 	}
 	return d, nil
+}
+
+// Close releases background resources (transcode sessions).
+func (s *Server) Close() {
+	if s.transcoder != nil {
+		s.transcoder.Shutdown()
+	}
 }

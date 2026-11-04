@@ -79,8 +79,14 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | POST | `/items/{id}/art/upload` | **admin** — multipart `kind=poster|backdrop` + `file` (JPEG/PNG/WebP/GIF, ≤20 MB) — store a user upload in the art cache |
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
-| GET | `/items/{id}/playback` | Player payload: stream URL, signed `cast` URL/compatibility, resume position, subtitle tracks, audio tracks, next episode |
+| GET | `/items/{id}/playback` | Player payload: stream URL, signed `cast` URL/compatibility, resume position, subtitle tracks (image tracks flagged `burnIn`), audio tracks (`direct` per track), next episode, and `directPlay`/`hls`/`reasons`/`qualities` for choosing direct play vs HLS |
 | GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206`; signed `?cast=` tokens allow cast devices without a session cookie |
+| POST | `/playback/{itemId}/transcode` | Start or reuse an HLS session: `{fileId?,startMs?,audioIndex?,subtitleIndex?,externalSubtitleId?,maxHeight?,mode?}` → `{sessionId,playlistUrl,startMs,durationMs,mode,height,reasons[]}`. Reuses an identical live session; a different `startMs`/audio/burn-in/height starts a new job |
+| GET | `/playback/sessions/{sessionId}` | Session status: `{mode,startMs,durationMs,encodedMs,speed,height,running,error?}` |
+| DELETE | `/playback/sessions/{sessionId}` | Stop the job and delete its segments (`204`); idle sessions are reaped automatically |
+| GET | `/playback/capabilities` | Direct-play codec matrix, available encoders and the quality ladder |
+| GET | `/hls/{sessionId}/index.m3u8` | Session playlist (cookie auth; segments follow relative URLs) |
+| GET | `/hls/{sessionId}/{init.mp4\|segNNNNN.m4s}` | HLS fMP4 init/segment, byte-range capable |
 | GET | `/media/{fileId}/subtitle?ext=ID` | Sidecar subtitle as WebVTT; optional `&delayMs=±n` shifts cue times |
 | GET | `/media/{fileId}/subtitle?embedded=INDEX` | ffmpeg-extracted embedded subtitle as WebVTT (cached); optional `&delayMs=±n` |
 

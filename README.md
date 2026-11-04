@@ -193,8 +193,9 @@ testdata/           parser corpus and generated sample media
 | Browse | VS-style hero and ring shelf, continue watching, fixed 120 px poster grid, poster/tile/list views, categories, sorting, pagination, FTS5 search and show → season → episode navigation. |
 | Item detail | VS poster/action layout, badges, metadata rows, paragraph-preserving summary, season bar and episode cards, prev/next arrows, extras and a media-info dialog. |
 | Edit dialog | Video Info / Poster / Backdrop tabs, chip editors, per-field locks, nested TMDb search, best-effort fills, merge/keep prompts and “Select from existing”. |
-| Subtitles | Sidecar and embedded WebVTT with charset detection (UTF-8/GB18030/Big5), ±60 s delay, cue size/colour and default-language preference. |
-| Player | Direct play with resume/watched state, audio-track list, speed, fullscreen, keyboard shortcuts and browser-Back close. |
+| Subtitles | Sidecar and embedded WebVTT with charset detection (UTF-8/GB18030/Big5), ±60 s delay, cue size/colour and default-language preference; PGS/VobSub burned in by the transcoder. |
+| Player | Direct play with resume/watched state, speed, fullscreen, keyboard shortcuts and browser-Back close. |
+| Transcoding | On-demand HLS fMP4 sessions: remux-first, HEVC/VC-1/MPEG-2/AC3/DTS/TrueHD → H.264/AAC, audio-track switching, image-subtitle burn-in, quality cap, seek-by-restart, idle session cleanup and a global session cap. Software x264 by default with opt-in NVENC/QSV. |
 | Continuous play | Next-up autoplay with countdown, same-season and cross-season rollover, and Play all/Shuffle episode queues with queue-aware previous/next. |
 | Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
 | Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich; in-app export/import bundles in `data/export` / `data/import` with maintenance restart; backup/restore docs and cache-path repair. |
@@ -437,6 +438,17 @@ Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file 
 | `--ffprobe` | `MVS_FFPROBE` | auto-detected |
 | `--log-level` | `MVS_LOG_LEVEL` | `info` |
 | `--log-format` | `MVS_LOG_FORMAT` | `text` |
+| — | `MVS_FFMPEG` | auto-detected (transcoding/subtitles) |
+| — | `MVS_TRANSCODE_SESSIONS` | `2` concurrent HLS jobs |
+| — | `MVS_TRANSCODE_IDLE_SECONDS` | `180` before an idle job is killed |
+| — | `MVS_TRANSCODE_ENCODER` | `libx264` (`h264_nvenc`, `h264_qsv` opt-in) |
+| — | `MVS_TRANSCODE_HWACCEL` | unset (`cuda`, `qsv`, `vaapi` decode hints) |
+| — | `MVS_TRANSCODE_PACED` | `true` (throttle ffmpeg to ~1x; `false` encodes ahead) |
+
+Transcoding needs an ffmpeg build with `libx264` (`ffmpeg -encoders | grep libx264`); the
+Docker image includes one. The bundled browser player falls back to HLS automatically when
+the file is Matroska/HEVC/AC3/DTS/etc., using `hls.js` for MSE browsers and native HLS on
+Safari.
 
 The metadata and artwork HTTP clients honor the standard `HTTPS_PROXY`, `HTTP_PROXY` and
 `NO_PROXY` environment variables. API keys are redacted from logs, job errors and API

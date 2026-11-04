@@ -255,6 +255,12 @@ func run() error {
 		FFmpeg:     ffmpegPath,
 		CacheDir:   cacheDir,
 		DataDir:    cfg.DataDir,
+
+		TranscodeSessions: cfg.TranscodeSessions,
+		TranscodeIdle:     cfg.TranscodeIdle,
+		TranscodeEncoder:  cfg.TranscodeEncoder,
+		TranscodeHWAccel:  cfg.TranscodeHWAccel,
+		TranscodePaced:    cfg.TranscodePaced,
 		Restart: func() {
 			log.Info("restarting for import")
 			os.Exit(0)
@@ -290,6 +296,7 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	defer api.Close()
 	return srv.Shutdown(shutdownCtx)
 }
 

@@ -15,6 +15,7 @@ import {
   RotateCw,
   SkipBack,
   SkipForward,
+  Settings2,
   Subtitles,
   Volume1,
   Volume2,
@@ -22,9 +23,17 @@ import {
   X,
 } from 'lucide-react';
 import { playerAtom } from '../atoms/ui';
-import { api, type DLNADevice, type PlaybackSubtitle } from '../lib/api';
+import {
+  api,
+  type DLNADevice,
+  type PlaybackSubtitle,
+  type QualityOption,
+  type TranscodeSession,
+} from '../lib/api';
 
-type Menu = 'none' | 'subs' | 'audio' | 'speed' | 'cast';
+type Menu = 'none' | 'subs' | 'audio' | 'speed' | 'cast' | 'quality';
+
+const HLS_MIME = 'application/vnd.apple.mpegurl';
 
 const HIDE_AFTER_MS = 3000;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -78,6 +87,23 @@ export function PlayerModal() {
   const [dlnaLoading, setDlnaLoading] = useState(false);
   const [dlnaError, setDlnaError] = useState('');
 
+  // M5: HLS transcode session (only when direct play cannot handle the file).
+  const [session, setSession] = useState<TranscodeSession | null>(null);
+  const [sessionError, setSessionError] = useState('');
+  const [startingSession, setStartingSession] = useState(false);
+  const [audioIndex, setAudioIndex] = useState<number | null>(null);
+  const [audioChosen, setAudioChosen] = useState(false);
+  const [maxHeight, setMaxHeight] = useState(0);
+  const sessionRef = useRef<TranscodeSession | null>(null);
+  const hlsRef = useRef<{ destroy: () => void } | null>(null);
+  const selectionRef = useRef({ audioIndex: -1, maxHeight: 0 });
+  const startSeq = useRef(0);
+  const seekTimer = useRef<number | null>(null);
+  const absMsRef = useRef(0);
+  const totalDurationRef = useRef(0);
+  const wasPlayingRef = useRef(true);
+  const pendingSeekRef = useRef<number | null>(null);
+
   const hideTimer = useRef<number | null>(null);
   const lastSaved = useRef(0);
   const resumedFor = useRef<number | null>(null);
@@ -99,9 +125,34 @@ export function PlayerModal() {
   const data = playback.data;
   const tracks = data?.subtitles ?? [];
   const track = tracks.find((t) => t.id === subtitleID);
-  const subtitleURL = track
+  const subtitleURL = track && !track.burnIn
     ? `${track.url}${track.url.includes('?') ? '&' : '?'}delayMs=${subtitleDelay}`
     : '';
+
+  const audioTracks = data?.audio ?? [];
+  const defaultAudioIndex = audioTracks.find((a) => a.default)?.index ?? audioTracks[0]?.index ?? -1;
+  const chosenAudioIndex = audioIndex ?? defaultAudioIndex;
+  const selectedAudio = audioTracks.find((a) => a.index === chosenAudioIndex);
+  const burnInIndex = track?.burnIn ? Number(track.id.replace('emb-', '')) : -1;
+  const needsSession = Boolean(
+    data &&
+      data.hls &&
+      (!data.directPlay ||
+        burnInIndex >= 0 ||
+        maxHeight > 0 ||
+        (selectedAudio && !selectedAudio.direct) ||
+        // A plain <video> cannot switch tracks, so an explicit choice needs HLS.
+        (audioChosen && chosenAudioIndex !== defaultAudioIndex)),
+  );
+
+  const sessionStartSec = (session?.startMs ?? 0) / 1000;
+  const totalDuration = session
+    ? session.durationMs > 0
+      ? (session.startMs + session.durationMs) / 1000
+      : session.startMs / 1000 + duration
+    : duration;
+  totalDurationRef.current = totalDuration;
+  const absCurrent = session ? sessionStartSec + current : current;
 
   const save = useCallback(
     (positionMs: number, durationMs: number, played: boolean) => {
@@ -119,8 +170,47 @@ export function PlayerModal() {
 
   const saveNow = useCallback(() => {
     const v = videoRef.current;
-    if (v && v.currentTime > 2) save(v.currentTime * 1000, (v.duration || 0) * 1000, false);
+    if (!v) return;
+    const abs = absMsRef.current;
+    if (abs > 2000) save(abs, totalDurationRef.current * 1000, false);
   }, [save]);
+
+  const stopSession = useCallback((id?: string) => {
+    if (!id) return;
+    void api.stopTranscode(id);
+  }, []);
+
+  // Start (or restart) an HLS session at an absolute position.
+  const startSession = useCallback(
+    async (startMs: number, burn: number) => {
+      if (!data) return;
+      const seq = ++startSeq.current;
+      setStartingSession(true);
+      setSessionError('');
+      try {
+        const res = await api.transcode(data.itemId, {
+          fileId: data.fileId,
+          startMs: Math.max(0, Math.round(startMs)),
+          audioIndex: selectionRef.current.audioIndex >= 0 ? selectionRef.current.audioIndex : undefined,
+          subtitleIndex: burn >= 0 ? burn : undefined,
+          maxHeight: selectionRef.current.maxHeight || undefined,
+        });
+        if (seq !== startSeq.current) {
+          void api.stopTranscode(res.sessionId);
+          return;
+        }
+        const previous = sessionRef.current;
+        sessionRef.current = res;
+        setSession(res);
+        if (previous && previous.sessionId !== res.sessionId) stopSession(previous.sessionId);
+      } catch (err) {
+        if (seq === startSeq.current) setSessionError((err as Error).message);
+      } finally {
+        if (seq === startSeq.current) setStartingSession(false);
+      }
+    },
+    [data, stopSession],
+  );
 
   const close = useCallback(() => {
     if (historyPushed.current) {
@@ -129,8 +219,11 @@ export function PlayerModal() {
       return;
     }
     saveNow();
+    const current = sessionRef.current;
+    sessionRef.current = null;
+    stopSession(current?.sessionId);
     setPlayer(null);
-  }, [saveNow, setPlayer]);
+  }, [saveNow, setPlayer, stopSession]);
 
   // Push a history entry when the player opens; Back then closes the player.
   useEffect(() => {
@@ -146,11 +239,14 @@ export function PlayerModal() {
       if (!historyPushed.current) return;
       historyPushed.current = false;
       saveNow();
+      const current = sessionRef.current;
+      sessionRef.current = null;
+      stopSession(current?.sessionId);
       setPlayer(null);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [saveNow, setPlayer]);
+  }, [saveNow, setPlayer, stopSession]);
 
   const poke = useCallback(() => {
     setControlsVisible(true);
@@ -160,6 +256,18 @@ export function PlayerModal() {
 
   // Reset per-item state.
   useEffect(() => {
+    startSeq.current += 1; // discard in-flight session requests for the old item
+    const previous = sessionRef.current;
+    sessionRef.current = null;
+    if (previous) void api.stopTranscode(previous.sessionId);
+    setSession(null);
+    setSessionError('');
+    setAudioIndex(null);
+    setAudioChosen(false);
+    setMaxHeight(0);
+    selectionRef.current = { audioIndex: -1, maxHeight: 0 };
+    absMsRef.current = 0;
+    pendingSeekRef.current = null;
     setSubtitleID('off');
     setSubtitleDelay(0);
     setEnded(false);
@@ -186,12 +294,104 @@ export function PlayerModal() {
     localStorage.setItem('mvs.autoPlayNext', String(autoPlayNext));
   }, [autoPlayNext]);
 
-  // Default subtitle (English preferred).
+  // Default subtitle (English preferred, text only: image tracks force burn-in).
   useEffect(() => {
     if (!tracks.length || subtitleID !== 'off') return;
-    const preferred = tracks.find((t) => t.default);
-    if (preferred) setSubtitleID(preferred.id);
+    const preferred = tracks.find((t) => t.default && !t.burnIn) ?? tracks.find((t) => t.default);
+    if (preferred && !preferred.burnIn) setSubtitleID(preferred.id);
   }, [tracks, subtitleID]);
+
+  // Direct play vs HLS session.
+  useEffect(() => {
+    if (!data) return;
+    if (!needsSession) {
+      const previous = sessionRef.current;
+      if (previous) {
+        // Returning to direct play: keep the position and drop the job.
+        pendingSeekRef.current = absMsRef.current / 1000;
+        sessionRef.current = null;
+        setSession(null);
+        stopSession(previous.sessionId);
+      }
+      return;
+    }
+    if (!data.hls) return; // the <video> error path explains that ffmpeg is missing
+    const resumeMs = absMsRef.current > 3000 ? absMsRef.current : data.resumeMs > 5000 ? data.resumeMs : 0;
+    if (sessionRef.current) wasPlayingRef.current = !videoRef.current?.paused;
+    void startSession(resumeMs, burnInIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.itemId, data?.fileId, data?.hls, needsSession, burnInIndex, chosenAudioIndex, maxHeight]);
+
+  // Attach the session playlist to the <video> element (hls.js or native HLS).
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !session) return;
+    let cancelled = false;
+    let hls: import('hls.js').default | null = null;
+    const onReady = () => {
+      if (cancelled) return;
+      v.currentTime = 0;
+      if (wasPlayingRef.current) void v.play().catch(() => undefined);
+    };
+    if (v.canPlayType(HLS_MIME)) {
+      v.src = session.playlistUrl;
+      v.addEventListener('loadedmetadata', onReady, { once: true });
+      void v.play().catch(() => undefined);
+      return () => {
+        cancelled = true;
+        v.removeEventListener('loadedmetadata', onReady);
+        v.removeAttribute('src');
+        v.load();
+      };
+    }
+    void (async () => {
+      const { default: Hls } = await import('hls.js');
+      if (cancelled) return;
+      if (!Hls.isSupported()) {
+        setSessionError('HLS (MSE) playback is not supported in this browser.');
+        return;
+      }
+      hls = new Hls({ enableWorker: true, backBufferLength: 90, maxBufferLength: 30 });
+      hlsRef.current = hls;
+      hls.loadSource(session.playlistUrl);
+      hls.attachMedia(v);
+      hls.on(Hls.Events.MANIFEST_PARSED, onReady);
+      let networkRetries = 0;
+      let mediaRetries = 0;
+      hls.on(Hls.Events.ERROR, (_event, info) => {
+        if (!info.fatal) return;
+        if (info.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 2) {
+          networkRetries += 1;
+          hls?.startLoad();
+          return;
+        }
+        if (info.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRetries < 1) {
+          mediaRetries += 1;
+          hls?.recoverMediaError();
+          return;
+        }
+        setSessionError(info.details ? `HLS: ${info.details}` : 'Playback failed');
+      });
+    })();
+    return () => {
+      cancelled = true;
+      hls?.destroy();
+      hlsRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.sessionId]);
+
+  // Stop the session when the player unmounts.
+  useEffect(
+    () => () => {
+      startSeq.current += 1; // discard in-flight session requests
+      const current = sessionRef.current;
+      sessionRef.current = null;
+      if (current) void api.stopTranscode(current.sessionId);
+      hlsRef.current?.destroy();
+    },
+    [],
+  );
 
   // Auto-hide while playing.
   useEffect(() => {
@@ -233,14 +433,88 @@ export function PlayerModal() {
     poke();
   }, [poke]);
 
-  const seek = useCallback(
-    (delta: number) => {
+  // Seek to an absolute position (seconds from the start of the title).
+  const seekTo = useCallback(
+    (absolute: number) => {
       const v = videoRef.current;
       if (!v) return;
-      v.currentTime = Math.min(Math.max(0, v.currentTime + delta), v.duration || 0);
+      const total = totalDurationRef.current || v.duration || 0;
+      const target = Math.max(0, Math.min(absolute, total));
+      const active = sessionRef.current;
+      if (!active) {
+        v.currentTime = target;
+        poke();
+        return;
+      }
+      const local = target - active.startMs / 1000;
+      const produced = v.buffered.length ? v.buffered.end(v.buffered.length - 1) : 0;
+      if (local >= 0 && local <= produced + 1) {
+        v.currentTime = local;
+        poke();
+        return;
+      }
+      // Outside the produced window: restart ffmpeg at the target (debounced,
+      // so dragging the scrub bar spawns one job instead of dozens).
+      if (seekTimer.current) window.clearTimeout(seekTimer.current);
+      wasPlayingRef.current = !v.paused;
+      seekTimer.current = window.setTimeout(() => {
+        void startSession(target * 1000, burnInIndex);
+      }, 220);
       poke();
     },
-    [poke],
+    [poke, startSession, burnInIndex],
+  );
+
+  const seek = useCallback(
+    (delta: number) => {
+      seekTo(absMsRef.current / 1000 + delta);
+    },
+    [seekTo],
+  );
+
+  // Quality / audio / subtitle switching all restart the session at the
+  // current position (or promote a direct-play title to a session).
+  const chooseQuality = useCallback(
+    (height: number) => {
+      selectionRef.current.maxHeight = height;
+      setMaxHeight(height);
+      setMenu('none');
+    },
+    [],
+  );
+
+  const chooseAudio = useCallback(
+    (index: number) => {
+      selectionRef.current.audioIndex = index;
+      setAudioIndex(index);
+      setAudioChosen(true);
+      setMenu('none');
+    },
+    [],
+  );
+
+  const chooseSubtitle = useCallback(
+    (next?: PlaybackSubtitle) => {
+      setMenu('none');
+      if (!next) {
+        setSubtitleID('off');
+            if (sessionRef.current && burnInIndex >= 0) {
+          wasPlayingRef.current = !videoRef.current?.paused;
+          void startSession(absMsRef.current, -1);
+        }
+        return;
+      }
+      setSubtitleID(next.id);
+      if (next.burnIn) {
+        const index = Number(next.id.replace('emb-', ''));
+        wasPlayingRef.current = !videoRef.current?.paused;
+        void startSession(absMsRef.current, index);
+      } else if (burnInIndex >= 0) {
+            wasPlayingRef.current = !videoRef.current?.paused;
+        void startSession(absMsRef.current, -1);
+      }
+    },
+    [burnInIndex, startSession],
   );
 
   const changeVolume = useCallback((value: number) => {
@@ -407,18 +681,19 @@ export function PlayerModal() {
           toggleFullscreen();
           break;
         case 'c':
-          setSubtitleID((id) => (id === 'off' ? (tracks.find((t) => t.default)?.id ?? tracks[0]?.id ?? 'off') : 'off'));
+          chooseSubtitle(subtitleID === 'off' ? tracks.find((t) => t.default) ?? tracks[0] : undefined);
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [player, menu, seek, togglePlay, changeVolume, toggleFullscreen, close, tracks]);
+  }, [player, menu, seek, togglePlay, changeVolume, toggleFullscreen, close, tracks, subtitleID, chooseSubtitle]);
 
   if (!player) return null;
 
-  const progressPct = duration > 0 ? (current / duration) * 100 : 0;
-  const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
+  const progressPct = totalDuration > 0 ? (absCurrent / totalDuration) * 100 : 0;
+  const effectiveDuration = totalDuration > 0 ? totalDuration : duration;
+  const bufferedPct = effectiveDuration > 0 ? ((sessionStartSec + buffered) / effectiveDuration) * 100 : 0;
   const chrome = controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0';
 
   return (
@@ -432,7 +707,7 @@ export function PlayerModal() {
       {data ? (
         <video
           ref={videoRef}
-          src={data.cast?.url || data.streamUrl}
+          {...(session || needsSession ? {} : { src: data.cast?.url || data.streamUrl })}
           autoPlay
           playsInline
           crossOrigin="anonymous"
@@ -444,6 +719,14 @@ export function PlayerModal() {
             const v = e.currentTarget;
             setDuration(v.duration || 0);
             setMediaError(false);
+            if (sessionRef.current) return; // HLS timeline starts at the session offset
+            const pending = pendingSeekRef.current;
+            if (pending !== null) {
+              pendingSeekRef.current = null;
+              v.currentTime = pending;
+              resumedFor.current = data.itemId;
+              return;
+            }
             if (resumedFor.current !== data.itemId) {
               resumedFor.current = data.itemId;
               if (data.resumeMs > 5000 && (!v.duration || data.resumeMs < v.duration * 0.9 * 1000)) {
@@ -455,24 +738,33 @@ export function PlayerModal() {
             const v = e.currentTarget;
             setCurrent(v.currentTime);
             if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
-            if (v.currentTime - lastSaved.current >= 10) {
-              lastSaved.current = v.currentTime;
-              save(v.currentTime * 1000, (v.duration || 0) * 1000, false);
+            const absMs = (sessionRef.current?.startMs ?? 0) + v.currentTime * 1000;
+            absMsRef.current = absMs;
+            // A backward seek/restart should not suppress the next progress save.
+            if (absMs < lastSaved.current - 5000) lastSaved.current = absMs;
+            if (absMs - lastSaved.current >= 10000) {
+              lastSaved.current = absMs;
+              save(absMs, totalDurationRef.current * 1000, false);
             }
           }}
           onPlay={() => setPlaying(true)}
           onPause={(e) => {
             setPlaying(false);
             const v = e.currentTarget;
-            if (v.currentTime > 2 && !v.ended) save(v.currentTime * 1000, (v.duration || 0) * 1000, false);
+            const absMs = (sessionRef.current?.startMs ?? 0) + v.currentTime * 1000;
+            if (v.currentTime > 2 && !v.ended) save(absMs, totalDurationRef.current * 1000, false);
           }}
           onEnded={(e) => {
             const v = e.currentTarget;
             setPlaying(false);
-            save(v.duration * 1000, v.duration * 1000, true);
+            const total = totalDurationRef.current || v.duration || 0;
+            save(total * 1000, total * 1000, true);
             if (nextItemID) setEnded(true);
           }}
-          onError={() => setMediaError(true)}
+          onError={() => {
+            if (sessionRef.current || needsSession) return;
+            setMediaError(true);
+          }}
           onVolumeChange={(e) => {
             setVolume(e.currentTarget.volume);
             setMuted(e.currentTarget.muted);
@@ -504,12 +796,41 @@ export function PlayerModal() {
         </p>
       ) : null}
 
+      {startingSession && !session ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center text-fg-muted">
+          <Loader2 className="size-5 animate-spin" aria-hidden />
+          <p className="text-[13px]">Preparing transcode…</p>
+          <p className="max-w-md text-[11.5px] text-fg-dim">
+            {data?.reasons?.length ? `This file needs ${data.reasons.join(', ')} conversion.` : 'Encoding the first segments.'}
+          </p>
+        </div>
+      ) : null}
+      {sessionError ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">
+          <p className="max-w-lg text-[14px] text-fg">Playback failed</p>
+          <p className="max-w-lg text-[12.5px] text-fg-muted">{sessionError}</p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void startSession(absMsRef.current, burnInIndex)}
+              className="rounded-lg bg-progress/90 px-3.5 py-1.5 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
+            >
+              Retry
+            </button>
+            <button type="button" onClick={close} className="rounded-lg border border-hairline px-3.5 py-1.5 text-[12.5px] text-fg-muted hover:text-fg">
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {mediaError ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">
           <p className="max-w-lg text-[14px] text-fg">This file can’t be played in your browser.</p>
           <p className="max-w-lg text-[12.5px] text-fg-muted">
-            Matroska/HEVC/DTS support varies by browser. Transcoding arrives in M5 — until then, download the file or play it with a
-            desktop player.
+            {data?.hls
+              ? 'The server could not transcode this file. Check the server logs for the ffmpeg error.'
+              : 'Matroska/HEVC/DTS support varies by browser, and transcoding is disabled because ffmpeg was not found on the server.'}
           </p>
           <div className="flex items-center gap-2">
             {data ? (
@@ -550,9 +871,13 @@ export function PlayerModal() {
                 Queue {Math.max(1, queueIndex + 1)} / {queue.length}
               </p>
             ) : null}
-            {data && data.audio.length > 0 ? (
+            {data ? (
               <p className="mt-0.5 truncate text-[11.5px] text-fg-dim">
-                {data.audio[0]!.codec.toUpperCase()} · {data.audio[0]!.channels}ch
+                {data.videoCodec ? data.videoCodec.toUpperCase() : 'Video'}
+                {selectedAudio ? ` · ${selectedAudio.codec.toUpperCase()} ${selectedAudio.channels}ch` : ''}
+                {' · '}
+                {session ? (session.mode === 'remux' ? 'Remux' : `Transcode${session.height ? ` ${session.height}p` : ''}`) : 'Direct play'}
+                {startingSession && session ? ' (restarting…)' : ''}
               </p>
             ) : null}
           </div>
@@ -573,13 +898,10 @@ export function PlayerModal() {
           <input
             type="range"
             min={0}
-            max={Math.max(duration, 1)}
+            max={Math.max(effectiveDuration, 1)}
             step={0.1}
-            value={current}
-            onChange={(e) => {
-              const v = videoRef.current;
-              if (v) v.currentTime = Number(e.target.value);
-            }}
+            value={Math.min(absCurrent, effectiveDuration || 0)}
+            onChange={(e) => seekTo(Number(e.target.value))}
             aria-label="Seek"
             className="player-range"
             style={{ ['--player-progress' as never]: `${progressPct}%` }}
@@ -632,7 +954,7 @@ export function PlayerModal() {
           </div>
 
           <span className="ml-2 tabular-nums text-[12px] text-fg">
-            {fmt(current)} <span className="text-fg-dim">/ {fmt(duration)}</span>
+            {fmt(absCurrent)} <span className="text-fg-dim">/ {fmt(effectiveDuration)}</span>
           </span>
 
           <div className="ml-auto flex items-center gap-1.5">
@@ -640,6 +962,13 @@ export function PlayerModal() {
             <MenuButton label="Cast" active={remoteState === 'connected'} onClick={() => setMenu(menu === 'cast' ? 'none' : 'cast')} icon={<Cast className="size-[18px]" aria-hidden />} />
             <MenuButton label="Audio" onClick={() => setMenu(menu === 'audio' ? 'none' : 'audio')} icon={<Volume2 className="size-[18px]" aria-hidden />} />
             <MenuButton label="Speed" onClick={() => setMenu(menu === 'speed' ? 'none' : 'speed')} icon={<Gauge className="size-[18px]" aria-hidden />} text={speed !== 1 ? `${speed}×` : undefined} />
+            <MenuButton
+              label="Quality"
+              active={maxHeight > 0}
+              onClick={() => setMenu(menu === 'quality' ? 'none' : 'quality')}
+              icon={<Settings2 className="size-[18px]" aria-hidden />}
+              text={maxHeight > 0 ? `${maxHeight}p` : undefined}
+            />
             <button type="button" onClick={toggleFullscreen} className={ctrlBtn} aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
               {fullscreen ? <Minimize className="size-[18px]" aria-hidden /> : <Maximize className="size-[18px]" aria-hidden />}
             </button>
@@ -651,19 +980,35 @@ export function PlayerModal() {
       {menu !== 'none' ? (
         <div className="absolute bottom-24 right-5 z-30 w-72 overflow-hidden rounded-lg border border-hairline bg-surface/95 shadow-2xl backdrop-blur">
           <div className="border-b border-hairline px-3 py-2 text-[10.5px] uppercase tracking-wide text-fg-dim">
-            {menu === 'subs' ? 'Subtitles' : menu === 'audio' ? 'Audio tracks' : menu === 'cast' ? 'Cast' : 'Playback speed'}
+            {menu === 'subs'
+              ? 'Subtitles'
+              : menu === 'audio'
+                ? 'Audio tracks'
+                : menu === 'cast'
+                  ? 'Cast'
+                  : menu === 'quality'
+                    ? 'Quality'
+                    : 'Playback speed'}
           </div>
           <div className="max-h-[70vh] overflow-y-auto p-1">
             {menu === 'subs' ? (
               <>
-                <MenuRow selected={subtitleID === 'off'} onClick={() => { setSubtitleID('off'); setMenu('none'); }}>Off</MenuRow>
+                <MenuRow selected={subtitleID === 'off'} onClick={() => chooseSubtitle(undefined)}>Off</MenuRow>
                 {tracks.map((t: PlaybackSubtitle) => (
-                  <MenuRow key={t.id} selected={subtitleID === t.id} onClick={() => { setSubtitleID(t.id); setMenu('none'); }}>
+                  <MenuRow key={t.id} selected={subtitleID === t.id} onClick={() => chooseSubtitle(t)}>
                     {t.label}
-                    {t.language ? <span className="ml-2 text-[10.5px] uppercase text-fg-dim">{t.language} · {t.source}</span> : null}
+                    <span className="ml-2 text-[10.5px] uppercase text-fg-dim">
+                      {t.language ? `${t.language} · ` : ''}
+                      {t.burnIn ? 'image · burn-in' : t.source}
+                    </span>
                   </MenuRow>
                 ))}
                 {tracks.length === 0 ? <p className="px-3 py-2 text-[11.5px] text-fg-dim">No subtitle tracks</p> : null}
+                {track?.burnIn ? (
+                  <p className="px-3 py-2 text-[10.5px] text-fg-dim">
+                    Image subtitles are rendered into the video by the transcoder; delay and styling do not apply.
+                  </p>
+                ) : (
                 <div className="border-t border-hairline px-2.5 pb-2 pt-2">
                   <div className="mb-1 flex items-center justify-between text-[10.5px] uppercase tracking-wide text-fg-dim">
                     <span>Delay</span>
@@ -728,19 +1073,26 @@ export function PlayerModal() {
                     ))}
                   </div>
                 </div>
+                )}
               </>
             ) : null}
             {menu === 'audio' ? (
               <>
-                {(data?.audio ?? []).map((a) => (
-                  <MenuRow key={a.index} selected={Boolean(a.default)} onClick={() => undefined}>
+                {audioTracks.map((a) => (
+                  <MenuRow key={a.index} selected={a.index === chosenAudioIndex} onClick={() => chooseAudio(a.index)}>
                     {a.codec.toUpperCase()} · {a.channels}ch
                     {a.language ? <span className="ml-2 text-[10.5px] uppercase text-fg-dim">{a.language}</span> : null}
                     {a.title ? <span className="ml-2 text-[10.5px] text-fg-dim">{a.title}</span> : null}
                   </MenuRow>
                 ))}
-                {(data?.audio ?? []).length === 0 ? <p className="px-3 py-2 text-[11.5px] text-fg-dim">No audio tracks</p> : null}
-                <p className="px-3 py-2 text-[10.5px] text-fg-dim">Track switching needs transcoding (M5); the browser plays the default track.</p>
+                {audioTracks.length === 0 ? <p className="px-3 py-2 text-[11.5px] text-fg-dim">No audio tracks</p> : null}
+                {data && !data.hls ? (
+                  <p className="px-3 py-2 text-[10.5px] text-fg-dim">Track switching needs ffmpeg on the server.</p>
+                ) : (
+                  <p className="px-3 py-2 text-[10.5px] text-fg-dim">
+                    Switching tracks restarts the transcode at the current position.
+                  </p>
+                )}
               </>
             ) : null}
             {menu === 'cast' ? (
@@ -811,6 +1163,23 @@ export function PlayerModal() {
                 )}
                 {castMessage ? <p className="px-1 text-[10.5px] text-progress">{castMessage}</p> : null}
               </div>
+            ) : null}
+            {menu === 'quality' ? (
+              <>
+                {(data?.qualities ?? []).map((q: QualityOption) => (
+                  <MenuRow key={q.height} selected={maxHeight === q.height} onClick={() => chooseQuality(q.height)}>
+                    {q.label}
+                    <span className="ml-2 text-[10.5px] text-fg-dim">
+                      {q.height === 0 ? (data?.directPlay ? 'original' : `source${data?.height ? ` · ${data.height}p` : ''}`) : `${q.height}p`}
+                    </span>
+                  </MenuRow>
+                ))}
+                {!data?.hls ? (
+                  <p className="px-3 py-2 text-[10.5px] text-fg-dim">Quality selection needs ffmpeg on the server.</p>
+                ) : (
+                  <p className="px-3 py-2 text-[10.5px] text-fg-dim">Lower resolutions reduce bandwidth and CPU.</p>
+                )}
+              </>
             ) : null}
             {menu === 'speed' ? (
               SPEEDS.map((s) => (

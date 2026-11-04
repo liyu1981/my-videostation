@@ -253,6 +253,8 @@ export interface PlaybackSubtitle {
   language?: string;
   url: string;
   source: 'external' | 'embedded';
+  /** Image subtitles (PGS/VobSub) can only be burned in by a transcode. */
+  burnIn?: boolean;
   default?: boolean;
 }
 
@@ -263,6 +265,57 @@ export interface PlaybackAudio {
   language?: string;
   title?: string;
   default?: boolean;
+  /** Playable without transcoding. */
+  direct: boolean;
+}
+
+export interface QualityOption {
+  label: string;
+  height: number;
+}
+
+export interface TranscodeRequest {
+  fileId?: number;
+  startMs?: number;
+  audioIndex?: number;
+  subtitleIndex?: number;
+  externalSubtitleId?: number;
+  maxHeight?: number;
+  mode?: 'remux' | 'transcode';
+}
+
+export interface TranscodeSession {
+  sessionId: string;
+  playlistUrl: string;
+  startMs: number;
+  durationMs: number;
+  mode: 'remux' | 'transcode';
+  height: number;
+  videoCodec?: string;
+  audioCodec?: string;
+  audioIndex: number;
+  reasons?: string[];
+}
+
+export interface TranscodeStatus extends TranscodeSession {
+  encodedMs: number;
+  speed: number;
+  running: boolean;
+  error?: string;
+}
+
+export interface PlaybackCapabilities {
+  directPlay: {
+    containers: string[];
+    videoCodecs: string[];
+    audioCodecs: string[];
+  };
+  transcoding: {
+    available: boolean;
+    encoder: string;
+    encoders: { name: string; label: string }[];
+    qualities: QualityOption[];
+  };
 }
 
 export interface CastInfo {
@@ -298,6 +351,14 @@ export interface PlaybackInfo {
   durationMs: number;
   subtitles: PlaybackSubtitle[];
   audio: PlaybackAudio[];
+  container?: string;
+  videoCodec?: string;
+  width?: number;
+  height?: number;
+  directPlay: boolean;
+  hls: boolean;
+  reasons?: string[];
+  qualities: QualityOption[];
   next?: { itemId: number; title: string; seasonNumber?: number; episodeNumber?: number };
   cast: CastInfo;
 }
@@ -395,6 +456,12 @@ export const api = {
   patchItem: (id: number, patch: ItemPatch) =>
     request<ItemDetail>(`/items/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   playback: (id: number) => request<PlaybackInfo>(`/items/${id}/playback`),
+  transcode: (id: number, body: TranscodeRequest) =>
+    request<TranscodeSession>(`/playback/${id}/transcode`, { method: 'POST', body: JSON.stringify(body) }),
+  transcodeStatus: (sessionId: string) => request<TranscodeStatus>(`/playback/sessions/${sessionId}`),
+  stopTranscode: (sessionId: string) =>
+    request<{ ok: boolean }>(`/playback/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => ({ ok: false })),
+  capabilities: () => request<PlaybackCapabilities>('/playback/capabilities'),
   neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
   progress: (id: number, body: { positionMs: number; durationMs: number; played: boolean }) =>
     request<{ ok: boolean }>(`/items/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),

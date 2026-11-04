@@ -379,10 +379,20 @@ Audit and implementation notes: [`MONITORING.md`](./MONITORING.md).
 - **Done when**: H.264/AAC/WebM direct-play flawlessly with resume + subtitles.
 
 ### M5 — Transcoding
-- ffmpeg HLS fMP4 sessions on demand with quality ladder; remux-first
-- Segment cleanup, session limits, in-process transcode progress
-- Optional HW accel (VA-API/QSV/NVENC) autodetect; subtitle burn-in
-- **Done when**: HEVC/AC3/DTS titles play in browser with seek.
+**Delivered:** on-demand ffmpeg HLS fMP4 sessions (`internal/playback`) with remux-first
+stream copying, per-session audio selection and subtitle burn-in (text via `subtitles`,
+PGS/VobSub via `overlay`), a single-rendition quality cap (`maxHeight` from the source
+ladder), input-seek at the requested offset, session reuse/eviction, idle reaping and
+cache cleanup, `-progress` parsing surfaced over `/playback/sessions/{id}`, and a browser
+player that falls back from direct play to HLS (`hls.js` loaded on demand) with
+seek-by-session-restart, audio/quality switching and image-subtitle burn-in.
+
+- HW encoders are selectable (`MVS_TRANSCODE_ENCODER=libx264|h264_nvenc|h264_qsv` plus
+  optional `MVS_TRANSCODE_HWACCEL`); VA-API encode profiles and multi-rendition ABR
+  ladders are not implemented (see ADR 0003).
+- Concurrency is capped globally (`MVS_TRANSCODE_SESSIONS`, default 2);
+  per-user bandwidth limits remain M6 work (GAP-025).
+- **Done** (was: HEVC/AC3/DTS titles play in browser with seek).
 
 ### M6 — Users, permissions, i18n
 - **Delivered:** first-run admin setup, login/logout, sessions, admin user management,
