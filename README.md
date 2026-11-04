@@ -240,6 +240,7 @@ The dev server binds `0.0.0.0`, so you can open the UI from another device on th
 | `pnpm typecheck` | TypeScript only |
 | `pnpm docker` | build the Alpine image with version metadata |
 | `pnpm clean` | remove build artifacts (`pnpm clean -- --data` also drops the DB) |
+| `pnpm endpoints` | regenerate `docs/ENDPOINTS.md` from the Go route registrations |
 
 Open <http://127.0.0.1:6500> (or :5173 in dev). The first visit opens the **admin setup**
 page; after creating the admin account, go to **Libraries → Add library**, point it at a
@@ -485,6 +486,7 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/NETWORK-STORAGE.md`](./docs/NETWORK-STORAGE.md) — why SMB/NFS/cloud sources are a non-goal and how to mount them
 - [`docs/TRAILERS.md`](./docs/TRAILERS.md) — why online trailers are a non-goal and how local trailer extras work
 - [`docs/JELLYFIN-COMPAT.md`](./docs/JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan and endpoint matrix
+- [`docs/ENDPOINTS.md`](./docs/ENDPOINTS.md) — generated inventory of every registered route (canonical API + Jellyfin adapter)
 - [`tools/jellyfin-validator/`](./tools/jellyfin-validator) — runs Findroid's SDK against the server to catch API contract regressions
 - [`docs/adr/`](./docs/adr) — architecture decisions (M0/M1 deviations, HLS transcoding, thumbnails/cover settings)
 - [`AGENTS.md`](./AGENTS.md) — working rules for contributors and coding agents

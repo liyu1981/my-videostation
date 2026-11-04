@@ -18,6 +18,7 @@
     "lint": "node scripts/lint.mjs",
     "clean": "node scripts/clean.mjs",
     "docker": "node scripts/docker.mjs",
-    "bootstrap": "node scripts/ensure-tools.mjs"
+    "bootstrap": "node scripts/ensure-tools.mjs",
+    "endpoints": "node scripts/endpoints.mjs"
   }
 }

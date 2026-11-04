@@ -17,6 +17,7 @@ labels, field lists, and a parity checklist for M1–M3.
 [`NETWORK-STORAGE.md`](./NETWORK-STORAGE.md) — SMB/NFS/cloud non-goal + host-mount recipes (GAP-001).
 [`TRAILERS.md`](./TRAILERS.md) — online trailers non-goal + local-extras workflow (GAP-011).
 [`JELLYFIN-COMPAT.md`](./JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan (GAP-030/031).
+[`ENDPOINTS.md`](./ENDPOINTS.md) — generated inventory of all registered HTTP routes.
 [`adr/`](./adr) — accepted architecture decisions.
 
 ---
