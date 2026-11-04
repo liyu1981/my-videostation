@@ -1,0 +1,374 @@
+package httpapi_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+type jfTestEnv struct {
+	srv      string
+	movieLib int64
+	tvLib    int64
+	dramaID  int64
+	comedyID int64
+	showID   int64
+	ep1      int64
+	ep2      int64
+	token    string
+	userID   string
+}
+
+// setupJellyfinBrowse builds a movie + TV library with metadata, art and watch
+// state, and returns a logged-in adapter environment.
+func setupJellyfinBrowse(t *testing.T) *jfTestEnv {
+	t.Helper()
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+	env := &jfTestEnv{srv: srv.URL}
+
+	movieDir := filepath.Join(dir, "movies")
+	writeFile(t, filepath.Join(movieDir, "Drama Movie (2001)", "Drama Movie (2001).mkv"))
+	if err := os.WriteFile(filepath.Join(movieDir, "Drama Movie (2001)", "Drama Movie (2001).nfo"), []byte(
+		`<movie><title>Drama Movie</title><year>2001</year><genre>Drama</genre><mpaa>R</mpaa>
+		 <actor><name>NFO Actor</name></actor></movie>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(movieDir, "Drama Movie (2001)", "Drama Movie (2001)-trailer.mkv"))
+	writeFile(t, filepath.Join(movieDir, "Comedy Movie (2002)", "Comedy Movie (2002).mkv"))
+	if err := os.WriteFile(filepath.Join(movieDir, "Comedy Movie (2002)", "Comedy Movie (2002).nfo"), []byte(
+		`<movie><title>Comedy Movie</title><year>2002</year><genre>Comedy</genre><mpaa>PG-13</mpaa></movie>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	showDir := filepath.Join(dir, "tv", "Some Show (2020)")
+	writeJPEG(t, filepath.Join(showDir, "poster.jpg"), 400, 600)
+	writeJPEG(t, filepath.Join(showDir, "fanart.jpg"), 1920, 1080)
+	if err := os.WriteFile(filepath.Join(showDir, "tvshow.nfo"), []byte(
+		`<tvshow><title>Some Show</title><genre>Drama</genre>
+		 <thumb>poster.jpg</thumb><fanart><thumb>fanart.jpg</thumb></fanart></tvshow>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(showDir, "Season 1", "Some Show.S01E01.mkv"))
+	writeFile(t, filepath.Join(showDir, "Season 1", "Some Show.S01E02.mkv"))
+	writeFile(t, filepath.Join(showDir, "Season 2", "Some Show.S02E01.mkv"))
+
+	movieLib, err := st.CreateLibrary(ctx, "Movies", "movie", "", []string{movieDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tvLib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{filepath.Join(dir, "tv")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.movieLib, env.tvLib = movieLib.ID, tvLib.ID
+	if _, err := scanLibrary(t, srv, env.movieLib); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanLibrary(t, srv, env.tvLib); err != nil {
+		t.Fatal(err)
+	}
+
+	env.dramaID = itemIDByTitle(t, srv.URL, env.movieLib, "Drama Movie")
+	env.comedyID = itemIDByTitle(t, srv.URL, env.movieLib, "Comedy Movie")
+	env.showID = itemIDByTitle(t, srv.URL, env.tvLib, "Some Show")
+	if env.dramaID == 0 || env.comedyID == 0 || env.showID == 0 {
+		t.Fatalf("missing items: drama=%d comedy=%d show=%d", env.dramaID, env.comedyID, env.showID)
+	}
+	var episodes struct {
+		Items []struct {
+			ID      int64 `json:"id"`
+			Episode int   `json:"episodeNumber"`
+			Season  int   `json:"seasonNumber"`
+		} `json:"items"`
+	}
+	getJSON(t, srv.URL+"/api/v1/browse?libraryId="+itoa(env.tvLib)+"&kind=episode&perPage=100", &episodes)
+	for _, e := range episodes.Items {
+		if e.Season == 1 && e.Episode == 1 {
+			env.ep1 = e.ID
+		}
+		if e.Season == 1 && e.Episode == 2 {
+			env.ep2 = e.ID
+		}
+	}
+	if env.ep1 == 0 || env.ep2 == 0 {
+		t.Fatalf("episodes not indexed: %+v", episodes.Items)
+	}
+	env.token, env.userID = jfLogin(t, srv.URL)
+
+	// S1E1 watched, S1E2 in progress, Drama resumable, Comedy watched.
+	jfMarkPlayed(t, env, env.ep1)
+	jfSetPosition(t, env, env.ep2, 5000)
+	jfSetPosition(t, env, env.dramaID, 5000)
+	jfMarkPlayed(t, env, env.comedyID)
+
+	// Favorite the drama through the adapter.
+	res := jfDo(t, http.MethodPost, srv.URL+"/Users/"+env.userID+"/FavoriteItems/"+jellyfinItemID(t, env.dramaID), env.token, nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("favorite: %d", res.StatusCode)
+	}
+	return env
+}
+
+func jfSetPosition(t *testing.T, env *jfTestEnv, itemID, positionMS int64) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{
+		"ItemId": jellyfinItemID(t, itemID), "PositionTicks": positionMS * 10000, "IsPaused": false,
+	})
+	res := jfDo(t, http.MethodPost, env.srv+"/Sessions/Playing/Progress", env.token, body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("progress: %d", res.StatusCode)
+	}
+}
+
+func jfMarkPlayed(t *testing.T, env *jfTestEnv, itemID int64) {
+	t.Helper()
+	res := jfDo(t, http.MethodPost,
+		env.srv+"/Users/"+env.userID+"/PlayedItems/"+jellyfinItemID(t, itemID), env.token, nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("mark played: %d", res.StatusCode)
+	}
+}
+
+func (e *jfTestEnv) get(t *testing.T, url string, dst any) {
+	t.Helper()
+	jfGetJSON(t, url, e.token, dst)
+}
+
+func TestJellyfinBrowseFilters(t *testing.T) {
+	env := setupJellyfinBrowse(t)
+	base := env.srv + "/Items?ParentId=" + jellyfinLibraryID(env.movieLib)
+	type list struct {
+		Items []struct {
+			Name string `json:"Name"`
+		} `json:"Items"`
+		TotalRecordCount int `json:"TotalRecordCount"`
+	}
+	names := func(l list) string {
+		out := make([]string, 0, len(l.Items))
+		for _, i := range l.Items {
+			out = append(out, i.Name)
+		}
+		return strings.Join(out, ",")
+	}
+
+	var all list
+	env.get(t, base+"&IncludeItemTypes=Movie", &all)
+	if all.TotalRecordCount != 2 {
+		t.Fatalf("all movies = %+v", all)
+	}
+
+	cases := []struct {
+		query string
+		want  string
+	}{
+		{"&Genres=Drama", "Drama Movie"},
+		{"&Years=2001", "Drama Movie"},
+		{"&OfficialRatings=R", "Drama Movie"},
+		{"&Filters=IsFavorite", "Drama Movie"},
+		{"&Filters=IsResumable", "Drama Movie"},
+		{"&Filters=IsPlayed", "Comedy Movie"},
+	}
+	for _, tc := range cases {
+		var got list
+		env.get(t, base+tc.query, &got)
+		if names(got) != tc.want {
+			t.Errorf("%s -> %q, want %q", tc.query, names(got), tc.want)
+		}
+	}
+
+	var mixed list
+	env.get(t, env.srv+"/Items?IncludeItemTypes=Movie,Series&ExcludeItemTypes=Movie", &mixed)
+	if names(mixed) != "Some Show" {
+		t.Fatalf("exclude filter = %s", names(mixed))
+	}
+
+	// Genre ids from /Genres round-trip into the filter.
+	var genres []struct {
+		Name string `json:"Name"`
+		ID   string `json:"Id"`
+	}
+	env.get(t, env.srv+"/Genres?ParentId="+jellyfinLibraryID(env.movieLib), &genres)
+	var dramaGenreID string
+	for _, g := range genres {
+		if g.Name == "Drama" {
+			dramaGenreID = g.ID
+		}
+	}
+	if dramaGenreID == "" {
+		t.Fatalf("genres = %+v", genres)
+	}
+	var byGenreID list
+	env.get(t, base+"&GenreIds="+dramaGenreID, &byGenreID)
+	if names(byGenreID) != "Drama Movie" {
+		t.Fatalf("genre id filter = %s", names(byGenreID))
+	}
+
+	// Person ids from /Persons round-trip into the filter.
+	var persons []struct {
+		Name string `json:"Name"`
+		ID   string `json:"Id"`
+	}
+	env.get(t, env.srv+"/Persons", &persons)
+	var actorID string
+	for _, p := range persons {
+		if p.Name == "NFO Actor" {
+			actorID = p.ID
+		}
+	}
+	if actorID == "" {
+		t.Fatalf("persons = %+v", persons)
+	}
+	var byActor list
+	env.get(t, base+"&PersonIds="+actorID, &byActor)
+	if names(byActor) != "Drama Movie" {
+		t.Fatalf("person filter = %s", names(byActor))
+	}
+}
+
+func TestJellyfinHomeRows(t *testing.T) {
+	env := setupJellyfinBrowse(t)
+
+	var resume struct {
+		Items []struct {
+			Name string `json:"Name"`
+		} `json:"Items"`
+	}
+	env.get(t, env.srv+"/Items/Resume", &resume)
+	found := false
+	for _, i := range resume.Items {
+		if i.Name == "Drama Movie" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("resume = %+v", resume.Items)
+	}
+
+	// Latest for a TV library returns episodes (array, not a QueryResult).
+	var latest []struct {
+		Name string `json:"Name"`
+		Type string `json:"Type"`
+	}
+	env.get(t, env.srv+"/Items/Latest?ParentId="+jellyfinLibraryID(env.tvLib), &latest)
+	if len(latest) == 0 {
+		t.Fatal("latest returned no items")
+	}
+	for _, i := range latest {
+		if i.Type != "Episode" {
+			t.Fatalf("latest item type = %s (%s)", i.Type, i.Name)
+		}
+	}
+
+	// NextUp resumes the in-progress episode, not the watched one.
+	var next struct {
+		Items []struct {
+			IndexNumber       *int `json:"IndexNumber"`
+			ParentIndexNumber *int `json:"ParentIndexNumber"`
+		} `json:"Items"`
+	}
+	env.get(t, env.srv+"/Shows/"+jellyfinItemID(t, env.showID)+"/NextUp", &next)
+	if len(next.Items) != 1 || next.Items[0].IndexNumber == nil || *next.Items[0].IndexNumber != 2 {
+		t.Fatalf("next up = %+v", next.Items)
+	}
+}
+
+func TestJellyfinFacetsAndStubs(t *testing.T) {
+	env := setupJellyfinBrowse(t)
+	lib := jellyfinLibraryID(env.movieLib)
+
+	var filters struct {
+		Genres []struct {
+			Name string `json:"Name"`
+			ID   string `json:"Id"`
+		} `json:"Genres"`
+		OfficialRatings []string `json:"OfficialRatings"`
+		Years           []int    `json:"Years"`
+	}
+	env.get(t, env.srv+"/Items/Filters2?ParentId="+lib, &filters)
+	if len(filters.Genres) != 2 || len(filters.Years) != 2 || len(filters.OfficialRatings) != 2 {
+		t.Fatalf("filters2 = %+v", filters)
+	}
+
+	var legacy struct {
+		Genres []string `json:"Genres"`
+		Years  []int    `json:"Years"`
+	}
+	env.get(t, env.srv+"/Items/Filters?ParentId="+lib, &legacy)
+	if len(legacy.Genres) != 2 || len(legacy.Years) != 2 {
+		t.Fatalf("legacy filters = %+v", legacy)
+	}
+
+	drama := jellyfinItemID(t, env.dramaID)
+	var similar struct {
+		TotalRecordCount int `json:"TotalRecordCount"`
+	}
+	env.get(t, env.srv+"/Items/"+drama+"/Similar", &similar)
+	if similar.TotalRecordCount != 0 {
+		t.Fatalf("similar = %+v", similar)
+	}
+
+	var theme map[string]json.RawMessage
+	env.get(t, env.srv+"/Items/"+drama+"/ThemeMedia", &theme)
+	if len(theme) != 3 {
+		t.Fatalf("theme media = %+v", theme)
+	}
+
+	var images []struct {
+		ImageType string `json:"ImageType"`
+	}
+	env.get(t, env.srv+"/Items/"+jellyfinItemID(t, env.showID)+"/Images", &images)
+	if len(images) == 0 || images[0].ImageType != "Primary" {
+		t.Fatalf("images = %+v", images)
+	}
+
+	var trailers []struct {
+		Name string `json:"Name"`
+	}
+	env.get(t, env.srv+"/Items/"+drama+"/LocalTrailers", &trailers)
+	if len(trailers) != 1 || trailers[0].Name != "Trailer" {
+		t.Fatalf("local trailers = %+v", trailers)
+	}
+	var specials []struct {
+		Name string `json:"Name"`
+	}
+	env.get(t, env.srv+"/Items/"+drama+"/SpecialFeatures", &specials)
+	if len(specials) != 1 {
+		t.Fatalf("special features = %+v", specials)
+	}
+
+	// Episode list rows carry the series context and artwork fallback.
+	var episodes struct {
+		Items []struct {
+			SeriesID                string   `json:"SeriesId"`
+			SeriesName              string   `json:"SeriesName"`
+			SeriesPrimaryImageTag   string   `json:"SeriesPrimaryImageTag"`
+			ParentBackdropImageTags []string `json:"ParentBackdropImageTags"`
+		} `json:"Items"`
+	}
+	env.get(t, env.srv+"/Items?ParentId="+jellyfinItemID(t, env.showID)+"&IncludeItemTypes=Episode&Recursive=true", &episodes)
+	if len(episodes.Items) != 3 {
+		t.Fatalf("episodes = %+v", episodes.Items)
+	}
+	for _, e := range episodes.Items {
+		if e.SeriesID != jellyfinItemID(t, env.showID) || e.SeriesName != "Some Show" {
+			t.Fatalf("episode series context = %+v", e)
+		}
+		if e.SeriesPrimaryImageTag == "" || len(e.ParentBackdropImageTags) == 0 {
+			t.Fatalf("episode image fallback missing = %+v", e)
+		}
+	}
+}
+
+// jellyfinLibraryID encodes a library id the way the adapter does.
+func jellyfinLibraryID(id int64) string { return jellyfinEncode(2, id) }
+
+var _ = bytes.NewReader

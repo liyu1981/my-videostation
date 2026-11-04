@@ -345,8 +345,10 @@ func (s *Store) Folders(ctx context.Context, libraryID int64) ([]Folder, error) 
 	return out, wrap("iterate folders", rows.Err())
 }
 
-// Facet is a filter value with a count.
+// Facet is a filter value with a count. ID is populated for genres (year
+// facets have no stable row id).
 type Facet struct {
+	ID    int64  `json:"id,omitempty"`
 	Value string `json:"value"`
 	Count int    `json:"count"`
 }
@@ -359,22 +361,41 @@ type Facets struct {
 
 // Facets computes available filter values for a library.
 func (s *Store) Facets(ctx context.Context, libraryID int64, kind string) (*Facets, error) {
-	out := &Facets{Genres: []Facet{}, Years: []Facet{}}
-	if kind == "" || kind == "all" {
-		kind = KindMovie
+	var kinds []string
+	if kind != "" && kind != "all" {
+		kinds = []string{kind}
 	}
+	return s.FacetsForKinds(ctx, libraryID, kinds)
+}
+
+// FacetsForKinds computes facets across one or more item kinds (empty = all).
+func (s *Store) FacetsForKinds(ctx context.Context, libraryID int64, kinds []string) (*Facets, error) {
+	out := &Facets{Genres: []Facet{}, Years: []Facet{}}
+	libClause, libArgs := "", []any{}
+	if libraryID > 0 {
+		libClause = " AND m.library_id = ?"
+		libArgs = append(libArgs, libraryID)
+	}
+	kindClause, kindArgs := "", []any{}
+	if len(kinds) > 0 {
+		kindClause = " AND m.kind IN (" + placeholders(len(kinds)) + ")"
+		for _, k := range kinds {
+			kindArgs = append(kindArgs, k)
+		}
+	}
+	args := append(append([]any{}, kindArgs...), libArgs...)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT g.name, COUNT(*) FROM item_genres ig
+		SELECT g.id, g.name, COUNT(*) FROM item_genres ig
 		JOIN genres g ON g.id = ig.genre_id
 		JOIN media_items m ON m.id = ig.item_id
-		WHERE m.library_id = ? AND m.kind = ? AND m.hidden = 0
-		GROUP BY g.name ORDER BY COUNT(*) DESC, g.name COLLATE NOCASE`, libraryID, kind)
+		WHERE m.hidden = 0`+kindClause+libClause+`
+		GROUP BY g.id, g.name ORDER BY COUNT(*) DESC, g.name COLLATE NOCASE`, args...)
 	if err != nil {
 		return nil, wrap("genre facets", err)
 	}
 	for rows.Next() {
 		var f Facet
-		if err := rows.Scan(&f.Value, &f.Count); err != nil {
+		if err := rows.Scan(&f.ID, &f.Value, &f.Count); err != nil {
 			rows.Close()
 			return nil, wrap("scan genre facet", err)
 		}
@@ -383,9 +404,9 @@ func (s *Store) Facets(ctx context.Context, libraryID int64, kind string) (*Face
 	rows.Close()
 
 	rows, err = s.db.QueryContext(ctx, `
-		SELECT year, COUNT(*) FROM media_items
-		WHERE library_id = ? AND kind = ? AND year IS NOT NULL AND hidden = 0
-		GROUP BY year ORDER BY year DESC`, libraryID, kind)
+		SELECT year, COUNT(*) FROM media_items m
+		WHERE m.year IS NOT NULL AND m.hidden = 0`+kindClause+libClause+`
+		GROUP BY year ORDER BY year DESC`, args...)
 	if err != nil {
 		return nil, wrap("year facets", err)
 	}

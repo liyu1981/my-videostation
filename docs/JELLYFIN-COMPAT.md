@@ -1,13 +1,17 @@
 # Jellyfin Player Compatibility Plan
 
-> Goal: let existing Jellyfin clients (mobile apps, Android TV / Google TV, web) play
+> Goal: let existing Jellyfin clients (mobile apps, Android TV / Google TV) play
 > content served by MyVideoStation, without shipping native TV apps. This closes
 > GAP-030/031 cheaply (see `GAPS.md`).
 
-Status: **J0.5 + J2/J3 delivered** — discovery, token auth, users, views, browse, detail, images and search, plus HLS playback, direct streaming, progress sync, played/favorite mutations and `/Shows/{id}/Episodes`. Next: client polish (J4). Prerequisites
-(M5 HLS sessions, M6 accounts/sessions) are met; no hard blockers remain. Target
-clients and the claimed server version are pinned in §10; the endpoint matrix in
-§11 is the working checklist.
+Status: **J0.5 + J1 + J1.5 + J2/J3 delivered** — discovery, token auth, users,
+views, browse with the full list-query surface, browse facets, home rows
+(`Resume`/`Latest`/`NextUp`), detail with series image fallbacks, HLS playback,
+direct streaming, progress sync and played/favorite mutations. Next: J4 polish
+(device profiles, playlists, SSDP) and a real-client verification pass.
+Prerequisites (M5 HLS sessions, M6 accounts/sessions) are met; no hard blockers
+remain. Target clients and the claimed server version are pinned in §10; the
+endpoint matrix in §11 is the working checklist.
 
 ---
 
@@ -107,54 +111,69 @@ TV playback works.
 - M6 auth/users complete.
 - Media stream model (codecs) persisted (M4/M5).
 
-### Phase J0.5 — Core enablers (in progress)
-1. Token auth middleware: `X-Emby-Authorization`, `X-Emby-Token`, `?api_key=` accepted
+### Phase J0.5 — Core enablers (delivered 2026-11-04)
+1. ✅ Token auth middleware: `X-Emby-Authorization`, `X-Emby-Token`, `?api_key=` accepted
    on adapter routes, `/hls/*` and `/api/v1/media/*` (native clients have no cookie).
-2. `internal/jellyfin`: reversible 32-hex ID codec (user/library/item/file), stable
+2. ✅ `internal/jellyfin`: reversible 32-hex ID codec (user/library/item/file), stable
    server ID, DTOs.
-3. `/System/Info/Public`, `/System/Info`, `/Branding/Configuration`, `/QuickConnect/Enabled`.
-4. `POST /Users/AuthenticateByName`, `GET /Users/Public`, `GET /Users/Me`, `GET /Users/{id}`.
-5. `GET /Users/{id}/Views`, `GET /Users/{id}/Items`, `GET /Items`, `GET /Items/{id}`,
+3. ✅ `/System/Info/Public`, `/System/Info`, `/Branding/Configuration`, `/QuickConnect/Enabled`.
+4. ✅ `POST /Users/AuthenticateByName`, `GET /Users/Public`, `GET /Users/Me`, `GET /Users/{id}`.
+5. ✅ `GET /Users/{id}/Views`, `GET /Users/{id}/Items`, `GET /Items`, `GET /Items/{id}`,
    image endpoints, `GET /Search/Hints`.
 
-Deliverable: a real Jellyfin mobile client logs in, lists libraries and browses
-posters/titles (no playback yet).
+Deliverable (HTTP-level): discovery, login, library list, item browse and artwork
+work. Playback followed in J2/J3; **verification against a real client build is
+still outstanding** `[verify]`.
 
-### Phase J1 — Read-only discovery completeness
-1. Broader `IncludeItemTypes`/`Filters`/`Fields` coverage (favorites, playlists, years).
-2. `GET /Items/{id}/Similar`, `ThemeMedia`, `LocalTrailers`, `SpecialFeatures` stubs.
-3. Collection/folder browsing edges (box sets) where our model has them.
+### Phase J1 — Read-only discovery completeness (delivered 2026-11-04)
+1. ✅ `ExcludeItemTypes`, `Filters=IsFavorite/IsResumable`, multiple `Genres`/`Years`,
+   `GenreIds`, `PersonIds`, `OfficialRatings`, `IsFolder`; `SortBy` uses the first
+   recognised key and episode/season lists are ordered by number.
+2. ✅ `GET /Items/Resume`, `GET /Items/Latest`, `GET /Shows/{id}/NextUp` (also under
+   `/Users/{id}/Items/...`), powering TV home rows.
+3. ✅ `GET /Genres`, `GET /Persons`, `GET /Items/Filters2`, `GET /Items/Filters`;
+   `GET /Studios` returns empty (we do not model studios).
+4. ✅ `GET /Items/{id}/Similar`, `ThemeMedia`, `LocalTrailers`, `SpecialFeatures` and
+   `GET /Items/{id}/Images`.
+5. ⬜ Collection/folder browsing edges (box sets); our model has collections but no
+   Jellyfin box-set views yet.
 
-### Phase J1.5 — Detail pages
-1. Series → seasons → episodes tree with `SeriesId`/`SeasonId`/`IndexNumber`.
-2. `People`, `ProviderIds`, `OfficialRating`, `CommunityRating`, `ImageTags`.
-3. User data (`Played`, `PlaybackPositionTicks`, `PlayCount`).
+### Phase J1.5 — Detail pages (delivered 2026-11-04)
+1. ✅ Series → seasons → episodes tree with `SeriesId`/`SeasonId`/`IndexNumber`.
+2. ✅ `People`, `ProviderIds`, `OfficialRating`, `CommunityRating`, `ImageTags`.
+3. ✅ User data (`Played`, `PlaybackPositionTicks`, `PlayCount`, `IsFavorite`).
+4. ✅ Series image fallbacks on episode rows (`SeriesPrimaryImageTag`,
+   `ParentBackdropItemId`/`ParentBackdropImageTags`), `ChildCount` on list rows.
+   `Logo`/`Banner`/`Art` stay 404: our metadata model has poster/backdrop only.
 
-Deliverable: mobile client shows a full item page with cast/art/resume state.
-
-### Phase J2 — Playback (M5 landed; adapter still needed)
-1. `GET/POST /Items/{id}/PlaybackInfo` building MediaSources from our streams; the
+### Phase J2 — Playback (delivered 2026-11-04)
+1. ✅ `GET/POST /Items/{id}/PlaybackInfo` building MediaSources from our streams; the
    request's `DeviceProfile` is **ignored** initially (we transcode unless our own
    direct-play matrix says native) — see §10.
-2. Stable manifest URL `/Videos/{id}/master.m3u8?...&StartTimeTicks=...` that starts or
+2. ✅ Stable manifest URL `/Videos/{id}/master.m3u8?...&StartTimeTicks=...` that starts or
    reuses an M5 session at the requested offset and returns the playlist with segment
    URIs rewritten to absolute `/hls/{session}/...` paths (no redirects).
-3. Direct-play URL `/Videos/{id}/stream?static=true&api_key=...` (range capable) when
-   `SupportsDirectPlay` is true.
-4. Subtitle tracks: text → `MediaStream.DeliveryUrl` (`.vtt`); bitmap → force burn-in
-   (`SubtitleStreamIndex` → transcode `subtitleIndex`).
+3. ✅ Direct-play URL `/Videos/{id}/stream?static=true&api_key=...` (range capable).
+4. ✅ Subtitle tracks: `DeliveryUrl` for text tracks (side-loadable), and any requested
+   track is burned in (embedded text extracted to WebVTT, bitmap via overlay).
 
-Deliverable: playback works in Jellyfin mobile + TV for direct-play and transcode cases.
+Deliverable: playback works at the HTTP level for direct-play and transcode cases;
+real-client playback is still `[verify]`.
 
-### Phase J3 — Progress sync
-1. `/Sessions/Playing*` endpoints updating `playback_progress`.
-2. Map client's `PositionTicks` (100ns units) ↔ our ms.
+### Phase J3 — Progress sync (delivered 2026-11-04)
+1. ✅ `/Sessions/Playing[/Progress|/Stopped|/Ping]` updating `playback_progress`;
+   `Stopped` marks played at ≥95% and stops the session.
+2. ✅ `PositionTicks` (100 ns) ↔ ms.
+3. ✅ Played/favorite mutations (`/PlayedItems/{id}`, `/FavoriteItems/{id}`).
 
-### Phase J4 — Discovery & polish
-1. SSDP advertiser (optional).
-2. Search (`SearchTerm`) wiring to our FTS.
-3. Collections/playlists (if we add them).
-4. Version negotiation: report a compatible server version string.
+### Phase J4 — Discovery & polish (remaining)
+1. ⬜ SSDP advertiser (optional; manual server URL always works).
+2. ✅ Search wired to our FTS (`/Search/Hints`, `SearchTerm`).
+3. ⬜ Collections/playlists endpoints (`/Playlists`, box-set views).
+4. ✅ Version negotiation: pinned `10.10.7` (§10).
+5. ⬜ Device-profile-aware playback decisions (stop transcoding files the client can
+   direct-play); bitrate ladder.
+6. ⬜ Real-client verification matrix (Jellyfin Android, Android TV, iOS) `[verify]`.
 
 ---
 
@@ -281,6 +300,11 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
 | `[x] POST/DELETE /Users/{id}/PlayedItems/{itemId}` | watched state |
 | `[x] POST/DELETE /Users/{id}/FavoriteItems/{itemId}`, `/UserFavoriteItems/{itemId}` | favorites via the system collection |
 | `[x] GET /Shows/{itemId}/Episodes` | episode list per series/season |
+| `[x] GET /Items/Resume`, `/Items/Latest` (+ `/Users/{id}/Items/...`) | continue watching, recently added |
+| `[x] GET /Shows/{itemId}/NextUp` | next episode after the last watched/in-progress one |
+| `[x] GET /Genres`, `/Persons`, `/Studios`, `/Items/Filters`, `/Items/Filters2` | filter screens (genre/person ids round-trip) |
+| `[x] GET /Items/{itemId}/Similar`, `/ThemeMedia`, `/LocalTrailers`, `/SpecialFeatures` | relation rows and stubs |
+| `[x] GET /Items/{itemId}/Images` | available image list |
 
 J0.5 also ships `GET /UserViews`, `GET /DisplayPreferences/{name}`,
 `GET /Sessions` (empty) and `POST /Sessions/Capabilities/Full` (204).
@@ -309,9 +333,14 @@ Later slices: `PlaybackInfo`, `/Videos/*`, `/Sessions/Playing*`, `/Shows/*`,
 - **Progress**: ticks (100 ns) ↔ ms; `Stopped` marks played at ≥95% and kills the
   session bound to the `PlaySessionId`. Played/favorite mutations write to
   `playback_progress` and the user's `favorites` system collection.
-- **Known gaps before TV polish**: `/Items/Resume`, `/Items/Latest`,
-  `/Shows/NextUp`, `/Genres`, `/Persons`, device-profile-aware playback decisions,
-  SSDP discovery, and end-to-end verification against real client builds `[verify]`.
+- **J1/J1.5 notes**: list filters now cover `ExcludeItemTypes`, `IsFavorite`,
+  `IsResumable`, `GenreIds`/`PersonIds`, multiple genres/years/ratings and
+  `IsFolder`; list rows batch episode ancestors, child counts and favorite flags
+  (no N+1). Episode rows carry `SeriesPrimaryImageTag` and
+  `ParentBackdropImageTags` from the series art.
+- **Known gaps before TV polish**: device-profile-aware playback decisions, box
+  sets/playlists, SSDP discovery, and end-to-end verification against real client
+  builds `[verify]`.
 
 ### J0.5 implementation notes
 

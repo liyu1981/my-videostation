@@ -569,11 +569,9 @@ func (s *Server) handleJFShowEpisodes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	out := make([]jellyfin.BaseItemDto, 0, len(items))
-	for i := range items {
-		out = append(out, s.jfBaseItem(ctx, &items[i], serverID, false))
-	}
-	writeJSON(w, http.StatusOK, jellyfin.QueryResult{Items: out, TotalRecordCount: len(out)})
+	writeJSON(w, http.StatusOK, jellyfin.QueryResult{
+		Items: s.jfItemDTOs(ctx, serverID, items, false), TotalRecordCount: len(items),
+	})
 }
 
 // ---- helpers ---------------------------------------------------------------

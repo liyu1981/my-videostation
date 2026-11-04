@@ -153,6 +153,11 @@ type BaseItemDto struct {
 	ParentID                string            `json:"ParentId,omitempty"`
 	SeriesID                string            `json:"SeriesId,omitempty"`
 	SeasonID                string            `json:"SeasonId,omitempty"`
+	SeriesName              string            `json:"SeriesName,omitempty"`
+	SeasonName              string            `json:"SeasonName,omitempty"`
+	SeriesPrimaryImageTag   string            `json:"SeriesPrimaryImageTag,omitempty"`
+	ParentBackdropItemID    string            `json:"ParentBackdropItemId,omitempty"`
+	ParentBackdropImageTags []string          `json:"ParentBackdropImageTags,omitempty"`
 	IndexNumber             *int              `json:"IndexNumber,omitempty"`
 	ParentIndexNumber       *int              `json:"ParentIndexNumber,omitempty"`
 	ProductionYear          int               `json:"ProductionYear,omitempty"`
@@ -264,6 +269,37 @@ type SearchHint struct {
 	ParentID        string `json:"ParentId,omitempty"`
 	SeriesID        string `json:"SeriesId,omitempty"`
 	PrimaryImageTag string `json:"PrimaryImageTag,omitempty"`
+}
+
+// NameGuidPair is a filter value with a server-generated id (genres, persons).
+type NameGuidPair struct {
+	Name string `json:"Name"`
+	ID   string `json:"Id"`
+}
+
+// QueryFilters is returned by /Items/Filters2.
+type QueryFilters struct {
+	Genres          []NameGuidPair `json:"Genres"`
+	Tags            []string       `json:"Tags"`
+	OfficialRatings []string       `json:"OfficialRatings"`
+	Years           []int          `json:"Years"`
+	StudioIDs       []string       `json:"StudioIds"`
+}
+
+// LegacyQueryFilters is returned by /Items/Filters.
+type LegacyQueryFilters struct {
+	Genres          []string `json:"Genres"`
+	Tags            []string `json:"Tags"`
+	OfficialRatings []string `json:"OfficialRatings"`
+	Years           []int    `json:"Years"`
+}
+
+// ImageInfo describes one image served for an item.
+type ImageInfo struct {
+	ImageType  string `json:"ImageType"`
+	ImageIndex int    `json:"ImageIndex"`
+	Width      int    `json:"Width"`
+	Height     int    `json:"Height"`
 }
 
 // SearchHintResult is returned by /Search/Hints.

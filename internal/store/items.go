@@ -151,8 +151,10 @@ func scanItem(r rowScanner, it *Item) error {
 // ItemFilter describes a browse/list request.
 type ItemFilter struct {
 	LibraryID      int64
-	Kind           string // movie|show|season|episode|home_video|extra|"" (any)
-	ParentID       int64  // -1 = any
+	Kind           string   // movie|show|season|episode|home_video|extra|"" (any top-level) | "all"
+	Kinds          []string // explicit kind set (overrides Kind)
+	ExcludeKinds   []string
+	ParentID       int64 // 0 = any
 	Query          string
 	Sort           string // added|title|year|rating|runtime
 	Page           int
@@ -161,12 +163,27 @@ type ItemFilter struct {
 	MetadataStatus string // "" | unmatched | matched | manual
 	Category       string // recent_added|recent_watched|recent_released|all|timeline
 	Genre          string
+	Genres         []string // names (IN)
+	GenreIDs       []int64
 	Year           int
+	Years          []int
+	Ratings        []string // content ratings (IN)
+	PersonIDs      []int64
 	Watched        *bool
+	Resumable      bool   // position > 0 and not played
+	Favorites      bool   // in the current user's favorites collection
+	Folders        *bool  // true = shows/seasons only, false = playable kinds only
 	Folder         string // rel_path prefix
 }
 
 // ListItems returns a page of items plus the total count.
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
 func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error) {
 	if f.PerPage <= 0 || f.PerPage > 200 {
 		f.PerPage = 60
@@ -184,11 +201,30 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 		where = append(where, "m.library_id = ?")
 		args = append(args, f.LibraryID)
 	}
-	if f.Kind != "" && f.Kind != "all" {
+	switch {
+	case len(f.Kinds) > 0:
+		where = append(where, "m.kind IN ("+placeholders(len(f.Kinds))+")")
+		for _, k := range f.Kinds {
+			args = append(args, k)
+		}
+	case f.Kind != "" && f.Kind != "all":
 		where = append(where, "m.kind = ?")
 		args = append(args, f.Kind)
-	} else if f.Kind == "" {
+	case f.Kind == "":
 		where = append(where, "m.parent_id = 0", "m.kind IN ('movie','show','home_video')")
+	}
+	if len(f.ExcludeKinds) > 0 {
+		where = append(where, "m.kind NOT IN ("+placeholders(len(f.ExcludeKinds))+")")
+		for _, k := range f.ExcludeKinds {
+			args = append(args, k)
+		}
+	}
+	if f.Folders != nil {
+		if *f.Folders {
+			where = append(where, "m.kind IN ('show','season')")
+		} else {
+			where = append(where, "m.kind NOT IN ('show','season')")
+		}
 	}
 	if f.ParentID > 0 {
 		where = append(where, "m.parent_id = ?")
@@ -206,9 +242,50 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 			WHERE ig.item_id = m.id AND g.name = ?)`)
 		args = append(args, f.Genre)
 	}
+	if len(f.Genres) > 0 {
+		where = append(where, `EXISTS (SELECT 1 FROM item_genres ig JOIN genres g ON g.id = ig.genre_id
+			WHERE ig.item_id = m.id AND g.name IN (`+placeholders(len(f.Genres))+`))`)
+		for _, g := range f.Genres {
+			args = append(args, g)
+		}
+	}
+	if len(f.GenreIDs) > 0 {
+		where = append(where, `EXISTS (SELECT 1 FROM item_genres ig
+			WHERE ig.item_id = m.id AND ig.genre_id IN (`+placeholders(len(f.GenreIDs))+`))`)
+		for _, id := range f.GenreIDs {
+			args = append(args, id)
+		}
+	}
 	if f.Year > 0 {
 		where = append(where, "m.year = ?")
 		args = append(args, f.Year)
+	}
+	if len(f.Years) > 0 {
+		where = append(where, "m.year IN ("+placeholders(len(f.Years))+")")
+		for _, y := range f.Years {
+			args = append(args, y)
+		}
+	}
+	if len(f.Ratings) > 0 {
+		where = append(where, "COALESCE(m.content_rating,'') IN ("+placeholders(len(f.Ratings))+")")
+		for _, r := range f.Ratings {
+			args = append(args, r)
+		}
+	}
+	if len(f.PersonIDs) > 0 {
+		where = append(where, `EXISTS (SELECT 1 FROM item_people ip
+			WHERE ip.item_id = m.id AND ip.person_id IN (`+placeholders(len(f.PersonIDs))+`))`)
+		for _, id := range f.PersonIDs {
+			args = append(args, id)
+		}
+	}
+	if f.Resumable {
+		where = append(where, "COALESCE(p.position_ms,0) > 0", "COALESCE(p.played,0) = 0")
+	}
+	if f.Favorites {
+		where = append(where, `EXISTS (SELECT 1 FROM item_collections ic JOIN collections c ON c.id = ic.collection_id
+			WHERE ic.item_id = m.id AND c.user_id = ? AND c.system_key = 'favorites')`)
+		args = append(args, UserID(ctx))
 	}
 	if f.Watched != nil {
 		if *f.Watched {

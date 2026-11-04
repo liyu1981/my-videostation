@@ -101,6 +101,7 @@ func (s *Server) jfQueryItems(ctx context.Context, q map[string][]string) (jelly
 		limit = 60
 	}
 	types := jfCSV(q, "IncludeItemTypes")
+	excludes := jfCSV(q, "ExcludeItemTypes")
 	recursive := jfBool(q, "Recursive")
 	sortBy := jfCSV(q, "SortBy")
 	descending := strings.EqualFold(firstValue(q, "SortOrder"), "Descending")
@@ -139,27 +140,41 @@ func (s *Server) jfQueryItems(ctx context.Context, q map[string][]string) (jelly
 		parentKind = parent.Kind
 	}
 
-	kind, empty := jfTargetKind(types, libType, parentKind, recursive)
+	kinds, empty := jfTargetKinds(types, excludes, libType, parentKind, recursive)
 	if empty {
 		return jellyfin.QueryResult{Items: []jellyfin.BaseItemDto{}, TotalRecordCount: 0, StartIndex: start}, nil
 	}
 
 	filter := store.ItemFilter{
-		LibraryID: libID,
-		Kind:      kind,
-		Query:     firstValue(q, "SearchTerm"),
-		Sort:      jfSortKey(sortBy),
-		PerPage:   limit,
-		Page:      start/limit + 1,
+		LibraryID:    libID,
+		Kinds:        kinds,
+		ExcludeKinds: jfExcludeKinds(excludes, kinds),
+		Query:        firstValue(q, "SearchTerm"),
+		Sort:         jfSortKey(sortBy),
+		PerPage:      limit,
+		Page:         start/limit + 1,
+		Genres:       jfCSV(q, "Genres"),
+		Ratings:      jfCSV(q, "OfficialRatings"),
 	}
 	if parentID > 0 && parentKind != store.KindShow {
 		filter.ParentID = parentID
 	}
-	if g := jfCSV(q, "Genres"); len(g) > 0 {
-		filter.Genre = g[0]
-	}
 	if y := jfCSV(q, "Years"); len(y) > 0 {
-		filter.Year, _ = strconv.Atoi(y[0])
+		for _, raw := range y {
+			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+				filter.Years = append(filter.Years, n)
+			}
+		}
+	}
+	for _, raw := range jfCSV(q, "GenreIds") {
+		if id, err := jellyfin.DecodeKind(raw, jellyfin.KindGenre); err == nil {
+			filter.GenreIDs = append(filter.GenreIDs, id)
+		}
+	}
+	for _, raw := range jfCSV(q, "PersonIds") {
+		if id, err := jellyfin.DecodeKind(raw, jellyfin.KindPerson); err == nil {
+			filter.PersonIDs = append(filter.PersonIDs, id)
+		}
 	}
 	for _, f := range jfCSV(q, "Filters") {
 		switch strings.ToLower(f) {
@@ -169,7 +184,19 @@ func (s *Server) jfQueryItems(ctx context.Context, q map[string][]string) (jelly
 		case "isunplayed":
 			watched := false
 			filter.Watched = &watched
+		case "isfavorite":
+			filter.Favorites = true
+		case "isresumable":
+			filter.Resumable = true
 		}
+	}
+	if raw := firstValue(q, "IsFolder"); raw != "" {
+		v := strings.EqualFold(raw, "true") || raw == "1"
+		filter.Folders = &v
+	}
+	if !descending && filter.Sort == "" {
+		// Jellyfin defaults to ascending name order; our store defaults to
+		// recently added, which is what clients expect for "Latest".
 	}
 
 	var items []store.Item
@@ -192,76 +219,182 @@ func (s *Server) jfQueryItems(ctx context.Context, q map[string][]string) (jelly
 			items = nil
 		}
 	}
-	if filter.Kind == store.KindEpisode || filter.Kind == store.KindSeason {
+	if filter.Kind == store.KindEpisode || filter.Kind == store.KindSeason || containsKind(kinds, store.KindEpisode) || containsKind(kinds, store.KindSeason) {
 		jfSortEpisodes(items, descending)
 	} else if descending {
-		// ListItems already sorts descending for the default; explicit sorts are
-		// ascending in the store, so reverse them to honour SortOrder.
 		if filter.Sort != "" {
 			reverseItems(items)
 		}
 	}
-	out := make([]jellyfin.BaseItemDto, 0, len(items))
-	for i := range items {
-		out = append(out, s.jfBaseItem(ctx, &items[i], serverID, false))
-	}
-	return jellyfin.QueryResult{Items: out, TotalRecordCount: total, StartIndex: start}, nil
+	return jellyfin.QueryResult{Items: s.jfItemDTOs(ctx, serverID, items, false), TotalRecordCount: total, StartIndex: start}, nil
 }
 
-// jfTargetKind maps Jellyfin IncludeItemTypes + parent/library context to one of
-// our item kinds. empty=true means the parent cannot have matching children.
-func jfTargetKind(types []string, libType, parentKind string, recursive bool) (kind string, empty bool) {
-	wants := func(t string) bool {
-		for _, v := range types {
-			if strings.EqualFold(v, t) {
-				return true
-			}
+// jfItemDTOs maps a page of items, batching episode ancestors, child counts and
+// favorite flags so list rows are complete without N+1 queries.
+func (s *Server) jfItemDTOs(ctx context.Context, serverID string, items []store.Item, detail bool) []jellyfin.BaseItemDto {
+	episodeIDs := []int64{}
+	childIDs := []int64{}
+	allIDs := make([]int64, 0, len(items))
+	for i := range items {
+		allIDs = append(allIDs, items[i].ID)
+		switch items[i].Kind {
+		case store.KindEpisode:
+			episodeIDs = append(episodeIDs, items[i].ID)
+		case store.KindShow, store.KindSeason:
+			childIDs = append(childIDs, items[i].ID)
 		}
-		return false
 	}
-	switch parentKind {
-	case store.KindShow:
-		if recursive && wants("Episode") {
-			return store.KindEpisode, false
+	seriesRefs, err := s.store.SeriesRefsForEpisodes(ctx, episodeIDs)
+	if err != nil {
+		s.log.Debug("series refs failed", "err", err)
+	}
+	counts, err := s.store.ChildCounts(ctx, childIDs)
+	if err != nil {
+		s.log.Debug("child counts failed", "err", err)
+	}
+	favorites, err := s.store.FavoriteItemIDs(ctx, allIDs)
+	if err != nil {
+		s.log.Debug("favorite ids failed", "err", err)
+	}
+	out := make([]jellyfin.BaseItemDto, 0, len(items))
+	for i := range items {
+		opts := jfItemOpts{
+			detail:     detail,
+			childCount: counts[items[i].ID],
+			favorite:   favorites[items[i].ID],
 		}
-		return store.KindSeason, false
-	case store.KindSeason:
-		return store.KindEpisode, false
-	case "":
-		// library (or global) query
-	default:
-		return "", true
+		if ref, ok := seriesRefs[items[i].ID]; ok {
+			opts.series = &ref
+		}
+		out = append(out, s.jfBaseItemCtx(ctx, &items[i], serverID, opts))
+	}
+	return out
+}
+
+// jfExcludeKinds maps Jellyfin ExcludeItemTypes to store kinds, but only when
+// the include set is a mixed "all" query (explicit Kinds are filtered directly).
+func jfExcludeKinds(excludes, kinds []string) []string {
+	if len(kinds) > 0 || len(excludes) == 0 {
+		return nil
+	}
+	out := []string{}
+	for _, t := range excludes {
+		if k := jfKindForType(t); k != "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func jfKindForType(t string) string {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "movie":
+		return store.KindMovie
+	case "series":
+		return store.KindShow
+	case "season":
+		return store.KindSeason
+	case "episode":
+		return store.KindEpisode
+	case "video", "musicvideo":
+		return store.KindHomeVideo
+	}
+	return ""
+}
+
+// jfTargetKinds maps Jellyfin Include/ExcludeItemTypes and parent/library
+// context to our item kinds. empty=true means the parent cannot have children.
+func jfTargetKinds(types, excludes []string, libType, parentKind string, recursive bool) (kinds []string, empty bool) {
+	excluded := map[string]bool{}
+	for _, t := range excludes {
+		if k := jfKindForType(t); k != "" {
+			excluded[k] = true
+		}
+	}
+	keep := func(k string) (string, bool) {
+		if excluded[k] {
+			return "", false
+		}
+		return k, true
 	}
 
-	var mapped []string
-	for _, t := range types {
-		switch strings.ToLower(t) {
+	switch parentKind {
+	case store.KindShow:
+		if recursive && jfWantsEpisodes(types) {
+			k, ok := keep(store.KindEpisode)
+			if !ok {
+				return nil, true
+			}
+			return []string{k}, false
+		}
+		k, ok := keep(store.KindSeason)
+		if !ok {
+			return nil, true
+		}
+		return []string{k}, false
+	case store.KindSeason:
+		k, ok := keep(store.KindEpisode)
+		if !ok {
+			return nil, true
+		}
+		return []string{k}, false
+	case "":
+		// library or global query
+	default:
+		return nil, true
+	}
+
+	if len(types) == 0 {
+		var defaults []string
+		switch libType {
+		case "tv":
+			defaults = []string{store.KindShow}
+		case "home_video", "tv_recording":
+			defaults = []string{store.KindHomeVideo}
 		case "movie":
-			mapped = append(mapped, store.KindMovie)
-		case "series":
-			mapped = append(mapped, store.KindShow)
-		case "season":
-			mapped = append(mapped, store.KindSeason)
-		case "episode":
-			mapped = append(mapped, store.KindEpisode)
-		case "video", "musicvideo":
-			mapped = append(mapped, store.KindHomeVideo)
+			defaults = []string{store.KindMovie}
+		default:
+			return nil, false // mixed top-level default
+		}
+		out := defaults[:0]
+		for _, k := range defaults {
+			if !excluded[k] {
+				out = append(out, k)
+			}
+		}
+		if len(out) == 0 {
+			return nil, true
+		}
+		return out, false
+	}
+
+	seen := map[string]bool{}
+	out := []string{}
+	for _, t := range types {
+		k := jfKindForType(t)
+		if k == "" || excluded[k] || seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, k)
+	}
+	if len(out) == 0 {
+		return nil, true
+	}
+	// An episode request with Recursive means "all episodes of this library".
+	if containsKind(out, store.KindEpisode) && !containsKind(out, store.KindMovie) && !containsKind(out, store.KindShow) {
+		return []string{store.KindEpisode}, false
+	}
+	return out, false
+}
+
+func containsKind(kinds []string, kind string) bool {
+	for _, k := range kinds {
+		if k == kind {
+			return true
 		}
 	}
-	mapped = uniqueStrings(mapped)
-	if len(mapped) == 1 {
-		return mapped[0], false
-	}
-	if len(mapped) > 1 {
-		return "", false // mixed top-level browse
-	}
-	switch libType {
-	case "tv":
-		return store.KindShow, false
-	case "home_video", "tv_recording":
-		return store.KindHomeVideo, false
-	}
-	return store.KindMovie, false
+	return false
 }
 
 func jfWantsEpisodes(types []string) bool {
@@ -393,8 +526,20 @@ func (s *Server) handleJFItem(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto)
 }
 
+// jfItemOpts carries batched context for list rows.
+type jfItemOpts struct {
+	detail     bool
+	series     *store.SeriesRef
+	childCount int
+	favorite   bool
+}
+
 // jfBaseItem maps one of our items to the Jellyfin item shape.
 func (s *Server) jfBaseItem(ctx context.Context, it *store.Item, serverID string, detail bool) jellyfin.BaseItemDto {
+	return s.jfBaseItemCtx(ctx, it, serverID, jfItemOpts{detail: detail})
+}
+
+func (s *Server) jfBaseItemCtx(ctx context.Context, it *store.Item, serverID string, opts jfItemOpts) jellyfin.BaseItemDto {
 	d := jellyfin.BaseItemDto{
 		Name:              it.Title,
 		ServerID:          serverID,
@@ -445,9 +590,22 @@ func (s *Server) jfBaseItem(ctx context.Context, it *store.Item, serverID string
 			d.ParentIndexNumber = &sn
 		}
 		d.PrimaryImageAspectRatio = 1.7778
-		if detail {
+		if opts.series != nil {
+			d.SeriesID = jellyfin.ItemID(opts.series.SeriesID)
+			d.SeasonID = jellyfin.ItemID(opts.series.SeasonID)
+			d.SeriesName = opts.series.SeriesName
+			d.SeasonName = opts.series.SeasonName
+			if tag := jfImageTag(opts.series.PosterPath); tag != "" {
+				d.SeriesPrimaryImageTag = tag
+			}
+			if tag := jfImageTag(opts.series.BackdropPath); tag != "" {
+				d.ParentBackdropItemID = d.SeriesID
+				d.ParentBackdropImageTags = []string{tag}
+			}
+		} else if opts.detail {
 			if season, err := s.store.GetItem(ctx, it.ParentID); err == nil {
 				d.SeasonID = jellyfin.ItemID(season.ID)
+				d.SeasonName = season.Title
 				d.SeriesID = jellyfin.ItemID(season.ParentID)
 			}
 		}
@@ -472,6 +630,7 @@ func (s *Server) jfBaseItem(ctx context.Context, it *store.Item, serverID string
 		Played:                it.Played,
 		PlaybackPositionTicks: jfTicks(it.PositionMS),
 		PlayCount:             playCount,
+		IsFavorite:            opts.favorite,
 	}
 	if it.DurationMS > 0 && it.PositionMS > 0 {
 		pct := float64(it.PositionMS) / float64(it.DurationMS) * 100
@@ -493,7 +652,10 @@ func (s *Server) jfBaseItem(ctx context.Context, it *store.Item, serverID string
 		d.ProviderIds = map[string]string{"Tmdb": it.ProviderID}
 	}
 
-	if detail {
+	if opts.childCount > 0 {
+		d.ChildCount = opts.childCount
+	}
+	if opts.detail {
 		if genres, err := s.store.ItemGenres(ctx, it.ID); err == nil && len(genres) > 0 {
 			d.Genres = genres
 		}

@@ -41,6 +41,7 @@ func (s *Server) registerJellyfinRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /Sessions", s.anyAuth(s.handleJFSessions))
 	mux.HandleFunc("POST /Sessions/Capabilities/Full", s.anyAuth(s.handleJFCapabilities))
 	s.registerJellyfinPlaybackRoutes(mux)
+	s.registerJellyfinBrowseRoutes(mux)
 }
 
 // jellyfinServerID returns (and persists on first use) the server id reported

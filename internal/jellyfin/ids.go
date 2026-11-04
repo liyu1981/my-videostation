@@ -17,6 +17,8 @@ const (
 	KindLibrary Kind = 2
 	KindItem    Kind = 3
 	KindFile    Kind = 4 // media source (one playable file)
+	KindGenre   Kind = 5
+	KindPerson  Kind = 6
 )
 
 // idLen is the length of an encoded id (32 lowercase hex characters).
@@ -69,3 +71,5 @@ func UserID(id int64) string    { return Encode(KindUser, id) }
 func LibraryID(id int64) string { return Encode(KindLibrary, id) }
 func ItemID(id int64) string    { return Encode(KindItem, id) }
 func FileID(id int64) string    { return Encode(KindFile, id) }
+func GenreID(id int64) string   { return Encode(KindGenre, id) }
+func PersonID(id int64) string  { return Encode(KindPerson, id) }
