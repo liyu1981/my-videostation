@@ -24,7 +24,12 @@ No Gradle, no Maven, no build files — a single Kotlin main-kts script.
 
 ```bash
 cd tools/jellyfin-validator
+
+# Findroid (jellyfin-sdk-kotlin 1.9.4)
 ./run.sh http://192.168.0.221:6500 admin 'your-password'
+
+# Wholphin / Android TV (jellyfin-sdk-kotlin 1.7.1)
+./run-wholphin.sh http://192.168.0.221:6500 admin 'your-password'
 
 # or via env
 MVS_URL=http://192.168.0.221:6500 MVS_USER=admin MVS_PASS=... ./run.sh

@@ -339,13 +339,14 @@ func (s *Server) jfUser(ctx context.Context, u *store.User) jellyfin.UserDto {
 		}
 	}
 	return jellyfin.UserDto{
-		Name:                  u.DisplayName,
-		ServerID:              s.jellyfinServerID(ctx),
-		ID:                    jellyfin.UserID(u.ID),
-		HasPassword:           u.PasswordHash != "",
-		HasConfiguredPassword: u.PasswordHash != "",
-		LastLoginDate:         u.UpdatedAt.UTC().Format(time.RFC3339),
-		LastActivityDate:      u.UpdatedAt.UTC().Format(time.RFC3339),
+		Name:                      u.DisplayName,
+		ServerID:                  s.jellyfinServerID(ctx),
+		ID:                        jellyfin.UserID(u.ID),
+		HasPassword:               u.PasswordHash != "",
+		HasConfiguredPassword:     u.PasswordHash != "",
+		HasConfiguredEasyPassword: false,
+		LastLoginDate:             u.UpdatedAt.UTC().Format(time.RFC3339),
+		LastActivityDate:          u.UpdatedAt.UTC().Format(time.RFC3339),
 		Configuration: jellyfin.UserConfigDto{
 			PlayDefaultAudioTrack:      true,
 			GroupedFolders:             []string{},

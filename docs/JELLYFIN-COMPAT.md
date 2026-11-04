@@ -262,8 +262,9 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
   "Unsupported version or product", so this is a hard protocol constant.
   `ServerName` remains `MyVideoStation` (shown in the client UI).
 - **Target clients (test matrix)**: native clients only — Jellyfin **Android TV**
-  (Google TV), Jellyfin **iOS/Swiftfin**, and native third-party apps such as
-  **Findroid**/**Streamyfin** (all talk to the REST API directly).
+  (Google TV) and **Wholphin** (Android TV, `jellyfin-sdk-kotlin` 1.7.1),
+  Jellyfin **iOS/Swiftfin**, and native phone apps such as **Findroid**/**Streamyfin**
+  (`jellyfin-sdk-kotlin` 1.9.x). All talk to the REST API directly.
   **The Jellyfin Android phone app is not usable against us**: it is a WebView shell
   (`WebViewFragment.loadUrl("${hostname}/")` plus JS bridges) that expects the
   **Jellyfin web client** to be served at `/`. We serve our own SPA there. Supporting
@@ -322,6 +323,13 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
 | `[x] POST /DisplayPreferences/{id}` | accepted and ignored |
 | `[x] GET /UserItems/Resume` | SDK alias for the resume row |
 | `[x] GET /socket` | 400 (no WebSocket API yet) |
+| `[x] GET /Items/{id}/ThemeSongs`, `/ThemeVideos` | empty `ThemeMediaResult` (no theme media indexing) |
+| `[x] GET /Localization/Cultures` | small language list for settings |
+| `[x] GET /UserImage` | 404 (no user avatars) |
+| `[x] GET /Items/{id}/Download` | original file as attachment |
+| `[x] POST /Items/{id}/RemoteSearch/Subtitles/{id}` | 501 (no online subtitle providers) |
+| `[x] DELETE /Items/{id}` | 403 (media folders are read-only) |
+| `[x] GET /Items` params | `isPlayed`, `isUnplayed`, `isFavorite`, `isResumable`, `excludeItemIds`; `Resume` honours `includeItemTypes`/`excludeItemTypes` |
 | `[x] GET /UserItems/{itemId}/UserData` | user data (played/resume/favorite) |
 | `[x] POST /UserItems/{itemId}/UserData` | update played/position/favorite |
 | `[x] POST/DELETE /UserPlayedItems/{itemId}` | SDK played/unplayed aliases |
@@ -369,6 +377,15 @@ Later slices: `PlaybackInfo`, `/Videos/*`, `/Sessions/Playing*`, `/Shows/*`,
   `/Branding/Configuration`, plus relation stubs and a `/socket` WebSocket for push
   events (unsupported; the app functions without it). It reads episode rows with
   `StartIndex = episode number`, so season episode lists are sorted before slicing.
+- **Wholphin specifics** (scanned from `damontecres/Wholphin`, SDK 1.7.1):
+  `/UserViews` for libraries, `/Items` (bare) for root views, `/Items` with
+  `isPlayed`/`excludeItemIds`/multiple sort keys for home rows, `/UserItems/Resume`
+  (excluding episodes), `/Shows/NextUp`, `/Shows/{id}/Episodes`, `/Items/{id}` detail,
+  `/Items/{id}/ThemeSongs`, `/Persons`, `/Genres`, `/Localization/Cultures`,
+  `POST /Items/{id}/PlaybackInfo` + `/Videos/{id}/stream`, `/Sessions/Playing*`,
+  `/UserPlayedItems`/`/UserFavoriteItems`, `/DisplayPreferences` and
+  `/Items/{id}/Download`. All are covered by `tools/jellyfin-validator/wholphin.main.kts`
+  (24/24 checks).
 - **Findroid specifics** (scanned from `jarnedemeulemeester/findroid`): it is
   direct-play only, uses `POST /Items/{id}/PlaybackInfo` with a `DeviceProfile`,
   builds the stream URL itself via the SDK (no token → hence the anonymous
@@ -426,6 +443,9 @@ how these client-visible contracts were found and fixed:
 | `DisplayPreferencesDto` | `RememberIndexing`, `PrimaryImageHeight`, `PrimaryImageWidth`, `CustomPrefs` |
 | `SearchHint` | `Artists` |
 | `BaseItemPerson` (item `People`) | `Id` (required UUID) |
+| `UserDto` (SDK 1.7.1) | `HasConfiguredEasyPassword` (required in 1.7.1, optional in 1.9.4) |
+| `/Genres`, `/Persons`, `/Studios` | return `BaseItemDtoQueryResult` objects (`Items`/`TotalRecordCount`/`StartIndex`), not bare arrays |
+| Query parameter casing | Jellyfin clients send camelCase (`includeItemTypes`, `genreIds`, …); `url.Values` is case-sensitive, so all adapter query parsing is case-insensitive |
 | Lowercase image paths | Findroid builds `items/<id>/Images/Primary?tag=…`, so the adapter mirrors item-image routes for the lowercase prefix |
 | Bare `GET /Items` semantics | Findroid's `getLibraries()` reads this as the library list; it must return `CollectionFolder` views with `CollectionType`, not media items (returning movies makes every movie a fake "Mixed" library and its detail page empty) |
 | `GET /Items/Suggestions` | Home "Suggestions" row; returns recent unplayed items of the requested kinds (fallback: recent items) |

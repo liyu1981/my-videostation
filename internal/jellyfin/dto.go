@@ -20,16 +20,17 @@ const ServerDisplayName = "MyVideoStation"
 
 // UserDto is a Jellyfin user.
 type UserDto struct {
-	Name                  string        `json:"Name"`
-	ServerID              string        `json:"ServerId,omitempty"`
-	ID                    string        `json:"Id"`
-	HasPassword           bool          `json:"HasPassword"`
-	HasConfiguredPassword bool          `json:"HasConfiguredPassword"`
-	LastLoginDate         string        `json:"LastLoginDate,omitempty"`
-	LastActivityDate      string        `json:"LastActivityDate,omitempty"`
-	PrimaryImageTag       string        `json:"PrimaryImageTag,omitempty"`
-	Configuration         UserConfigDto `json:"Configuration"`
-	Policy                UserPolicyDto `json:"Policy"`
+	Name                      string        `json:"Name"`
+	ServerID                  string        `json:"ServerId,omitempty"`
+	ID                        string        `json:"Id"`
+	HasPassword               bool          `json:"HasPassword"`
+	HasConfiguredPassword     bool          `json:"HasConfiguredPassword"`
+	HasConfiguredEasyPassword bool          `json:"HasConfiguredEasyPassword"`
+	LastLoginDate             string        `json:"LastLoginDate,omitempty"`
+	LastActivityDate          string        `json:"LastActivityDate,omitempty"`
+	PrimaryImageTag           string        `json:"PrimaryImageTag,omitempty"`
+	Configuration             UserConfigDto `json:"Configuration"`
+	Policy                    UserPolicyDto `json:"Policy"`
 }
 
 // UserConfigDto carries playback defaults.
@@ -358,4 +359,20 @@ type BrandingConfiguration struct {
 	LoginDisclaimer     string `json:"LoginDisclaimer"`
 	CustomCSS           string `json:"CustomCss"`
 	SplashscreenEnabled bool   `json:"SplashscreenEnabled"`
+}
+
+// ThemeMediaResult is returned by /Items/{id}/ThemeSongs and /ThemeVideos.
+type ThemeMediaResult struct {
+	Items            []BaseItemDto `json:"Items"`
+	TotalRecordCount int           `json:"TotalRecordCount"`
+	StartIndex       int           `json:"StartIndex"`
+	OwnerID          string        `json:"OwnerId"`
+}
+
+// CultureDto is one entry of /Localization/Cultures.
+type CultureDto struct {
+	Name                        string   `json:"Name"`
+	DisplayName                 string   `json:"DisplayName"`
+	TwoLetterISOLanguageName    string   `json:"TwoLetterISOLanguageName"`
+	ThreeLetterISOLanguageNames []string `json:"ThreeLetterISOLanguageNames"`
 }

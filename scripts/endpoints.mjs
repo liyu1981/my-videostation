@@ -51,11 +51,11 @@ const groups = [
   {
     title: 'Jellyfin — discovery, auth, users, views',
     test: (r) =>
-      /^\/(System|Branding|QuickConnect|UserViews|DisplayPreferences)/.test(r) ||
+      /^\/(System|Branding|QuickConnect|UserViews|DisplayPreferences|Localization)/.test(r) ||
       /^\/Users\/(Public|AuthenticateByName|Me)/.test(r) ||
       /^\/Users\/\{userId\}(\/Views)?$/.test(r),
   },
-  { title: 'Jellyfin — images (anonymous, opaque ids)', test: (r) => r.includes('/Images') },
+  { title: 'Jellyfin — images (anonymous, opaque ids)', test: (r) => r.includes('/Images') || r.startsWith('/UserImage') },
   {
     title: 'Jellyfin — playback',
     test: (r) => r.includes('/PlaybackInfo') || /^\/Videos\//.test(r),

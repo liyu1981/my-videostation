@@ -19,7 +19,17 @@ import (
 // ---- parameter helpers -----------------------------------------------------
 
 func jfCSV(q map[string][]string, key string) []string {
+	// Jellyfin query parameters are camelCase ("includeItemTypes"), while Go's
+	// url.Values is case-sensitive. Match case-insensitively like firstValue.
 	raw := q[key]
+	if len(raw) == 0 {
+		for k, v := range q {
+			if strings.EqualFold(k, key) {
+				raw = v
+				break
+			}
+		}
+	}
 	if len(raw) == 0 {
 		return nil
 	}
@@ -182,6 +192,27 @@ func (s *Server) jfQueryItems(ctx context.Context, q map[string][]string) (jelly
 		if id, err := jellyfin.DecodeKind(raw, jellyfin.KindPerson); err == nil {
 			filter.PersonIDs = append(filter.PersonIDs, id)
 		}
+	}
+	for _, raw := range jfCSV(q, "ExcludeItemIds") {
+		if id, err := jellyfin.DecodeKind(raw, jellyfin.KindItem); err == nil {
+			filter.ExcludeIDs = append(filter.ExcludeIDs, id)
+		}
+	}
+	// Jellyfin exposes played/favorite/resumable both as `Filters` entries and as
+	// standalone booleans; clients use either form.
+	if strings.EqualFold(firstValue(q, "IsPlayed"), "true") {
+		watched := true
+		filter.Watched = &watched
+	}
+	if strings.EqualFold(firstValue(q, "IsUnplayed"), "true") {
+		watched := false
+		filter.Watched = &watched
+	}
+	if strings.EqualFold(firstValue(q, "IsFavorite"), "true") {
+		filter.Favorites = true
+	}
+	if strings.EqualFold(firstValue(q, "IsResumable"), "true") {
+		filter.Resumable = true
 	}
 	for _, f := range jfCSV(q, "Filters") {
 		switch strings.ToLower(f) {

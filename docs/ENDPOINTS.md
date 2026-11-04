@@ -15,7 +15,7 @@ Auth legend:
   `X-MediaBrowser-Token`, `?api_key=`) **or** the SPA cookie
 - **token|session|cast** — additionally a signed `?cast=` token (cast receivers)
 
-Totals: **146** registered routes (plus the SPA fallback at `/`).
+Totals: **153** registered routes (plus the SPA fallback at `/`).
 
 ## Canonical API — health, config, auth (8)
 
@@ -120,7 +120,7 @@ Totals: **146** registered routes (plus the SPA fallback at `/`).
 | GET | `/hls/{session}/{file...}` | token\|session |
 | GET | `/api/v1/media/{fileId}/subtitle` | session |
 
-## Jellyfin — discovery, auth, users, views (12)
+## Jellyfin — discovery, auth, users, views (13)
 
 | Method | Path | Auth |
 |---|---|---|
@@ -135,9 +135,10 @@ Totals: **146** registered routes (plus the SPA fallback at `/`).
 | GET | `/Users/{userId}/Views` | token\|session |
 | GET | `/UserViews` | token\|session |
 | GET | `/DisplayPreferences/{name}` | token\|session |
+| GET | `/Localization/Cultures` | token\|session |
 | POST | `/DisplayPreferences/{name}` | token\|session |
 
-## Jellyfin — images (anonymous, opaque ids) (5)
+## Jellyfin — images (anonymous, opaque ids) (6)
 
 | Method | Path | Auth |
 |---|---|---|
@@ -145,6 +146,7 @@ Totals: **146** registered routes (plus the SPA fallback at `/`).
 | GET | `/Items/{itemId}/Images/{imageType}/{index}` | public |
 | GET | `/items/{itemId}/Images/{imageType}` | public |
 | GET | `/items/{itemId}/Images/{imageType}/{index}` | public |
+| GET | `/UserImage` | public |
 | GET | `/Items/{itemId}/Images` | token\|session |
 
 ## Jellyfin — playback (5)
@@ -191,7 +193,7 @@ Totals: **146** registered routes (plus the SPA fallback at `/`).
 | GET | `/Shows/{itemId}/Seasons` | token\|session |
 | GET | `/Shows/{itemId}/Episodes` | token\|session |
 
-## Jellyfin — items, browse, facets, search (22)
+## Jellyfin — items, browse, facets, search (27)
 
 | Method | Path | Auth |
 |---|---|---|
@@ -217,6 +219,11 @@ Totals: **146** registered routes (plus the SPA fallback at `/`).
 | GET | `/Items/{itemId}/ThemeMedia` | token\|session |
 | GET | `/Items/{itemId}/LocalTrailers` | token\|session |
 | GET | `/Items/{itemId}/SpecialFeatures` | token\|session |
+| GET | `/Items/{itemId}/ThemeSongs` | token\|session |
+| GET | `/Items/{itemId}/ThemeVideos` | token\|session |
+| GET | `/Items/{itemId}/Download` | token\|session |
+| DELETE | `/Items/{itemId}` | token\|session |
+| POST | `/Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}` | token\|session |
 
 ## Dispatch details
 

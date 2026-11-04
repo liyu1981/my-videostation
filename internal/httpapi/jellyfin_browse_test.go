@@ -198,15 +198,21 @@ func TestJellyfinBrowseFilters(t *testing.T) {
 	}
 
 	// Genre ids from /Genres round-trip into the filter.
-	var genres []struct {
-		Name string `json:"Name"`
-		ID   string `json:"Id"`
+	var genres struct {
+		Items []struct {
+			Name string `json:"Name"`
+			ID   string `json:"Id"`
+			Type string `json:"Type"`
+		} `json:"Items"`
 	}
 	env.get(t, env.srv+"/Genres?ParentId="+jellyfinLibraryID(env.movieLib), &genres)
 	var dramaGenreID string
-	for _, g := range genres {
+	for _, g := range genres.Items {
 		if g.Name == "Drama" {
 			dramaGenreID = g.ID
+			if g.Type != "Genre" {
+				t.Fatalf("genre type = %q", g.Type)
+			}
 		}
 	}
 	if dramaGenreID == "" {
@@ -219,15 +225,21 @@ func TestJellyfinBrowseFilters(t *testing.T) {
 	}
 
 	// Person ids from /Persons round-trip into the filter.
-	var persons []struct {
-		Name string `json:"Name"`
-		ID   string `json:"Id"`
+	var persons struct {
+		Items []struct {
+			Name string `json:"Name"`
+			ID   string `json:"Id"`
+			Type string `json:"Type"`
+		} `json:"Items"`
 	}
 	env.get(t, env.srv+"/Persons", &persons)
 	var actorID string
-	for _, p := range persons {
+	for _, p := range persons.Items {
 		if p.Name == "NFO Actor" {
 			actorID = p.ID
+			if p.Type != "Person" {
+				t.Fatalf("person type = %q", p.Type)
+			}
 		}
 	}
 	if actorID == "" {

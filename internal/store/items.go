@@ -170,6 +170,7 @@ type ItemFilter struct {
 	Years          []int
 	Ratings        []string // content ratings (IN)
 	PersonIDs      []int64
+	ExcludeIDs     []int64
 	Watched        *bool
 	Resumable      bool   // position > 0 and not played
 	Favorites      bool   // in the current user's favorites collection
@@ -277,6 +278,12 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 		where = append(where, `EXISTS (SELECT 1 FROM item_people ip
 			WHERE ip.item_id = m.id AND ip.person_id IN (`+placeholders(len(f.PersonIDs))+`))`)
 		for _, id := range f.PersonIDs {
+			args = append(args, id)
+		}
+	}
+	if len(f.ExcludeIDs) > 0 {
+		where = append(where, "m.id NOT IN ("+placeholders(len(f.ExcludeIDs))+")")
+		for _, id := range f.ExcludeIDs {
 			args = append(args, id)
 		}
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -15,6 +17,8 @@ import (
 // facet endpoints and the item-relation stubs clients probe while rendering.
 func (s *Server) registerJellyfinBrowseRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /Items/Suggestions", s.anyAuth(s.handleJFSuggestions))
+	mux.HandleFunc("GET /Localization/Cultures", s.anyAuth(s.handleJFCultures))
+	mux.HandleFunc("GET /UserImage", s.handleJFUserImage)
 	mux.HandleFunc("GET /Items/Resume", s.anyAuth(s.handleJFResume))
 	mux.HandleFunc("GET /Users/{userId}/Items/Resume", s.anyAuth(s.handleJFResume))
 	mux.HandleFunc("GET /Items/Latest", s.anyAuth(s.handleJFLatest))
@@ -41,6 +45,11 @@ func (s *Server) registerJellyfinBrowseRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /Items/{itemId}/LocalTrailers", s.anyAuth(s.handleJFLocalTrailers))
 	mux.HandleFunc("GET /Items/{itemId}/SpecialFeatures", s.anyAuth(s.handleJFSpecialFeatures))
 	mux.HandleFunc("GET /Items/{itemId}/Images", s.anyAuth(s.handleJFImageList))
+	mux.HandleFunc("GET /Items/{itemId}/ThemeSongs", s.anyAuth(s.handleJFThemeSongs))
+	mux.HandleFunc("GET /Items/{itemId}/ThemeVideos", s.anyAuth(s.handleJFThemeSongs))
+	mux.HandleFunc("GET /Items/{itemId}/Download", s.anyAuth(s.handleJFDownload))
+	mux.HandleFunc("DELETE /Items/{itemId}", s.anyAuth(s.handleJFDeleteItem))
+	mux.HandleFunc("POST /Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}", s.anyAuth(s.handleJFRemoteSubtitle))
 }
 
 // jfBrowseContext resolves the token user and a user-scoped context.
@@ -301,11 +310,13 @@ func (s *Server) handleJFGenres(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	out := make([]jellyfin.NameGuidPair, 0, len(facets.Genres))
+	items := make([]jellyfin.BaseItemDto, 0, len(facets.Genres))
 	for _, g := range facets.Genres {
-		out = append(out, jellyfin.NameGuidPair{Name: g.Value, ID: jellyfin.GenreID(g.ID)})
+		items = append(items, jellyfin.BaseItemDto{
+			Name: g.Value, ID: jellyfin.GenreID(g.ID), Type: "Genre",
+		})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, jellyfin.QueryResult{Items: items, TotalRecordCount: len(items)})
 }
 
 func (s *Server) handleJFPersons(w http.ResponseWriter, r *http.Request) {
@@ -320,18 +331,18 @@ func (s *Server) handleJFPersons(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	serverID := s.jellyfinServerID(ctx)
-	out := make([]jellyfin.BaseItemDto, 0, len(refs))
+	items := make([]jellyfin.BaseItemDto, 0, len(refs))
 	for _, p := range refs {
-		out = append(out, jellyfin.BaseItemDto{
+		items = append(items, jellyfin.BaseItemDto{
 			Name: p.Name, ServerID: serverID, ID: jellyfin.PersonID(p.ID), Type: "Person",
 		})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, jellyfin.QueryResult{Items: items, TotalRecordCount: len(items)})
 }
 
 func (s *Server) handleJFStudios(w http.ResponseWriter, r *http.Request) {
 	// Studios are not part of our metadata model.
-	writeJSON(w, http.StatusOK, []jellyfin.NameGuidPair{})
+	writeJSON(w, http.StatusOK, jellyfin.QueryResult{Items: []jellyfin.BaseItemDto{}})
 }
 
 func (s *Server) jfQueryFilters(ctx context.Context, r *http.Request) (jellyfin.QueryFilters, error) {
@@ -552,7 +563,7 @@ func (s *Server) handleJFThemeMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	empty := func() map[string]any {
-		return map[string]any{"Items": []any{}, "TotalRecordCount": 0, "OwnerId": r.PathValue("itemId")}
+		return map[string]any{"Items": []any{}, "TotalRecordCount": 0, "StartIndex": 0, "OwnerId": r.PathValue("itemId")}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ThemeVideosResult":     empty(),
@@ -623,4 +634,77 @@ func (s *Server) handleJFImageList(w http.ResponseWriter, r *http.Request) {
 		out = append(out, jellyfin.ImageInfo{ImageType: "Backdrop", ImageIndex: 0, Width: 1920, Height: 1080})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleJFThemeSongs answers /ThemeSongs and /ThemeVideos. We do not index theme
+// media, so the result is empty (the client then skips theme playback).
+func (s *Server) handleJFThemeSongs(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
+	itemID, err := jellyfin.DecodeKind(r.PathValue("itemId"), jellyfin.KindItem)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, jellyfin.ThemeMediaResult{
+		Items: []jellyfin.BaseItemDto{}, TotalRecordCount: 0, StartIndex: 0,
+		OwnerID: jellyfin.ItemID(itemID),
+	})
+}
+
+// handleJFCultures serves the small language list the settings UI needs.
+func (s *Server) handleJFCultures(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, []jellyfin.CultureDto{
+		{Name: "en-US", DisplayName: "English (United States)", TwoLetterISOLanguageName: "en", ThreeLetterISOLanguageNames: []string{"eng"}},
+		{Name: "en-GB", DisplayName: "English (United Kingdom)", TwoLetterISOLanguageName: "en", ThreeLetterISOLanguageNames: []string{"eng"}},
+		{Name: "de-DE", DisplayName: "German (Germany)", TwoLetterISOLanguageName: "de", ThreeLetterISOLanguageNames: []string{"deu", "ger"}},
+		{Name: "zh-CN", DisplayName: "Chinese (Simplified)", TwoLetterISOLanguageName: "zh", ThreeLetterISOLanguageNames: []string{"zho", "chi"}},
+		{Name: "zh-TW", DisplayName: "Chinese (Traditional)", TwoLetterISOLanguageName: "zh", ThreeLetterISOLanguageNames: []string{"zho", "chi"}},
+	})
+}
+
+// handleJFUserImage answers /UserImage; we have no user avatars.
+func (s *Server) handleJFUserImage(w http.ResponseWriter, r *http.Request) {
+	http.NotFound(w, r)
+}
+
+// handleJFDownload serves the original file as an attachment.
+func (s *Server) handleJFDownload(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if me, ok := s.jfAuthenticatedUser(r); ok {
+		ctx = s.userContext(ctx, me, "")
+	}
+	file, err := s.jfSourceFile(ctx, r)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	f, err := os.Open(file.Path)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || st.IsDir() {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename="+filepath.Base(file.Path))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeContent(w, r, filepath.Base(file.Path), st.ModTime(), f)
+}
+
+// handleJFDeleteItem refuses deletions: media folders are read-only.
+func (s *Server) handleJFDeleteItem(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusForbidden)
+}
+
+// handleJFRemoteSubtitle answers remote subtitle downloads (not supported).
+func (s *Server) handleJFRemoteSubtitle(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
 }
