@@ -9,7 +9,8 @@ tmp_dir = ".air"
 [build]
   cmd = "node scripts/dev-build.mjs"
   bin = ".air/mvs"
-  full_bin = ".air/mvs --listen 0.0.0.0:6500 --data ./data"
+  # Dev always runs with debug logs so request/scan/adapter activity is visible.
+  full_bin = ".air/mvs --listen 0.0.0.0:6500 --data ./data --log-level debug"
   include_ext = ["go", "sql", "ts", "tsx", "js", "jsx", "css", "html"]
   exclude_dir = [
     "node_modules",

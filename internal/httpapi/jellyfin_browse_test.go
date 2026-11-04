@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/liyu1981/myvideostation/internal/jellyfin"
 )
 
 type jfTestEnv struct {
@@ -40,6 +42,10 @@ func setupJellyfinBrowse(t *testing.T) *jfTestEnv {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(movieDir, "Drama Movie (2001)", "Drama Movie (2001)-trailer.mkv"))
+	if err := os.WriteFile(filepath.Join(movieDir, "Drama Movie (2001)", "Drama Movie (2001).en.srt"),
+		[]byte("1\n00:00:01,000 --> 00:00:03,000\nHello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(movieDir, "Comedy Movie (2002)", "Comedy Movie (2002).mkv"))
 	if err := os.WriteFile(filepath.Join(movieDir, "Comedy Movie (2002)", "Comedy Movie (2002).nfo"), []byte(
 		`<movie><title>Comedy Movie</title><year>2002</year><genre>Comedy</genre><mpaa>PG-13</mpaa></movie>`), 0o644); err != nil {
@@ -268,6 +274,17 @@ func TestJellyfinHomeRows(t *testing.T) {
 		}
 	}
 
+	// Global /Shows/NextUp (home row) returns the in-progress episode.
+	var homeNext struct {
+		Items []struct {
+			IndexNumber *int `json:"IndexNumber"`
+		} `json:"Items"`
+	}
+	env.get(t, env.srv+"/Shows/NextUp?limit=10&enableResumable=false", &homeNext)
+	if len(homeNext.Items) != 1 || homeNext.Items[0].IndexNumber == nil || *homeNext.Items[0].IndexNumber != 2 {
+		t.Fatalf("home next up = %+v", homeNext.Items)
+	}
+
 	// NextUp resumes the in-progress episode, not the watched one.
 	var next struct {
 		Items []struct {
@@ -345,6 +362,73 @@ func TestJellyfinFacetsAndStubs(t *testing.T) {
 		t.Fatalf("special features = %+v", specials)
 	}
 
+	// Seasons list for the series detail page.
+	var seasons struct {
+		Items []struct {
+			IndexNumber *int   `json:"IndexNumber"`
+			Type        string `json:"Type"`
+		} `json:"Items"`
+	}
+	env.get(t, env.srv+"/Shows/"+jellyfinItemID(t, env.showID)+"/Seasons", &seasons)
+	if len(seasons.Items) != 2 || *seasons.Items[0].IndexNumber != 1 || *seasons.Items[1].IndexNumber != 2 {
+		t.Fatalf("seasons = %+v", seasons.Items)
+	}
+
+	// Empty relation endpoints the TV client probes.
+	for _, path := range []string{
+		"/Shows/Upcoming",
+		"/Videos/" + drama + "/AdditionalParts",
+		"/Items/" + drama + "/Intros",
+	} {
+		var empty struct {
+			Items            []json.RawMessage `json:"Items"`
+			TotalRecordCount int               `json:"TotalRecordCount"`
+		}
+		env.get(t, env.srv+path, &empty)
+		if len(empty.Items) != 0 || empty.TotalRecordCount != 0 {
+			t.Fatalf("%s = %+v", path, empty)
+		}
+	}
+
+	// Display preferences are accepted and ignored.
+	pres := jfDo(t, http.MethodPost, env.srv+"/DisplayPreferences/usersettings?userId="+env.userID+"&client=test", env.token,
+		[]byte(`{"SortBy":"SortName"}`))
+	pres.Body.Close()
+	if pres.StatusCode != http.StatusNoContent {
+		t.Fatalf("save display preferences = %d", pres.StatusCode)
+	}
+
+	// /UserItems/Resume is the SDK's other resume path.
+	var userResume struct {
+		TotalRecordCount int `json:"TotalRecordCount"`
+	}
+	env.get(t, env.srv+"/UserItems/Resume", &userResume)
+	if userResume.TotalRecordCount == 0 {
+		t.Fatal("user resume row is empty")
+	}
+
+	// Subtitle side-load URLs carry the token (ExoPlayer fetches them itself).
+	var info struct {
+		MediaSources []struct {
+			MediaStreams []struct {
+				Type        string `json:"Type"`
+				DeliveryURL string `json:"DeliveryUrl"`
+			} `json:"MediaStreams"`
+		} `json:"MediaSources"`
+	}
+	env.get(t, env.srv+"/Items/"+drama+"/PlaybackInfo", &info)
+	foundSub := false
+	for _, src := range info.MediaSources {
+		for _, st := range src.MediaStreams {
+			if st.Type == "Subtitle" && strings.Contains(st.DeliveryURL, "api_key=") {
+				foundSub = true
+			}
+		}
+	}
+	if !foundSub {
+		t.Fatalf("subtitle delivery URL missing api_key: %+v", info.MediaSources)
+	}
+
 	// Episode list rows carry the series context and artwork fallback.
 	var episodes struct {
 		Items []struct {
@@ -369,6 +453,86 @@ func TestJellyfinFacetsAndStubs(t *testing.T) {
 }
 
 // jellyfinLibraryID encodes a library id the way the adapter does.
-func jellyfinLibraryID(id int64) string { return jellyfinEncode(2, id) }
+func jellyfinLibraryID(id int64) string { return jellyfin.LibraryID(id) }
 
 var _ = bytes.NewReader
+
+func TestJellyfinUserDataAndAnonymousMedia(t *testing.T) {
+	env := setupJellyfinBrowse(t)
+	drama := jellyfinItemID(t, env.dramaID)
+
+	// GET /UserItems/{id}/UserData reflects position + favorite state.
+	var userData struct {
+		Played                bool  `json:"Played"`
+		PlaybackPositionTicks int64 `json:"PlaybackPositionTicks"`
+		IsFavorite            bool  `json:"IsFavorite"`
+	}
+	env.get(t, env.srv+"/UserItems/"+drama+"/UserData", &userData)
+	if userData.PlaybackPositionTicks != 5000*10000 || !userData.IsFavorite || userData.Played {
+		t.Fatalf("user data = %+v", userData)
+	}
+
+	// POST /UserItems/{id}/UserData marks it played.
+	body := []byte(`{"Played":true}`)
+	res := jfDo(t, http.MethodPost, env.srv+"/UserItems/"+drama+"/UserData?api_key="+env.token, env.token, body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("update user data = %d", res.StatusCode)
+	}
+	env.get(t, env.srv+"/UserItems/"+drama+"/UserData", &userData)
+	if !userData.Played {
+		t.Fatalf("user data after update = %+v", userData)
+	}
+
+	// /UserPlayedItems/{id} (SDK path) toggles watched state.
+	comedy := jellyfinItemID(t, env.comedyID)
+	unmark := jfDo(t, http.MethodDelete, env.srv+"/UserPlayedItems/"+comedy+"?api_key="+env.token, env.token, nil)
+	unmark.Body.Close()
+	if unmark.StatusCode != http.StatusNoContent {
+		t.Fatalf("unmark played = %d", unmark.StatusCode)
+	}
+	mark := jfDo(t, http.MethodPost, env.srv+"/UserPlayedItems/"+comedy+"?api_key="+env.token, env.token, nil)
+	mark.Body.Close()
+	if mark.StatusCode != http.StatusNoContent {
+		t.Fatalf("mark played = %d", mark.StatusCode)
+	}
+
+	// Media segments are empty (no intro/outro detection).
+	var segments struct {
+		Items            []json.RawMessage `json:"Items"`
+		TotalRecordCount int               `json:"TotalRecordCount"`
+	}
+	env.get(t, env.srv+"/MediaSegments/"+drama, &segments)
+	if len(segments.Items) != 0 || segments.TotalRecordCount != 0 {
+		t.Fatalf("media segments = %+v", segments)
+	}
+
+	// Device options are accepted.
+	dev := jfDo(t, http.MethodPost, env.srv+"/Devices/Options?api_key="+env.token, env.token, []byte(`{"CustomName":"Findroid"}`))
+	dev.Body.Close()
+	if dev.StatusCode != http.StatusNoContent {
+		t.Fatalf("device options = %d", dev.StatusCode)
+	}
+
+	// Artwork and static streams are anonymous (clients fetch them without
+	// headers); opaque ids make them non-enumerable.
+	bare := &http.Client{}
+	imgURL := env.srv + "/Items/" + jellyfinItemID(t, env.showID) + "/Images/Primary"
+	imgRes, err := bare.Get(imgURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imgRes.Body.Close()
+	if imgRes.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous image = %d", imgRes.StatusCode)
+	}
+	streamURL := env.srv + "/Videos/" + drama + "/stream?static=true"
+	streamRes, err := bare.Get(streamURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamRes.Body.Close()
+	if streamRes.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous stream = %d", streamRes.StatusCode)
+	}
+}

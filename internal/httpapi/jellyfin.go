@@ -33,42 +33,62 @@ func (s *Server) registerJellyfinRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /UserViews", s.anyAuth(s.handleJFViews))
 	mux.HandleFunc("GET /DisplayPreferences/{name}", s.anyAuth(s.handleJFDisplayPreferences))
 	mux.HandleFunc("GET /Users/{userId}/Items", s.anyAuth(s.handleJFItems))
+	mux.HandleFunc("GET /UserItems/{itemId}/UserData", s.anyAuth(s.handleJFUserData))
+	mux.HandleFunc("POST /UserItems/{itemId}/UserData", s.anyAuth(s.handleJFUpdateUserData))
+	mux.HandleFunc("POST /UserPlayedItems/{itemId}", s.anyAuth(s.handleJFMarkPlayed))
+	mux.HandleFunc("DELETE /UserPlayedItems/{itemId}", s.anyAuth(s.handleJFMarkUnplayed))
+	mux.HandleFunc("GET /MediaSegments/{itemId}", s.anyAuth(s.handleJFMediaSegments))
+	mux.HandleFunc("POST /Devices/Options", s.anyAuth(s.handleJFSaveDeviceOptions))
 	mux.HandleFunc("GET /Items", s.anyAuth(s.handleJFItems))
 	mux.HandleFunc("GET /Items/{itemId}", s.anyAuth(s.handleJFItem))
-	mux.HandleFunc("GET /Items/{itemId}/Images/{imageType}", s.anyAuth(s.handleJFImage))
-	mux.HandleFunc("GET /Items/{itemId}/Images/{imageType}/{index}", s.anyAuth(s.handleJFImage))
+	// Item artwork is anonymous, like Jellyfin: clients load it straight from an
+	// <img>/Coil URL without auth headers. Ids are opaque, so guessing is not
+	// practical.
+	mux.HandleFunc("GET /Items/{itemId}/Images/{imageType}", s.handleJFImage)
+	mux.HandleFunc("GET /Items/{itemId}/Images/{imageType}/{index}", s.handleJFImage)
+	// Findroid builds lowercase image URLs ("items/<id>/Images/Primary?tag=…"),
+	// so mirror the item-image routes case-insensitively for that prefix.
+	mux.HandleFunc("GET /items/{itemId}/Images/{imageType}", s.handleJFImage)
+	mux.HandleFunc("GET /items/{itemId}/Images/{imageType}/{index}", s.handleJFImage)
 	mux.HandleFunc("GET /Search/Hints", s.anyAuth(s.handleJFSearchHints))
 	mux.HandleFunc("GET /Sessions", s.anyAuth(s.handleJFSessions))
+	mux.HandleFunc("POST /Sessions/Capabilities", s.anyAuth(s.handleJFCapabilities))
 	mux.HandleFunc("POST /Sessions/Capabilities/Full", s.anyAuth(s.handleJFCapabilities))
 	s.registerJellyfinPlaybackRoutes(mux)
 	s.registerJellyfinBrowseRoutes(mux)
 }
 
-// jellyfinServerID returns (and persists on first use) the server id reported
-// to clients.
+// initJellyfin loads (or creates) the persistent server id and derives the
+// opaque id codec from it. Called once from the composition root, before any
+// request can encode or decode an id.
+func (s *Server) initJellyfin() {
+	if s.store == nil {
+		return
+	}
+	ctx := context.Background()
+	id, ok, err := s.store.Setting(ctx, jfServerIDSetting)
+	if err != nil || !ok || len(id) != 32 {
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		id = hex.EncodeToString(b)
+		if err := s.store.PutSettings(ctx, map[string]string{jfServerIDSetting: id}); err != nil {
+			s.log.Warn("could not persist jellyfin server id", "err", err)
+		}
+	}
+	s.jfServerID = id
+	jellyfin.SetCodec(jellyfin.NewCodec(id))
+}
+
+// jellyfinServerID returns the server id reported to clients.
 func (s *Server) jellyfinServerID(ctx context.Context) string {
 	s.jfMu.Lock()
 	defer s.jfMu.Unlock()
-	if s.jfServerID != "" {
-		return s.jfServerID
-	}
-	if v, ok, err := s.store.Setting(ctx, jfServerIDSetting); err == nil && ok && len(v) == 32 {
-		s.jfServerID = v
-		return v
-	}
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	id := hex.EncodeToString(b)
-	if err := s.store.PutSettings(ctx, map[string]string{jfServerIDSetting: id}); err != nil {
-		s.log.Warn("could not persist jellyfin server id", "err", err)
-	}
-	s.jfServerID = id
-	return id
+	return s.jfServerID
 }
 
 func (s *Server) handleJFPublicInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jellyfin.PublicSystemInfo{
-		ServerName:               "MyVideoStation",
+		ServerName:               jellyfin.ServerDisplayName,
 		Version:                  jellyfin.ServerVersion,
 		ProductName:              jellyfin.ProductName,
 		OperatingSystem:          runtime.GOOS,
@@ -81,7 +101,7 @@ func (s *Server) handleJFPublicInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleJFSystemInfo(w http.ResponseWriter, r *http.Request) {
 	info := jellyfin.SystemInfo{
 		PublicSystemInfo: jellyfin.PublicSystemInfo{
-			ServerName:               "MyVideoStation",
+			ServerName:               jellyfin.ServerDisplayName,
 			Version:                  jellyfin.ServerVersion,
 			ProductName:              jellyfin.ProductName,
 			OperatingSystem:          runtime.GOOS,
@@ -89,6 +109,7 @@ func (s *Server) handleJFSystemInfo(w http.ResponseWriter, r *http.Request) {
 			StartupWizardCompleted:   true,
 			SupportsLibraryPlaylists: false,
 		},
+		SupportsLibraryMonitor:        true,
 		OperatingSystemDisplayName:    strings.Title(runtime.GOOS), //nolint:staticcheck
 		CanSelfRestart:                true,
 		CanLaunchWebBrowser:           false,
@@ -209,28 +230,49 @@ func (s *Server) handleJFViews(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, jellyfin.QueryResult{Items: []jellyfin.BaseItemDto{}})
 		return
 	}
-	ctx := s.userContext(r.Context(), me, "")
-	libs, err := s.store.ListLibraries(ctx)
+	res, err := s.jfViewsResult(s.userContext(r.Context(), me, ""))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// jfViewsResult returns the user's libraries as Jellyfin CollectionFolders.
+// Jellyfin's bare GET /Items returns these root views, which is what clients use
+// to build the "My media" library list.
+func (s *Server) jfViewsResult(ctx context.Context) (jellyfin.QueryResult, error) {
+	libs, err := s.store.ListLibraries(ctx)
+	if err != nil {
+		return jellyfin.QueryResult{}, err
+	}
 	serverID := s.jellyfinServerID(ctx)
 	items := make([]jellyfin.BaseItemDto, 0, len(libs))
 	for i := range libs {
-		items = append(items, jellyfin.BaseItemDto{
-			Name:           libs[i].Name,
-			ServerID:       serverID,
-			ID:             jellyfin.LibraryID(libs[i].ID),
-			Type:           "CollectionFolder",
-			CollectionType: jfCollectionType(libs[i].Type),
-			IsFolder:       true,
-			ChildCount:     int(libs[i].ItemCount),
-			CanDownload:    false,
-			PlayAccess:     "Full",
-		})
+		d := jellyfin.BaseItemDto{
+			Name:              libs[i].Name,
+			ServerID:          serverID,
+			ID:                jellyfin.LibraryID(libs[i].ID),
+			Type:              "CollectionFolder",
+			CollectionType:    jfCollectionType(libs[i].Type),
+			IsFolder:          true,
+			ChildCount:        int(libs[i].ItemCount),
+			CanDownload:       false,
+			PlayAccess:        "Full",
+			BackdropImageTags: []string{},
+		}
+		if poster, backdrop, err := s.store.LibraryArtwork(ctx, libs[i].ID); err == nil {
+			if tag := jfImageTag(poster); tag != "" {
+				d.ImageTags = map[string]string{"Primary": tag}
+				d.PrimaryImageAspectRatio = 0.6667
+			}
+			if tag := jfImageTag(backdrop); tag != "" {
+				d.BackdropImageTags = []string{tag}
+			}
+		}
+		items = append(items, d)
 	}
-	writeJSON(w, http.StatusOK, jellyfin.QueryResult{Items: items, TotalRecordCount: len(items)})
+	return jellyfin.QueryResult{Items: items, TotalRecordCount: len(items)}, nil
 }
 
 // handleJFDisplayPreferences returns default list preferences; clients use it to
@@ -242,18 +284,20 @@ func (s *Server) handleJFDisplayPreferences(w http.ResponseWriter, r *http.Reque
 		userID = jellyfin.UserID(me.ID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"Id":               r.PathValue("name"),
-		"UserId":           userID,
-		"Client":           firstValue(r.URL.Query(), "client"),
-		"SortBy":           "SortName",
-		"SortOrder":        "Ascending",
-		"RememberIndexing": false,
-		"RememberSorting":  false,
-		"ShowSidebar":      false,
-		"ShowBackdrop":     true,
-		"ScrollDirection":  "Horizontal",
-		"IndexBy":          "None",
-		"CustomPrefs":      map[string]string{},
+		"Id":                 r.PathValue("name"),
+		"UserId":             userID,
+		"Client":             firstValue(r.URL.Query(), "client"),
+		"SortBy":             "SortName",
+		"SortOrder":          "Ascending",
+		"RememberIndexing":   false,
+		"RememberSorting":    false,
+		"ShowSidebar":        false,
+		"ShowBackdrop":       true,
+		"ScrollDirection":    "Horizontal",
+		"IndexBy":            "None",
+		"CustomPrefs":        map[string]string{},
+		"PrimaryImageHeight": 150,
+		"PrimaryImageWidth":  100,
 	})
 }
 
@@ -315,40 +359,71 @@ func (s *Server) jfUser(ctx context.Context, u *store.User) jellyfin.UserDto {
 			SubtitleMode:               "Default",
 		},
 		Policy: jellyfin.UserPolicyDto{
-			IsAdministrator:                u.Role == store.RoleAdmin,
-			IsDisabled:                     !u.Active,
-			EnableRemoteAccess:             true,
-			EnableMediaPlayback:            true,
-			EnableAudioPlaybackTranscoding: true,
-			EnableVideoPlaybackTranscoding: true,
-			EnablePlaybackRemuxing:         true,
-			EnableContentDownloading:       true,
-			EnableAllDevices:               true,
-			EnableAllChannels:              true,
-			EnableAllFolders:               allFolders,
-			EnabledFolders:                 enabledFolders,
-			LoginAttemptsBeforeLockout:     -1,
+			IsAdministrator:                 u.Role == store.RoleAdmin,
+			IsDisabled:                      !u.Active,
+			EnableCollectionManagement:      u.Role == store.RoleAdmin,
+			EnableSubtitleManagement:        true,
+			EnableLyricManagement:           false,
+			EnableUserPreferenceAccess:      true,
+			EnableRemoteControlOfOtherUsers: u.Role == store.RoleAdmin,
+			EnableSharedDeviceControl:       true,
+			EnableRemoteAccess:              true,
+			EnableLiveTvManagement:          false,
+			EnableLiveTvAccess:              false,
+			EnableMediaPlayback:             true,
+			EnableAudioPlaybackTranscoding:  true,
+			EnableVideoPlaybackTranscoding:  true,
+			EnablePlaybackRemuxing:          true,
+			ForceRemoteSourceTranscoding:    false,
+			EnableContentDeletion:           false,
+			EnableContentDownloading:        true,
+			EnableSyncTranscoding:           false,
+			EnableMediaConversion:           false,
+			EnableAllDevices:                true,
+			EnableAllChannels:               true,
+			EnableAllFolders:                allFolders,
+			EnabledFolders:                  enabledFolders,
+			InvalidLoginAttemptCount:        0,
+			LoginAttemptsBeforeLockout:      -1,
+			MaxActiveSessions:               0,
+			EnablePublicSharing:             false,
+			RemoteClientBitrateLimit:        0,
+			AuthenticationProviderID:        "Default",
+			PasswordResetProviderID:         "Default",
+			SyncPlayAccess:                  "None",
 		},
 	}
 }
 
 func (s *Server) jfSession(u *store.User, r *http.Request) jellyfin.SessionInfoDto {
 	client, deviceName, deviceID, version := jellyfinClientInfo(r)
+	now := time.Now().UTC().Format(time.RFC3339)
 	return jellyfin.SessionInfoDto{
-		ID:                 jellyfin.UserID(u.ID),
-		UserID:             jellyfin.UserID(u.ID),
-		UserName:           u.DisplayName,
-		Client:             client,
-		DeviceName:         deviceName,
-		DeviceID:           deviceID,
-		ApplicationVersion: version,
-		LastActivityDate:   time.Now().UTC().Format(time.RFC3339),
-		IsActive:           true,
-		PlayableMediaTypes: []string{"Video"},
-		SupportedCommands:  []string{},
-		NowPlayingQueue:    []any{},
-		PlaylistItems:      []any{},
-		PlayState:          map[string]any{},
+		ID:                    jellyfin.UserID(u.ID),
+		UserID:                jellyfin.UserID(u.ID),
+		UserName:              u.DisplayName,
+		Client:                client,
+		DeviceName:            deviceName,
+		DeviceID:              deviceID,
+		ApplicationVersion:    version,
+		LastActivityDate:      now,
+		LastPlaybackCheckIn:   now,
+		IsActive:              true,
+		SupportsMediaControl:  true,
+		SupportsRemoteControl: true,
+		PlayableMediaTypes:    []string{"Video"},
+		SupportedCommands:     []string{},
+		NowPlayingQueue:       []any{},
+		PlaylistItems:         []any{},
+		PlayState: map[string]any{
+			// The SDK marks these as required even for a fresh session.
+			"CanSeek":       true,
+			"IsPaused":      false,
+			"IsMuted":       false,
+			"RepeatMode":    "RepeatNone",
+			"PlaybackOrder": "Default",
+			"VolumeLevel":   100,
+		},
 	}
 }
 

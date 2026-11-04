@@ -200,7 +200,7 @@ testdata/           parser corpus and generated sample media
 | Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
 | Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich; in-app export/import bundles in `data/export` / `data/import` with maintenance restart; backup/restore docs and cache-path repair. |
 | Casting | Best-effort Chromecast/AirPlay via browser remote playback and DLNA renderer discovery + SOAP playback. MP4/H.264/AAC only; unsupported formats report that transcoding is required. |
-| Jellyfin clients (partial) | Jellyfin compatibility adapter (ADR 0005) for the official Android/iOS/TV apps: discovery, token auth, users/views, browse with filters/facets/home rows, detail with media streams and artwork, search, HLS/direct playback, progress and watched/favorite sync. Device-profile negotiation and real-client verification are next (`docs/JELLYFIN-COMPAT.md`). |
+| Jellyfin clients (partial) | Jellyfin compatibility adapter (ADR 0005, claims server 12.4) for **native** clients — Findroid, Android TV, Swiftfin, Streamyfin: discovery, token auth, users/views, browse with filters/facets/home rows, detail with media streams and artwork, search, HLS/direct playback, progress and watched/favorite sync. The Jellyfin Android *phone* app is a WebView of jellyfin-web and is not supported (`docs/JELLYFIN-COMPAT.md`). |
 | Packaging | Single static Go binary with embedded SPA; Alpine Docker image for linux/amd64 and linux/arm64; Synology deployment guide. |
 
 Casting caveats: open the app through the NAS LAN IP (not localhost), Chromecast remote playback/AirPlay need a secure browser context, and DLNA discovery uses SSDP multicast — Docker bridge networking may not receive it, so host networking may be needed for DLNA renderers.
@@ -215,7 +215,8 @@ pnpm install
 # one-time (idempotent): installs air (Go live reload) + static ffprobe into .tools/
 pnpm bootstrap
 
-# dev: one server on :6500 — air rebuilds the SPA, embeds it and restarts the binary
+# dev: one server on :6500 — air rebuilds the SPA, embeds it and restarts the binary.
+# Dev runs with --log-level debug; logs (API/HLS/Jellyfin adapter requests) go to this terminal.
 pnpm dev
 
 # production: web bundle -> embedded dist -> single static binary
@@ -484,6 +485,7 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/NETWORK-STORAGE.md`](./docs/NETWORK-STORAGE.md) — why SMB/NFS/cloud sources are a non-goal and how to mount them
 - [`docs/TRAILERS.md`](./docs/TRAILERS.md) — why online trailers are a non-goal and how local trailer extras work
 - [`docs/JELLYFIN-COMPAT.md`](./docs/JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan and endpoint matrix
+- [`tools/jellyfin-validator/`](./tools/jellyfin-validator) — runs Findroid's SDK against the server to catch API contract regressions
 - [`docs/adr/`](./docs/adr) — architecture decisions (M0/M1 deviations, HLS transcoding, thumbnails/cover settings)
 - [`AGENTS.md`](./AGENTS.md) — working rules for contributors and coding agents
 

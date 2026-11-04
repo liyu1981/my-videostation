@@ -170,7 +170,7 @@ real-client playback is still `[verify]`.
 1. ⬜ SSDP advertiser (optional; manual server URL always works).
 2. ✅ Search wired to our FTS (`/Search/Hints`, `SearchTerm`).
 3. ⬜ Collections/playlists endpoints (`/Playlists`, box-set views).
-4. ✅ Version negotiation: pinned `10.10.7` (§10).
+4. ✅ Version negotiation: pinned `12.4.0` (§10).
 5. ⬜ Device-profile-aware playback decisions (stop transcoding files the client can
    direct-play); bitrate ladder.
 6. ⬜ Real-client verification matrix (Jellyfin Android, Android TV, iOS) `[verify]`.
@@ -251,14 +251,24 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
 
 ## 10. Pinned targets & compatibility contract
 
-- **Claimed server version**: `10.10.7` (Jellyfin "stable" line). Returned by
+- **Claimed server version**: `12.4.0` (current Jellyfin 12.x line). Returned by
   `/System/Info` and `/System/Info/Public`. It is a compatibility claim, not a real
-  Jellyfin build; bump it deliberately and re-run the matrix when a client requires a
-  newer minimum.
-- **Target clients (test matrix)**: Jellyfin **Android** (mobile) and **Android TV**
-  (Google TV) first; Jellyfin **iOS** second. The Jellyfin **web** client is out of
-  scope for v1 (it exercises a much larger API surface, including the plugin/playlist/
-  config UI we do not implement).
+  Jellyfin build. **This is a hard gate**: `jellyfin-sdk-kotlin` ≥ 1.9.x (used by
+  Findroid, the Android TV app and Streamyfin) has `minimumVersion = 12.0.0`, so a
+  10.x claim is rejected with "server version is too low". Bump deliberately and
+  re-run the client matrix.
+- **Product name**: `"Jellyfin Server"`, exactly. The SDK's
+  `RecommendedServerDiscovery` marks any other `productName` as `BAD` and reports
+  "Unsupported version or product", so this is a hard protocol constant.
+  `ServerName` remains `MyVideoStation` (shown in the client UI).
+- **Target clients (test matrix)**: native clients only — Jellyfin **Android TV**
+  (Google TV), Jellyfin **iOS/Swiftfin**, and native third-party apps such as
+  **Findroid**/**Streamyfin** (all talk to the REST API directly).
+  **The Jellyfin Android phone app is not usable against us**: it is a WebView shell
+  (`WebViewFragment.loadUrl("${hostname}/")` plus JS bridges) that expects the
+  **Jellyfin web client** to be served at `/`. We serve our own SPA there. Supporting
+  it would mean bundling/serving jellyfin-web (GPL, huge surface) — out of scope for
+  v1. The Jellyfin **web** client itself is out of scope for the same reason.
 - **ID format**: 32 lowercase hex, reversible (`kind` + `id`). Clients treat IDs as
   opaque, so this is stable across restarts and does not leak our numeric ids.
 - **Auth**: opaque opaque session token (same format as our cookie session), accepted
@@ -305,6 +315,19 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
 | `[x] GET /Genres`, `/Persons`, `/Studios`, `/Items/Filters`, `/Items/Filters2` | filter screens (genre/person ids round-trip) |
 | `[x] GET /Items/{itemId}/Similar`, `/ThemeMedia`, `/LocalTrailers`, `/SpecialFeatures` | relation rows and stubs |
 | `[x] GET /Items/{itemId}/Images` | available image list |
+| `[x] GET /Shows/NextUp` | home-row next up (optionally `seriesId`-scoped) |
+| `[x] GET /Shows/{seriesId}/Seasons` | series detail season list |
+| `[x] GET /Shows/Upcoming` | empty result (no air-date tracking) |
+| `[x] GET /Videos/{itemId}/AdditionalParts`, `/Items/{itemId}/Intros` | empty results |
+| `[x] POST /DisplayPreferences/{id}` | accepted and ignored |
+| `[x] GET /UserItems/Resume` | SDK alias for the resume row |
+| `[x] GET /socket` | 400 (no WebSocket API yet) |
+| `[x] GET /UserItems/{itemId}/UserData` | user data (played/resume/favorite) |
+| `[x] POST /UserItems/{itemId}/UserData` | update played/position/favorite |
+| `[x] POST/DELETE /UserPlayedItems/{itemId}` | SDK played/unplayed aliases |
+| `[x] GET /MediaSegments/{itemId}` | empty (no intro/outro detection) |
+| `[x] POST /Devices/Options` | accepted and ignored |
+| `[x] GET /Items/{id}/Images/*`, `/Videos/{id}/stream` | **anonymous** artwork/static stream (opaque ids) |
 
 J0.5 also ships `GET /UserViews`, `GET /DisplayPreferences/{name}`,
 `GET /Sessions` (empty) and `POST /Sessions/Capabilities/Full` (204).
@@ -338,9 +361,23 @@ Later slices: `PlaybackInfo`, `/Videos/*`, `/Sessions/Playing*`, `/Shows/*`,
   `IsFolder`; list rows batch episode ancestors, child counts and favorite flags
   (no N+1). Episode rows carry `SeriesPrimaryImageTag` and
   `ParentBackdropImageTags` from the series art.
+- **Android TV specifics** (scanned from `jellyfin/jellyfin-androidtv`): it uses
+  `/UserViews`, `/Items` with `sortBy/includeItemTypes/recursive`, `/Items/Resume`,
+  `/Shows/NextUp` (home row, `enableResumable=false`), `/Shows/{id}/Seasons`,
+  `/Shows/{id}/Episodes?seasonId=`, `/Items/{id}/PlaybackInfo` (POST with a device
+  profile), `/Sessions/Capabilities/Full`, `/DisplayPreferences/{id}`,
+  `/Branding/Configuration`, plus relation stubs and a `/socket` WebSocket for push
+  events (unsupported; the app functions without it). It reads episode rows with
+  `StartIndex = episode number`, so season episode lists are sorted before slicing.
+- **Findroid specifics** (scanned from `jarnedemeulemeester/findroid`): it is
+  direct-play only, uses `POST /Items/{id}/PlaybackInfo` with a `DeviceProfile`,
+  builds the stream URL itself via the SDK (no token → hence the anonymous
+  `/Videos/{id}/stream`), loads artwork through Coil (no token → anonymous images),
+  and uses `/UserData` + `/UserPlayedItems` for watch state, `/MediaSegments` for
+  skip-intro, and `/Devices/Options` for device naming. All are implemented.
 - **Known gaps before TV polish**: device-profile-aware playback decisions, box
-  sets/playlists, SSDP discovery, and end-to-end verification against real client
-  builds `[verify]`.
+  sets/playlists, SSDP discovery, WebSocket events, and end-to-end verification
+  against real client builds `[verify]`.
 
 ### J0.5 implementation notes
 
@@ -364,6 +401,41 @@ Later slices: `PlaybackInfo`, `/Videos/*`, `/Sessions/Playing*`, `/Shows/*`,
 - **Known J0.5 gaps**: no playback info/stream URLs yet (J2), episode list rows
   omit `SeriesId` (detail resolves it), favorites filters are ignored, no
   `/Genres`/`/Persons` facets, no real device profiles.
+
+## 11.1 Contract validation (dev tool)
+
+`tools/jellyfin-validator/` runs `jellyfin-sdk-kotlin` **1.9.4** (the version
+Findroid 1.2.0 ships) against a server and walks the Findroid call sequence:
+
+```bash
+cd tools/jellyfin-validator
+./run.sh http://192.168.0.221:6500 admin 'password'
+```
+
+It reports the exact `MissingFieldException` when a DTO is incomplete, which is
+how these client-visible contracts were found and fixed:
+
+| Model | Required fields we had to add |
+|---|---|
+| `SessionInfoDto` | `LastPlaybackCheckIn`, `SupportsMediaControl`, `SupportsRemoteControl` |
+| `PlayerStateInfo` (inside `SessionInfo.PlayState`) | `CanSeek`, `IsPaused`, `IsMuted`, `RepeatMode`, `PlaybackOrder` |
+| `UserPolicyDto` | full SDK set incl. `EnableUserPreferenceAccess`, `SyncPlayAccess`, provider ids |
+| `UserItemDataDto` | `Key`, `ItemId` |
+| `MediaStream` | `IsInterlaced`, `IsHearingImpaired`, `IsOriginal`, `SupportsExternalStream` |
+| `MediaSourceInfo` | `Type`, `ReadAtNativeFramerate`, `IgnoreDts`, `IgnoreIndex`, `GenPtsInput`, `IsInfiniteStream`, `RequiresOpening/Closing/Looping`, `SupportsProbing`, `TranscodingSubProtocol`, `HasSegments` |
+| `DisplayPreferencesDto` | `RememberIndexing`, `PrimaryImageHeight`, `PrimaryImageWidth`, `CustomPrefs` |
+| `SearchHint` | `Artists` |
+| `BaseItemPerson` (item `People`) | `Id` (required UUID) |
+| Lowercase image paths | Findroid builds `items/<id>/Images/Primary?tag=…`, so the adapter mirrors item-image routes for the lowercase prefix |
+| Bare `GET /Items` semantics | Findroid's `getLibraries()` reads this as the library list; it must return `CollectionFolder` views with `CollectionType`, not media items (returning movies makes every movie a fake "Mixed" library and its detail page empty) |
+| `GET /Items/Suggestions` | Home "Suggestions" row; returns recent unplayed items of the requested kinds (fallback: recent items) |
+| Detail `MediaSources` | Must be present and non-empty with `MediaStreams` whose `codec` is set; Findroid's `VideoMetadataParser` calls `codec.lowercase()` and `MovieViewModel` does `sources.first()` (a missing source = blank detail page) |
+| Library artwork | Views include `ImageTags`/`BackdropImageTags` taken from a representative item so library cards are not blank |
+| `SystemInfo` | `SupportsLibraryMonitor` |
+
+Another contract detail: clients convert our ids to `UUID`s and send them back
+**hyphenated** (`00000001-1990-…`), so `Decode` accepts both simple (32 hex) and
+hyphenated notation.
 
 ## 12. Build order for J0.5
 

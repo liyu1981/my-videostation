@@ -6,11 +6,17 @@ package jellyfin
 // SDKs inspect raw maps.
 
 // ServerVersion is the Jellyfin server version we claim. Pinned in ADR 0005;
-// bump deliberately and re-run the client matrix.
-const ServerVersion = "10.10.7"
+// bump deliberately and re-run the client matrix. Current clients require
+// >= 12.0 (jellyfin-sdk-kotlin minimumVersion), so this must track the 12.x line.
+const ServerVersion = "12.4.0"
 
-// ProductName is reported to clients.
-const ProductName = "MyVideoStation"
+// ProductName is what clients validate when scoring a server. The Jellyfin SDK
+// rejects anything other than exactly "Jellyfin Server" (case-sensitive), so
+// this is a hard protocol constant even though our own name is different.
+const ProductName = "Jellyfin Server"
+
+// ServerDisplayName is the human-facing name shown in client UIs.
+const ServerDisplayName = "MyVideoStation"
 
 // UserDto is a Jellyfin user.
 type UserDto struct {
@@ -44,11 +50,17 @@ type UserConfigDto struct {
 	EnableNextEpisodeAutoPlay  bool     `json:"EnableNextEpisodeAutoPlay"`
 }
 
-// UserPolicyDto is the subset of permissions clients read.
+// UserPolicyDto mirrors the fields the Jellyfin SDK models as required. Missing
+// non-default fields make kotlinx.serialization throw and clients show a generic
+// "unknown error" after a successful login.
 type UserPolicyDto struct {
 	IsAdministrator                 bool     `json:"IsAdministrator"`
 	IsHidden                        bool     `json:"IsHidden"`
+	EnableCollectionManagement      bool     `json:"EnableCollectionManagement"`
+	EnableSubtitleManagement        bool     `json:"EnableSubtitleManagement"`
+	EnableLyricManagement           bool     `json:"EnableLyricManagement"`
 	IsDisabled                      bool     `json:"IsDisabled"`
+	EnableUserPreferenceAccess      bool     `json:"EnableUserPreferenceAccess"`
 	EnableRemoteControlOfOtherUsers bool     `json:"EnableRemoteControlOfOtherUsers"`
 	EnableSharedDeviceControl       bool     `json:"EnableSharedDeviceControl"`
 	EnableRemoteAccess              bool     `json:"EnableRemoteAccess"`
@@ -58,6 +70,7 @@ type UserPolicyDto struct {
 	EnableAudioPlaybackTranscoding  bool     `json:"EnableAudioPlaybackTranscoding"`
 	EnableVideoPlaybackTranscoding  bool     `json:"EnableVideoPlaybackTranscoding"`
 	EnablePlaybackRemuxing          bool     `json:"EnablePlaybackRemuxing"`
+	ForceRemoteSourceTranscoding    bool     `json:"ForceRemoteSourceTranscoding"`
 	EnableContentDeletion           bool     `json:"EnableContentDeletion"`
 	EnableContentDownloading        bool     `json:"EnableContentDownloading"`
 	EnableSyncTranscoding           bool     `json:"EnableSyncTranscoding"`
@@ -69,25 +82,35 @@ type UserPolicyDto struct {
 	InvalidLoginAttemptCount        int      `json:"InvalidLoginAttemptCount"`
 	LoginAttemptsBeforeLockout      int      `json:"LoginAttemptsBeforeLockout"`
 	MaxActiveSessions               int      `json:"MaxActiveSessions"`
+	EnablePublicSharing             bool     `json:"EnablePublicSharing"`
+	RemoteClientBitrateLimit        int      `json:"RemoteClientBitrateLimit"`
+	AuthenticationProviderID        string   `json:"AuthenticationProviderId"`
+	PasswordResetProviderID         string   `json:"PasswordResetProviderId"`
+	SyncPlayAccess                  string   `json:"SyncPlayAccess"`
 }
 
-// SessionInfoDto is the session half of an authentication result.
+// SessionInfoDto is the session half of an authentication result. The SDK marks
+// LastActivityDate/LastPlaybackCheckIn/SupportsMediaControl/SupportsRemoteControl
+// as required.
 type SessionInfoDto struct {
-	ID                  string         `json:"Id"`
-	UserID              string         `json:"UserId"`
-	UserName            string         `json:"UserName"`
-	Client              string         `json:"Client,omitempty"`
-	DeviceName          string         `json:"DeviceName,omitempty"`
-	DeviceID            string         `json:"DeviceId,omitempty"`
-	ApplicationVersion  string         `json:"ApplicationVersion,omitempty"`
-	LastActivityDate    string         `json:"LastActivityDate,omitempty"`
-	IsActive            bool           `json:"IsActive"`
-	PlayableMediaTypes  []string       `json:"PlayableMediaTypes"`
-	SupportedCommands   []string       `json:"SupportedCommands"`
-	NowPlayingQueue     []any          `json:"NowPlayingQueue"`
-	PlayState           map[string]any `json:"PlayState"`
-	PlaylistItems       []any          `json:"PlaylistItems"`
-	HasCustomDeviceName bool           `json:"HasCustomDeviceName"`
+	ID                    string         `json:"Id"`
+	UserID                string         `json:"UserId"`
+	UserName              string         `json:"UserName"`
+	Client                string         `json:"Client,omitempty"`
+	DeviceName            string         `json:"DeviceName,omitempty"`
+	DeviceID              string         `json:"DeviceId,omitempty"`
+	ApplicationVersion    string         `json:"ApplicationVersion,omitempty"`
+	LastActivityDate      string         `json:"LastActivityDate"`
+	LastPlaybackCheckIn   string         `json:"LastPlaybackCheckIn"`
+	IsActive              bool           `json:"IsActive"`
+	SupportsMediaControl  bool           `json:"SupportsMediaControl"`
+	SupportsRemoteControl bool           `json:"SupportsRemoteControl"`
+	PlayableMediaTypes    []string       `json:"PlayableMediaTypes"`
+	SupportedCommands     []string       `json:"SupportedCommands"`
+	NowPlayingQueue       []any          `json:"NowPlayingQueue"`
+	PlayState             map[string]any `json:"PlayState"`
+	PlaylistItems         []any          `json:"PlaylistItems"`
+	HasCustomDeviceName   bool           `json:"HasCustomDeviceName"`
 }
 
 // AuthenticationResult is returned by /Users/AuthenticateByName.
@@ -116,6 +139,7 @@ type PublicSystemInfo struct {
 type SystemInfo struct {
 	PublicSystemInfo
 	OperatingSystemDisplayName    string `json:"OperatingSystemDisplayName"`
+	SupportsLibraryMonitor        bool   `json:"SupportsLibraryMonitor"`
 	HasUpdateAvailable            bool   `json:"HasUpdateAvailable"`
 	CanSelfRestart                bool   `json:"CanSelfRestart"`
 	CanSelfUpdate                 bool   `json:"CanSelfUpdate"`
@@ -190,19 +214,23 @@ type BaseItemDto struct {
 // PersonDto is one cast/crew credit.
 type PersonDto struct {
 	Name string `json:"Name"`
-	ID   string `json:"Id,omitempty"`
+	ID   string `json:"Id"`
 	Role string `json:"Role,omitempty"`
 	Type string `json:"Type,omitempty"`
 }
 
-// UserItemDataDto is the per-user watch state.
+// UserItemDataDto is the per-user watch state. The SDK models Key and ItemId as
+// required strings.
 type UserItemDataDto struct {
+	Key                   string  `json:"Key"`
+	ItemID                string  `json:"ItemId"`
 	Played                bool    `json:"Played"`
 	PlaybackPositionTicks int64   `json:"PlaybackPositionTicks"`
 	PlayCount             int     `json:"PlayCount"`
 	IsFavorite            bool    `json:"IsFavorite"`
 	PlayedPercentage      float64 `json:"PlayedPercentage,omitempty"`
 	UnplayedItemCount     int     `json:"UnplayedItemCount,omitempty"`
+	LastPlayedDate        string  `json:"LastPlayedDate,omitempty"`
 }
 
 // MediaSourceInfo describes one playable file.
@@ -218,12 +246,23 @@ type MediaSourceInfo struct {
 	SupportsDirectStream       bool          `json:"SupportsDirectStream"`
 	SupportsTranscoding        bool          `json:"SupportsTranscoding"`
 	TranscodingURL             string        `json:"TranscodingUrl,omitempty"`
-	TranscodingSubProtocol     string        `json:"TranscodingSubProtocol,omitempty"`
+	TranscodingSubProtocol     string        `json:"TranscodingSubProtocol"`
 	TranscodingContainer       string        `json:"TranscodingContainer,omitempty"`
 	DirectStreamURL            string        `json:"DirectStreamUrl,omitempty"`
 	Protocol                   string        `json:"Protocol"`
+	Type                       string        `json:"Type"`
 	VideoType                  string        `json:"VideoType,omitempty"`
 	IsRemote                   bool          `json:"IsRemote"`
+	ReadAtNativeFramerate      bool          `json:"ReadAtNativeFramerate"`
+	IgnoreDts                  bool          `json:"IgnoreDts"`
+	IgnoreIndex                bool          `json:"IgnoreIndex"`
+	GenPtsInput                bool          `json:"GenPtsInput"`
+	IsInfiniteStream           bool          `json:"IsInfiniteStream"`
+	RequiresOpening            bool          `json:"RequiresOpening"`
+	RequiresClosing            bool          `json:"RequiresClosing"`
+	RequiresLooping            bool          `json:"RequiresLooping"`
+	SupportsProbing            bool          `json:"SupportsProbing"`
+	HasSegments                bool          `json:"HasSegments"`
 	ETag                       string        `json:"ETag,omitempty"`
 	MediaStreams               []MediaStream `json:"MediaStreams"`
 	DefaultAudioStreamIndex    *int          `json:"DefaultAudioStreamIndex,omitempty"`
@@ -232,43 +271,48 @@ type MediaSourceInfo struct {
 
 // MediaStream is a video/audio/subtitle stream.
 type MediaStream struct {
-	Type                 string  `json:"Type"`
-	Index                int     `json:"Index"`
-	Codec                string  `json:"Codec,omitempty"`
-	Language             string  `json:"Language,omitempty"`
-	Title                string  `json:"Title,omitempty"`
-	DisplayTitle         string  `json:"DisplayTitle,omitempty"`
-	IsDefault            bool    `json:"IsDefault"`
-	IsForced             bool    `json:"IsForced"`
-	IsExternal           bool    `json:"IsExternal"`
-	IsTextSubtitleStream bool    `json:"IsTextSubtitleStream"`
-	DeliveryMethod       string  `json:"DeliveryMethod,omitempty"`
-	DeliveryURL          string  `json:"DeliveryUrl,omitempty"`
-	Width                int     `json:"Width,omitempty"`
-	Height               int     `json:"Height,omitempty"`
-	Channels             int     `json:"Channels,omitempty"`
-	ChannelLayout        string  `json:"ChannelLayout,omitempty"`
-	SampleRate           int     `json:"SampleRate,omitempty"`
-	BitRate              int64   `json:"BitRate,omitempty"`
-	PixelFormat          string  `json:"PixelFormat,omitempty"`
-	Profile              string  `json:"Profile,omitempty"`
-	Level                float64 `json:"Level,omitempty"`
+	Type                   string  `json:"Type"`
+	Index                  int     `json:"Index"`
+	Codec                  string  `json:"Codec,omitempty"`
+	Language               string  `json:"Language,omitempty"`
+	Title                  string  `json:"Title,omitempty"`
+	DisplayTitle           string  `json:"DisplayTitle,omitempty"`
+	IsDefault              bool    `json:"IsDefault"`
+	IsForced               bool    `json:"IsForced"`
+	IsExternal             bool    `json:"IsExternal"`
+	IsInterlaced           bool    `json:"IsInterlaced"`
+	IsHearingImpaired      bool    `json:"IsHearingImpaired"`
+	IsOriginal             bool    `json:"IsOriginal"`
+	IsTextSubtitleStream   bool    `json:"IsTextSubtitleStream"`
+	SupportsExternalStream bool    `json:"SupportsExternalStream"`
+	DeliveryMethod         string  `json:"DeliveryMethod,omitempty"`
+	DeliveryURL            string  `json:"DeliveryUrl,omitempty"`
+	Width                  int     `json:"Width,omitempty"`
+	Height                 int     `json:"Height,omitempty"`
+	Channels               int     `json:"Channels,omitempty"`
+	ChannelLayout          string  `json:"ChannelLayout,omitempty"`
+	SampleRate             int     `json:"SampleRate,omitempty"`
+	BitRate                int64   `json:"BitRate,omitempty"`
+	PixelFormat            string  `json:"PixelFormat,omitempty"`
+	Profile                string  `json:"Profile,omitempty"`
+	Level                  float64 `json:"Level,omitempty"`
 }
 
 // SearchHint is one search result.
 type SearchHint struct {
-	ItemID          string `json:"ItemId"`
-	ID              string `json:"Id"`
-	Name            string `json:"Name"`
-	MatchedTerm     string `json:"MatchedTerm,omitempty"`
-	IndexNumber     *int   `json:"IndexNumber,omitempty"`
-	ProductionYear  int    `json:"ProductionYear,omitempty"`
-	Type            string `json:"Type,omitempty"`
-	MediaType       string `json:"MediaType,omitempty"`
-	RunTimeTicks    int64  `json:"RunTimeTicks,omitempty"`
-	ParentID        string `json:"ParentId,omitempty"`
-	SeriesID        string `json:"SeriesId,omitempty"`
-	PrimaryImageTag string `json:"PrimaryImageTag,omitempty"`
+	ItemID          string   `json:"ItemId"`
+	ID              string   `json:"Id"`
+	Name            string   `json:"Name"`
+	MatchedTerm     string   `json:"MatchedTerm,omitempty"`
+	IndexNumber     *int     `json:"IndexNumber,omitempty"`
+	ProductionYear  int      `json:"ProductionYear,omitempty"`
+	Type            string   `json:"Type"`
+	MediaType       string   `json:"MediaType,omitempty"`
+	RunTimeTicks    int64    `json:"RunTimeTicks,omitempty"`
+	ParentID        string   `json:"ParentId,omitempty"`
+	SeriesID        string   `json:"SeriesId,omitempty"`
+	PrimaryImageTag string   `json:"PrimaryImageTag,omitempty"`
+	Artists         []string `json:"Artists"`
 }
 
 // NameGuidPair is a filter value with a server-generated id (genres, persons).
@@ -294,12 +338,13 @@ type LegacyQueryFilters struct {
 	Years           []int    `json:"Years"`
 }
 
-// ImageInfo describes one image served for an item.
+// ImageInfo describes one image served for an item. The SDK requires Size.
 type ImageInfo struct {
 	ImageType  string `json:"ImageType"`
 	ImageIndex int    `json:"ImageIndex"`
 	Width      int    `json:"Width"`
 	Height     int    `json:"Height"`
+	Size       int64  `json:"Size"`
 }
 
 // SearchHintResult is returned by /Search/Hints.

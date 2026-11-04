@@ -17,20 +17,32 @@ Jellyfin **web client** is out of scope for v1.
 
 ## 2. Pinned targets
 
-- **Claimed server version:** `10.10.7` (stable line). Bump deliberately; every bump
+- **Claimed server version:** `12.4.0` (current Jellyfin 12.x line). This is a hard
+  gate: current `jellyfin-sdk-kotlin` clients (Findroid, Android TV, Streamyfin)
+  require a minimum of `12.0.0` and reject a 10.x claim. Bump deliberately; every bump
   requires re-running the client matrix.
-- **Qualified clients:** Jellyfin Android (mobile) and Android TV / Google TV first,
-  Jellyfin iOS second. Support is defined as "these builds work"; other clients are
-  best-effort.
+- **Product name:** `ProductName` must be exactly `Jellyfin Server` — the Jellyfin
+  SDK's server discovery scores anything else `BAD` ("Unsupported version or
+  product") and refuses to connect. `ServerName` stays `MyVideoStation` (that is
+  what client UIs display).
+- **Qualified clients:** native clients only — Jellyfin Android TV / Google TV,
+  Jellyfin iOS/Swiftfin, and native third-party apps (Findroid, Streamyfin). The
+  Jellyfin **Android phone app is a WebView shell that loads jellyfin-web from the
+  server root**, so it cannot work unless we ship jellyfin-web; it is out of scope.
+  Support is defined as "these builds work"; other clients are best-effort.
 - **Auth:** opaque session tokens (same token format as our `mvs_session` cookie),
   30-day expiry, accepted via `X-Emby-Authorization: MediaBrowser ... Token="..."`,
   `X-Emby-Token`, or `?api_key=`. Tokens are ordinary `sessions` rows — no second
   auth system.
-- **IDs:** 32 lowercase hex, structurally reversible (kind + numeric id). Stable
-  across restarts; clients treat them as opaque.
+- **IDs:** 32 lowercase hex: 4-byte kind + an 8-byte Feistel-encrypted numeric id
+  keyed by the persisted server id. Stable across restarts, opaque to clients, and
+  non-enumerable. This is what makes the Jellyfin-style anonymous artwork/stream
+  endpoints safe.
 - **Playback:** HLS via our M5 session pipeline. `DeviceProfile` is ignored in v1;
   we transcode unless our own direct-play matrix says the file is browser-native.
-  This trades CPU for a much smaller capability matrix.
+  This trades CPU for a much smaller capability matrix. `/Items/{id}/Images/*` and
+  `/Videos/{id}/stream?static=true` are anonymous (Jellyfin clients fetch them
+  without auth headers); opaque ids prevent enumeration.
 
 ## 3. Consequences
 

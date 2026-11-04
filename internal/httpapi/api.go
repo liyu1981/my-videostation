@@ -93,9 +93,11 @@ func New(o Options) *Server {
 		Paced:       o.TranscodePaced,
 		Logger:      o.Logger,
 	})
-	return &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
+	srv := &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
 		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: cacheDir, dataDir: o.DataDir, restart: o.Restart,
 		transcoder: t}
+	srv.initJellyfin()
+	return srv
 }
 
 // Handler builds the root HTTP handler (API + UI).
@@ -230,12 +232,62 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 			}
 		}()
 
-		next.ServeHTTP(w, r)
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			s.log.Debug("request", "method", r.Method, "path", r.URL.Path,
+		sw := &statusWriter{ResponseWriter: w}
+		next.ServeHTTP(sw, r)
+		if logRequestPath(r.URL.Path) {
+			s.log.Debug("request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", sw.statusCode(),
+				"ua", r.UserAgent(),
 				"duration", time.Since(start).Round(time.Millisecond).String())
 		}
 	})
+}
+
+// statusWriter records the response status for request logging.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *statusWriter) statusCode() int {
+	if w.status == 0 {
+		return http.StatusOK
+	}
+	return w.status
+}
+
+// logRequestPath reports whether a request is worth a debug log line. The SPA
+// assets are skipped; our API, HLS and the Jellyfin adapter are logged.
+func logRequestPath(path string) bool {
+	prefixes := []string{
+		"/api/", "/hls/",
+		"/System", "/Users", "/Items", "/UserItems", "/Videos", "/Shows",
+		"/Sessions", "/Search", "/Genres", "/Persons", "/Studios", "/Branding",
+		"/QuickConnect", "/DisplayPreferences", "/UserViews", "/UserFavoriteItems",
+		"/socket",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) originAllowed(origin string) bool {

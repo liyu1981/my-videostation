@@ -83,6 +83,10 @@ func TestJellyfinDiscoveryAndAuth(t *testing.T) {
 	if pub.ServerName == "" || pub.Version != jellyfin.ServerVersion || len(pub.ID) != 32 {
 		t.Fatalf("public info = %+v", pub)
 	}
+	// The Jellyfin SDK scores a server BAD unless productName is exactly this.
+	if pub.Product != "Jellyfin Server" {
+		t.Fatalf("ProductName = %q, want %q", pub.Product, "Jellyfin Server")
+	}
 
 	// Public user list for the login screen.
 	var users []struct {
@@ -327,5 +331,68 @@ func TestJellyfinBrowseTree(t *testing.T) {
 	bad.Body.Close()
 	if bad.StatusCode != http.StatusNotFound {
 		t.Fatalf("bad item id status = %d", bad.StatusCode)
+	}
+}
+
+// TestJellyfinLoginResponseShape guards the SDK model contract: every field the
+// Jellyfin SDK models as required must be present, or clients fail with a generic
+// "unknown error" after a successful 200 login.
+func TestJellyfinLoginResponseShape(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	body, _ := json.Marshal(map[string]string{"Username": "admin", "Pw": "test-password-123"})
+	res := jfDo(t, http.MethodPost, srv.URL+"/Users/AuthenticateByName", "", body)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("login status = %d", res.StatusCode)
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	requireKeys := func(path string, obj map[string]any, keys []string) {
+		t.Helper()
+		for _, k := range keys {
+			if _, ok := obj[k]; !ok {
+				t.Errorf("%s is missing required field %q", path, k)
+			}
+		}
+	}
+	user, ok := payload["User"].(map[string]any)
+	if !ok {
+		t.Fatalf("User missing: %v", payload)
+	}
+	requireKeys("User", user, []string{"Id", "Name", "ServerId", "Configuration", "Policy"})
+	policy, _ := user["Policy"].(map[string]interface{})
+	requireKeys("User.Policy", policy, []string{
+		"IsAdministrator", "IsHidden", "IsDisabled", "EnableUserPreferenceAccess",
+		"EnableRemoteControlOfOtherUsers", "EnableSharedDeviceControl", "EnableRemoteAccess",
+		"EnableLiveTvManagement", "EnableLiveTvAccess", "EnableMediaPlayback",
+		"EnableAudioPlaybackTranscoding", "EnableVideoPlaybackTranscoding",
+		"EnablePlaybackRemuxing", "ForceRemoteSourceTranscoding", "EnableContentDeletion",
+		"EnableContentDownloading", "EnableSyncTranscoding", "EnableMediaConversion",
+		"EnableAllDevices", "EnableAllChannels", "EnableAllFolders", "InvalidLoginAttemptCount",
+		"LoginAttemptsBeforeLockout", "MaxActiveSessions", "EnablePublicSharing",
+		"RemoteClientBitrateLimit", "AuthenticationProviderId", "PasswordResetProviderId",
+		"SyncPlayAccess",
+	})
+	config, _ := user["Configuration"].(map[string]interface{})
+	requireKeys("User.Configuration", config, []string{
+		"PlayDefaultAudioTrack", "DisplayMissingEpisodes", "GroupedFolders", "SubtitleMode",
+		"DisplayCollectionsView", "EnableLocalPassword", "OrderedViews", "LatestItemsExcludes",
+		"MyMediaExcludes", "HidePlayedInLatest", "RememberAudioSelections",
+		"RememberSubtitleSelections", "EnableNextEpisodeAutoPlay",
+	})
+	session, ok := payload["SessionInfo"].(map[string]any)
+	if !ok {
+		t.Fatalf("SessionInfo missing: %v", payload)
+	}
+	requireKeys("SessionInfo", session, []string{
+		"Id", "UserId", "UserName", "LastActivityDate", "LastPlaybackCheckIn",
+		"IsActive", "SupportsMediaControl", "SupportsRemoteControl",
+		"PlayableMediaTypes", "SupportedCommands", "NowPlayingQueue", "PlayState",
+		"PlaylistItems", "HasCustomDeviceName",
+	})
+	if payload["AccessToken"] == nil || payload["ServerId"] == nil {
+		t.Fatalf("token/server id missing: %v", payload)
 	}
 }

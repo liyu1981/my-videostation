@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 )
 
@@ -171,4 +172,20 @@ func (s *Store) ChildCounts(ctx context.Context, itemIDs []int64) (map[int64]int
 		out[id] = n
 	}
 	return out, wrap("iterate child counts", rows.Err())
+}
+
+// LibraryArtwork returns a representative poster/backdrop for a library view,
+// taken from the first item that has artwork (used for library cards).
+func (s *Store) LibraryArtwork(ctx context.Context, libraryID int64) (poster, backdrop string, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(poster_path,''), COALESCE(backdrop_path,'')
+		FROM media_items
+		WHERE library_id = ?
+		  AND (COALESCE(poster_path,'') <> '' OR COALESCE(backdrop_path,'') <> '')
+		ORDER BY (COALESCE(poster_path,'') = '') ASC, added_at DESC
+		LIMIT 1`, libraryID).Scan(&poster, &backdrop)
+	if err != nil && err != sql.ErrNoRows {
+		return "", "", wrap("library artwork", err)
+	}
+	return poster, backdrop, nil
 }

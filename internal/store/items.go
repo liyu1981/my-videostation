@@ -99,6 +99,7 @@ type File struct {
 
 // Person is a cast/crew credit.
 type Person struct {
+	ID        int64  `json:"id"`
 	Name      string `json:"name"`
 	Role      string `json:"role"`
 	Character string `json:"character,omitempty"`
@@ -632,7 +633,7 @@ func (s *Store) NextEpisode(ctx context.Context, itemID int64) (*Item, error) {
 // ItemPeople returns cast/crew, cast first.
 func (s *Store) ItemPeople(ctx context.Context, itemID int64) ([]Person, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT p.name, ip.role, COALESCE(ip.character,''), ip.ordering
+		SELECT p.id, p.name, ip.role, COALESCE(ip.character,''), ip.ordering
 		FROM item_people ip JOIN people p ON p.id = ip.person_id
 		WHERE ip.item_id = ?
 		ORDER BY CASE ip.role WHEN 'cast' THEN 0 WHEN 'director' THEN 1 WHEN 'writer' THEN 2 ELSE 3 END, ip.ordering, p.name`,
@@ -644,7 +645,7 @@ func (s *Store) ItemPeople(ctx context.Context, itemID int64) ([]Person, error) 
 	out := []Person{}
 	for rows.Next() {
 		var p Person
-		if err := rows.Scan(&p.Name, &p.Role, &p.Character, &p.Ordering); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Role, &p.Character, &p.Ordering); err != nil {
 			return nil, wrap("scan person", err)
 		}
 		out = append(out, p)

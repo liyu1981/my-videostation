@@ -107,6 +107,13 @@ func (s *Server) jfQueryItems(ctx context.Context, q map[string][]string) (jelly
 	descending := strings.EqualFold(firstValue(q, "SortOrder"), "Descending")
 
 	parentRaw := firstValue(q, "ParentId")
+	// Jellyfin's bare GET /Items (no parent, no types, not recursive) returns the
+	// user's root views (libraries). Clients rely on this to build the library
+	// list; returning media items here turns every movie into a fake library.
+	if (parentRaw == "" || strings.EqualFold(parentRaw, "root")) && len(types) == 0 && !recursive &&
+		firstValue(q, "SearchTerm") == "" {
+		return s.jfViewsResult(ctx)
+	}
 	var libID, parentID int64
 	var parentKind string
 	if parentRaw != "" && !strings.EqualFold(parentRaw, "root") {
@@ -202,27 +209,47 @@ func (s *Server) jfQueryItems(ctx context.Context, q map[string][]string) (jelly
 	var items []store.Item
 	var total int
 	var err error
-	if parentID > 0 && parentKind == store.KindShow && recursive && jfWantsEpisodes(types) {
+	seasonEpisodes := parentID > 0 && parentKind == store.KindSeason && containsKind(kinds, store.KindEpisode)
+	switch {
+	case parentID > 0 && parentKind == store.KindShow && recursive && jfWantsEpisodes(types):
 		items, total, err = s.jfSeriesEpisodes(ctx, parentID)
-	} else {
+	case seasonEpisodes:
+		// Episodes are paged by number, not by insertion order (clients pass
+		// startIndex = episode number), so sort the whole season before slicing.
+		items, _, err = s.store.ListItems(ctx, store.ItemFilter{
+			ParentID: parentID, Kinds: []string{store.KindEpisode}, Page: 1, PerPage: 200,
+		})
+		if err == nil {
+			jfSortEpisodes(items, descending)
+			total = len(items)
+			if start >= len(items) {
+				items = nil
+			} else {
+				items = items[start:]
+				if len(items) > limit {
+					items = items[:limit]
+				}
+			}
+		}
+	default:
 		items, total, err = s.store.ListItems(ctx, filter)
 	}
 	if err != nil {
 		return jellyfin.QueryResult{}, err
 	}
 
-	// StartIndex may not be a multiple of Limit; adjust the page slice.
-	if offset := start % limit; offset > 0 {
-		if offset < len(items) {
-			items = items[offset:]
-		} else {
-			items = nil
+	if !seasonEpisodes {
+		// StartIndex may not be a multiple of Limit; adjust the page slice.
+		if offset := start % limit; offset > 0 {
+			if offset < len(items) {
+				items = items[offset:]
+			} else {
+				items = nil
+			}
 		}
-	}
-	if filter.Kind == store.KindEpisode || filter.Kind == store.KindSeason || containsKind(kinds, store.KindEpisode) || containsKind(kinds, store.KindSeason) {
-		jfSortEpisodes(items, descending)
-	} else if descending {
-		if filter.Sort != "" {
+		if containsKind(kinds, store.KindEpisode) || containsKind(kinds, store.KindSeason) {
+			jfSortEpisodes(items, descending)
+		} else if descending && filter.Sort != "" {
 			reverseItems(items)
 		}
 	}
@@ -627,6 +654,8 @@ func (s *Server) jfBaseItemCtx(ctx context.Context, it *store.Item, serverID str
 		playCount = 1
 	}
 	d.UserData = &jellyfin.UserItemDataDto{
+		Key:                   d.ID,
+		ItemID:                d.ID,
 		Played:                it.Played,
 		PlaybackPositionTicks: jfTicks(it.PositionMS),
 		PlayCount:             playCount,
@@ -662,7 +691,7 @@ func (s *Server) jfBaseItemCtx(ctx context.Context, it *store.Item, serverID str
 		if people, err := s.store.ItemPeople(ctx, it.ID); err == nil {
 			for _, p := range people {
 				d.People = append(d.People, jellyfin.PersonDto{
-					Name: p.Name, Role: p.Character, Type: jfPersonType(p.Role),
+					ID: jellyfin.PersonID(p.ID), Name: p.Name, Role: p.Character, Type: jfPersonType(p.Role),
 				})
 			}
 		}
@@ -743,26 +772,29 @@ func (s *Server) jfMediaSources(ctx context.Context, it *store.Item) []jellyfin.
 		}
 		direct := playback.EvaluateDirectPlay(container, f.VideoCodec, audioCodes)
 		src := jellyfin.MediaSourceInfo{
-			ID:                   jellyfin.FileID(f.ID),
-			Name:                 it.Title,
-			Path:                 f.Path,
-			Container:            container,
-			Size:                 f.Size,
-			RunTimeTicks:         jfTicks(f.DurationMS),
-			Bitrate:              f.Bitrate,
-			SupportsDirectPlay:   direct.OK,
-			SupportsDirectStream: true,
-			SupportsTranscoding:  s.transcoder.Available(),
-			Protocol:             "File",
-			VideoType:            "VideoFile",
-			ETag:                 jfImageTag(f.Path),
-			MediaStreams:         []jellyfin.MediaStream{},
+			ID:                     jellyfin.FileID(f.ID),
+			Name:                   it.Title,
+			Path:                   f.Path,
+			Container:              container,
+			Size:                   f.Size,
+			RunTimeTicks:           jfTicks(f.DurationMS),
+			Bitrate:                f.Bitrate,
+			SupportsDirectPlay:     direct.OK,
+			SupportsDirectStream:   true,
+			SupportsTranscoding:    s.transcoder.Available(),
+			Protocol:               "File",
+			Type:                   "Default",
+			VideoType:              "VideoFile",
+			TranscodingSubProtocol: "http",
+			SupportsProbing:        true,
+			ETag:                   jfImageTag(f.Path),
+			MediaStreams:           []jellyfin.MediaStream{},
 		}
 		if f.DurationMS > 0 {
 			src.MediaStreams = append(src.MediaStreams, jellyfin.MediaStream{
 				Type: "Video", Index: 0, Codec: f.VideoCodec,
 				Width: f.Width, Height: f.Height, BitRate: f.Bitrate,
-				IsDefault: true, DisplayTitle: f.VideoCodec,
+				IsDefault: true, IsOriginal: true, DisplayTitle: f.VideoCodec,
 			})
 		}
 		for _, a := range f.AudioStreams {
@@ -774,7 +806,7 @@ func (s *Server) jfMediaSources(ctx context.Context, it *store.Item) []jellyfin.
 				Type: "Audio", Index: a.Index, Codec: a.Codec, Language: a.Language,
 				Title: a.Title, DisplayTitle: a.Codec, Channels: a.Channels,
 				ChannelLayout: a.Layout, SampleRate: a.SampleRate, BitRate: a.Bitrate,
-				IsDefault: a.Default,
+				IsDefault: a.Default, IsOriginal: true,
 			})
 		}
 		if src.DefaultAudioStreamIndex == nil && len(f.AudioStreams) > 0 {
@@ -786,7 +818,7 @@ func (s *Server) jfMediaSources(ctx context.Context, it *store.Item) []jellyfin.
 			stream := jellyfin.MediaStream{
 				Type: "Subtitle", Index: st.Index, Codec: st.Codec, Language: st.Language,
 				Title: st.Title, DisplayTitle: st.Title, IsForced: st.Forced,
-				IsTextSubtitleStream: text,
+				IsTextSubtitleStream: text, IsOriginal: true, SupportsExternalStream: text,
 			}
 			if text {
 				stream.DeliveryMethod = "External"
@@ -802,7 +834,8 @@ func (s *Server) jfMediaSources(ctx context.Context, it *store.Item) []jellyfin.
 				src.MediaStreams = append(src.MediaStreams, jellyfin.MediaStream{
 					Type: "Subtitle", Index: 100000 + int(ext.ID), Codec: ext.Format,
 					Language: ext.Language, Title: ext.Label, DisplayTitle: ext.Label,
-					IsExternal: true, IsTextSubtitleStream: true, DeliveryMethod: "External",
+					IsExternal: true, IsOriginal: true, IsTextSubtitleStream: true,
+					SupportsExternalStream: true, DeliveryMethod: "External",
 					DeliveryURL: fmt.Sprintf("/api/v1/media/%d/subtitle?ext=%d", f.ID, ext.ID),
 				})
 			}
@@ -880,6 +913,7 @@ func (s *Server) handleJFSearchHints(w http.ResponseWriter, r *http.Request) {
 			RunTimeTicks:    jfTicks(it.RuntimeMS),
 			ParentID:        jellyfin.LibraryID(it.LibraryID),
 			PrimaryImageTag: jfImageTag(it.PosterPath),
+			Artists:         []string{},
 		}
 		if it.Kind == store.KindEpisode {
 			h.IndexNumber = &it.EpisodeNumber

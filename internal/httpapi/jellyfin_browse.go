@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/liyu1981/myvideostation/internal/jellyfin"
@@ -13,6 +14,7 @@ import (
 // registerJellyfinBrowseRoutes mounts the J1 discovery surface: home rows,
 // facet endpoints and the item-relation stubs clients probe while rendering.
 func (s *Server) registerJellyfinBrowseRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /Items/Suggestions", s.anyAuth(s.handleJFSuggestions))
 	mux.HandleFunc("GET /Items/Resume", s.anyAuth(s.handleJFResume))
 	mux.HandleFunc("GET /Users/{userId}/Items/Resume", s.anyAuth(s.handleJFResume))
 	mux.HandleFunc("GET /Items/Latest", s.anyAuth(s.handleJFLatest))
@@ -26,6 +28,14 @@ func (s *Server) registerJellyfinBrowseRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /Items/Filters", s.anyAuth(s.handleJFLegacyFilters))
 	mux.HandleFunc("GET /Items/Filters2", s.anyAuth(s.handleJFFilters))
 
+	mux.HandleFunc("GET /UserItems/Resume", s.anyAuth(s.handleJFResume))
+	mux.HandleFunc("GET /Shows/Upcoming", s.anyAuth(s.handleJFUpcoming))
+	mux.HandleFunc("GET /Shows/NextUp", s.anyAuth(s.handleJFNextUpAll))
+	mux.HandleFunc("GET /Shows/{itemId}/Seasons", s.anyAuth(s.handleJFSeasons))
+	mux.HandleFunc("GET /Items/{itemId}/Intros", s.anyAuth(s.handleJFEmptyQuery))
+	mux.HandleFunc("GET /Videos/{itemId}/AdditionalParts", s.anyAuth(s.handleJFEmptyQuery))
+	mux.HandleFunc("POST /DisplayPreferences/{name}", s.anyAuth(s.handleJFSaveDisplayPreferences))
+	mux.HandleFunc("GET /socket", s.anyAuth(s.handleJFSocket))
 	mux.HandleFunc("GET /Items/{itemId}/Similar", s.anyAuth(s.handleJFSimilar))
 	mux.HandleFunc("GET /Items/{itemId}/ThemeMedia", s.anyAuth(s.handleJFThemeMedia))
 	mux.HandleFunc("GET /Items/{itemId}/LocalTrailers", s.anyAuth(s.handleJFLocalTrailers))
@@ -44,6 +54,50 @@ func (s *Server) jfBrowseContext(w http.ResponseWriter, r *http.Request) (contex
 }
 
 // ---- home rows -------------------------------------------------------------
+
+// handleJFSuggestions answers /Items/Suggestions. We do not have a recommendation
+// engine, so this returns recent unplayed items of the requested kinds (falling
+// back to recent items when everything is watched).
+func (s *Server) handleJFSuggestions(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := s.jfBrowseContext(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	limit := jfInt(q, "limit", 6)
+	if limit <= 0 || limit > 100 {
+		limit = 6
+	}
+	kinds := []string{}
+	for _, t := range jfCSV(q, "type") {
+		if k := jfKindForType(t); k != "" {
+			kinds = append(kinds, k)
+		}
+	}
+	if len(kinds) == 0 {
+		kinds = []string{store.KindMovie, store.KindShow}
+	}
+	unplayed := false
+	items, _, err := s.store.ListItems(ctx, store.ItemFilter{
+		Kinds: kinds, Watched: &unplayed, Category: "recent_added", Page: 1, PerPage: limit,
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if len(items) == 0 {
+		items, _, err = s.store.ListItems(ctx, store.ItemFilter{
+			Kinds: kinds, Category: "recent_added", Page: 1, PerPage: limit,
+		})
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, jellyfin.QueryResult{
+		Items: s.jfItemDTOs(ctx, s.jellyfinServerID(ctx), items, false), TotalRecordCount: len(items),
+	})
+}
 
 func (s *Server) handleJFResume(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := s.jfBrowseContext(w, r)
@@ -343,6 +397,148 @@ func (s *Server) handleJFLegacyFilters(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- item relations / stubs ------------------------------------------------
+
+// handleJFEmptyQuery answers relation endpoints that have no data in our model.
+func (s *Server) handleJFEmptyQuery(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, jellyfin.QueryResult{Items: []jellyfin.BaseItemDto{}})
+}
+
+// handleJFUpcoming answers /Shows/Upcoming (we do not track air dates).
+func (s *Server) handleJFUpcoming(w http.ResponseWriter, r *http.Request) {
+	s.handleJFEmptyQuery(w, r)
+}
+
+// handleJFSaveDisplayPreferences accepts (and ignores) client display prefs.
+func (s *Server) handleJFSaveDisplayPreferences(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleJFSocket rejects the WebSocket upgrade quickly (no realtime socket yet).
+func (s *Server) handleJFSocket(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusBadRequest)
+}
+
+// handleJFSeasons serves /Shows/{id}/Seasons.
+func (s *Server) handleJFSeasons(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := s.jfBrowseContext(w, r)
+	if !ok {
+		return
+	}
+	seriesID, err := jellyfin.DecodeKind(r.PathValue("itemId"), jellyfin.KindItem)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if _, err := s.store.GetItem(ctx, seriesID); err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	seasons, total, err := s.store.ListItems(ctx, store.ItemFilter{
+		ParentID: seriesID, Kinds: []string{store.KindSeason}, Page: 1, PerPage: 200,
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	sort.SliceStable(seasons, func(i, j int) bool {
+		return seasons[i].SeasonNumber < seasons[j].SeasonNumber
+	})
+	start := jfInt(r.URL.Query(), "StartIndex", 0)
+	limit := jfInt(r.URL.Query(), "Limit", 200)
+	if start < 0 {
+		start = 0
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+	if start >= len(seasons) {
+		seasons = nil
+	} else {
+		seasons = seasons[start:]
+	}
+	if len(seasons) > limit {
+		seasons = seasons[:limit]
+	}
+	writeJSON(w, http.StatusOK, jellyfin.QueryResult{
+		Items: s.jfItemDTOs(ctx, s.jellyfinServerID(ctx), seasons, false), TotalRecordCount: total, StartIndex: start,
+	})
+}
+
+// handleJFNextUpAll serves the home-screen /Shows/NextUp (optionally per series).
+func (s *Server) handleJFNextUpAll(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := s.jfBrowseContext(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	limit := jfInt(q, "Limit", 10)
+	if limit <= 0 || limit > 200 {
+		limit = 10
+	}
+
+	var shows []store.Item
+	if raw := firstValue(q, "SeriesId"); raw != "" {
+		seriesID, err := jellyfin.DecodeKind(raw, jellyfin.KindItem)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		show, err := s.store.GetItem(ctx, seriesID)
+		if err != nil || show.Kind != store.KindShow {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		shows = append(shows, *show)
+	} else {
+		var err error
+		shows, _, err = s.store.ListItems(ctx, store.ItemFilter{
+			Kinds: []string{store.KindShow}, Page: 1, PerPage: 200, Category: "recent_added",
+		})
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+
+	next := []store.Item{}
+	for i := range shows {
+		episodes, _, err := s.jfSeriesEpisodes(ctx, shows[i].ID)
+		if err != nil || len(episodes) == 0 {
+			continue
+		}
+		last := -1
+		for j := range episodes {
+			if episodes[j].Played || episodes[j].PositionMS > 0 {
+				last = j
+			}
+		}
+		switch {
+		case last >= 0 && episodes[last].PositionMS > 0 && !episodes[last].Played:
+			// Partially watched episode wins (the TV app sends
+			// enableResumable=false on the home row but still expects this).
+			next = append(next, episodes[last])
+		case last >= 0:
+			if n, err := s.store.NextEpisode(ctx, episodes[last].ID); err == nil && n != nil {
+				next = append(next, *n)
+			}
+		case firstValue(q, "SeriesId") != "":
+			// Series detail page wants a playable suggestion even before starting.
+			next = append(next, episodes[0])
+		}
+	}
+	if len(next) > limit {
+		next = next[:limit]
+	}
+	writeJSON(w, http.StatusOK, jellyfin.QueryResult{
+		Items: s.jfItemDTOs(ctx, s.jellyfinServerID(ctx), next, false), TotalRecordCount: len(next),
+	})
+}
 
 func (s *Server) handleJFSimilar(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.jfBrowseContext(w, r); !ok {

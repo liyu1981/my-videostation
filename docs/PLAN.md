@@ -160,7 +160,8 @@ my-video-station/
 
 **Dev loop**: `pnpm dev` → air watches Go/SQL and `web/src`, runs `scripts/dev-build.mjs`
 (Vite bundle → `internal/web/dist` → `go build -tags embedui`) and restarts the single binary
-on :6500. No separate frontend server or proxy; dev and production serve the app the same way.
+on :6500 with `--log-level debug` (API/HLS/Jellyfin-adapter requests are logged to the
+terminal). No separate frontend server or proxy; dev and production serve the app the same way.
 
 ---
 

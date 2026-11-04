@@ -28,6 +28,9 @@ type jfPlaybackInfoResponse struct {
 func (s *Server) registerJellyfinPlaybackRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /Items/{itemId}/PlaybackInfo", s.anyAuth(s.handleJFPlaybackInfo))
 	mux.HandleFunc("POST /Items/{itemId}/PlaybackInfo", s.anyAuth(s.handleJFPlaybackInfo))
+	// Direct static streaming is anonymous, like Jellyfin: ExoPlayer fetches the
+	// URL without headers. Ids are opaque, so this does not allow enumeration.
+	mux.HandleFunc("GET /Videos/{itemId}/stream", s.handleJFDirectStream)
 	mux.HandleFunc("GET /Videos/{itemId}/{rest...}", s.anyAuth(s.handleJFVideo))
 
 	mux.HandleFunc("POST /Sessions/Playing", s.anyAuth(s.handleJFPlaybackStart))
@@ -85,6 +88,21 @@ func (s *Server) jfPlaybackSources(ctx context.Context, it *store.Item, token, p
 		if _, err := jellyfin.DecodeKind(sources[i].ID, jellyfin.KindFile); err != nil {
 			continue
 		}
+		// Subtitle side-load URLs must authenticate on their own, because ExoPlayer
+		// fetches them as separate requests.
+		if token != "" {
+			for j := range sources[i].MediaStreams {
+				ms := &sources[i].MediaStreams[j]
+				if ms.Type != "Subtitle" || ms.DeliveryURL == "" || strings.Contains(ms.DeliveryURL, "api_key=") {
+					continue
+				}
+				sep := "?"
+				if strings.Contains(ms.DeliveryURL, "?") {
+					sep = "&"
+				}
+				ms.DeliveryURL += sep + "api_key=" + url.QueryEscape(token)
+			}
+		}
 		sources[i].DirectStreamURL = fmt.Sprintf("/Videos/%s/stream?static=true&MediaSourceId=%s%s",
 			itemID, sources[i].ID, tokenQuery)
 		if sources[i].SupportsTranscoding {
@@ -96,6 +114,7 @@ func (s *Server) jfPlaybackSources(ctx context.Context, it *store.Item, token, p
 				itemID, sources[i].ID, url.QueryEscape(playSessionID), tokenQuery)
 			sources[i].TranscodingSubProtocol = "hls"
 			sources[i].TranscodingContainer = "mp4"
+			sources[i].HasSegments = true
 		}
 	}
 	return sources
@@ -123,12 +142,12 @@ func (s *Server) handleJFVideo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleJFDirectStream(w http.ResponseWriter, r *http.Request) {
-	me, ok := s.jfAuthenticatedUser(r)
-	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
+	// No auth on purpose (see the route comment); jfSourceFile resolves the
+	// opaque item id and the media source id.
+	ctx := r.Context()
+	if me, ok := s.jfAuthenticatedUser(r); ok {
+		ctx = s.userContext(ctx, me, "")
 	}
-	ctx := s.userContext(r.Context(), me, "")
 	file, err := s.jfSourceFile(ctx, r)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
@@ -409,6 +428,115 @@ func (s *Server) handleJFPlaybackStopped(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleJFPing(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- user data / media segments / device options ---------------------------
+
+// handleJFUserData answers GET /UserItems/{itemId}/UserData.
+func (s *Server) handleJFUserData(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := s.jfBrowseContext(w, r)
+	if !ok {
+		return
+	}
+	itemID, ok := s.jfResolveItemID(r.WithContext(ctx))
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	it, err := s.store.GetItem(ctx, itemID)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	favorites, _ := s.store.FavoriteItemIDs(ctx, []int64{itemID})
+	playCount := 0
+	if it.Played {
+		playCount = 1
+	}
+	itemEnc := jellyfin.ItemID(itemID)
+	writeJSON(w, http.StatusOK, jellyfin.UserItemDataDto{
+		Key:                   itemEnc,
+		ItemID:                itemEnc,
+		Played:                it.Played,
+		PlaybackPositionTicks: jfTicks(it.PositionMS),
+		PlayCount:             playCount,
+		IsFavorite:            favorites[itemID],
+	})
+}
+
+// handleJFUpdateUserData answers POST /UserItems/{itemId}/UserData.
+func (s *Server) handleJFUpdateUserData(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := s.jfBrowseContext(w, r)
+	if !ok {
+		return
+	}
+	itemID, ok := s.jfResolveItemID(r.WithContext(ctx))
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	var in struct {
+		Played                *bool  `json:"Played"`
+		PlaybackPositionTicks *int64 `json:"PlaybackPositionTicks"`
+		IsFavorite            *bool  `json:"IsFavorite"`
+	}
+	_ = decodeJFBody(r, &in)
+	it, err := s.store.GetItem(ctx, itemID)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	position := it.PositionMS
+	played := it.Played
+	if in.PlaybackPositionTicks != nil {
+		position = *in.PlaybackPositionTicks / 10000
+	}
+	if in.Played != nil {
+		played = *in.Played
+		if !played && in.PlaybackPositionTicks == nil {
+			position = 0
+		}
+	}
+	if in.PlaybackPositionTicks != nil || in.Played != nil {
+		if err := s.store.SetProgress(ctx, itemID, position, it.DurationMS, played); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	if in.IsFavorite != nil {
+		collection, err := s.store.SystemCollection(ctx, store.SystemFavorites)
+		if err == nil {
+			if *in.IsFavorite {
+				err = s.store.AddToCollection(ctx, collection, []int64{itemID})
+			} else {
+				err = s.store.RemoveFromCollection(ctx, collection, itemID)
+			}
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				s.fail(w, err)
+				return
+			}
+		}
+	}
+	s.handleJFUserData(w, r)
+}
+
+// handleJFMediaSegments answers GET /MediaSegments/{itemId}. We do not detect
+// intro/outro segments (the client then simply hides the skip button).
+func (s *Server) handleJFMediaSegments(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"Items": []any{}, "TotalRecordCount": 0, "StartIndex": 0,
+	})
+}
+
+// handleJFSaveDeviceOptions accepts a client device-options update.
+func (s *Server) handleJFSaveDeviceOptions(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

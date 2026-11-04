@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/liyu1981/myvideostation/internal/jellyfin"
 )
 
 // jfLogin authenticates and returns (token, userID).
@@ -225,19 +227,5 @@ func TestJellyfinHLSAndProgress(t *testing.T) {
 // jellyfinItemID encodes a numeric item id the way the adapter does.
 func jellyfinItemID(t *testing.T, id int64) string {
 	t.Helper()
-	return jellyfinEncode(3, id)
-}
-
-func jellyfinEncode(kind int, id int64) string {
-	const hexdigits = "0123456789abcdef"
-	out := make([]byte, 0, 32)
-	appendHex := func(v uint64, width int) {
-		for i := width - 1; i >= 0; i-- {
-			out = append(out, hexdigits[(v>>(uint(i)*4))&0xF])
-		}
-	}
-	appendHex(uint64(kind), 8)
-	appendHex(0, 8)
-	appendHex(uint64(id), 16)
-	return string(out)
+	return jellyfin.ItemID(id)
 }
