@@ -40,7 +40,8 @@ func (s *Server) mediaAuth(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
-		s.auth(next)(w, r)
+		// Cookies for the SPA, Jellyfin tokens for native clients.
+		s.anyAuth(next)(w, r)
 	}
 }
 

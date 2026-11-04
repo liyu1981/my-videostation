@@ -215,30 +215,32 @@ func (s *Server) handleArt(kind string) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
 			return
 		}
-		it, err := s.store.GetItem(r.Context(), id)
-		if err != nil {
-			s.fail(w, err)
-			return
-		}
-		artPath := it.PosterPath
-		if kind == "backdrop" {
-			artPath = it.BackdropPath
-		}
-		if artPath == "" {
-			http.NotFound(w, r)
-			return
-		}
-		ok, err := s.withinLibrary(r, artPath)
-		if err != nil {
-			s.fail(w, err)
-			return
-		}
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		s.serveArt(w, r, kind, artPath)
+		s.serveItemArt(w, r, id, kind)
 	}
+}
+
+// serveItemArt serves an item's poster/backdrop (thumbnail variant applied).
+// Shared by the SPA API and the Jellyfin adapter.
+func (s *Server) serveItemArt(w http.ResponseWriter, r *http.Request, itemID int64, kind string) {
+	it, err := s.store.GetItem(r.Context(), itemID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	artPath := it.PosterPath
+	if kind == "backdrop" {
+		artPath = it.BackdropPath
+	}
+	if artPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	ok, err := s.withinLibrary(r, artPath)
+	if err != nil || !ok {
+		http.NotFound(w, r)
+		return
+	}
+	s.serveArt(w, r, kind, artPath)
 }
 
 func (s *Server) withinLibrary(r *http.Request, p string) (bool, error) {

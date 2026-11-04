@@ -39,6 +39,12 @@ type Server struct {
 	castMu  sync.Mutex
 	castKey []byte
 
+	jfMu       sync.Mutex
+	jfServerID string
+
+	jfPlayMu       sync.Mutex
+	jfPlaySessions map[string]string
+
 	maintenance atomic.Bool
 }
 
@@ -179,9 +185,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/playback/sessions/{session}", s.auth(s.handleTranscodeStatus))
 	mux.HandleFunc("DELETE /api/v1/playback/sessions/{session}", s.auth(s.handleStopTranscode))
 	mux.HandleFunc("GET /api/v1/playback/capabilities", s.auth(s.handlePlaybackCapabilities))
-	mux.HandleFunc("GET /hls/{session}/{file...}", s.auth(s.handleHLS))
+	mux.HandleFunc("GET /hls/{session}/{file...}", s.anyAuth(s.handleHLS))
 	mux.HandleFunc("GET /api/v1/media/{fileId}/subtitle", s.auth(s.handleSubtitle))
 	mux.HandleFunc("GET /api/v1/items/{id}/playback", s.auth(s.handlePlayback))
+
+	// Jellyfin client compatibility adapter (GAP-030/031). Root-level paths are
+	// required by the clients; they must never collide with SPA routes.
+	s.registerJellyfinRoutes(mux)
 
 	mux.Handle("/", web.Handler())
 

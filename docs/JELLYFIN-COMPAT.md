@@ -4,7 +4,7 @@
 > content served by MyVideoStation, without shipping native TV apps. This closes
 > GAP-030/031 cheaply (see `GAPS.md`).
 
-Status: **J0.5 in progress** (readiness audit recorded 2026-11-04). Prerequisites
+Status: **J0.5 + J2/J3 delivered** — discovery, token auth, users, views, browse, detail, images and search, plus HLS playback, direct streaming, progress sync, played/favorite mutations and `/Shows/{id}/Episodes`. Next: client polish (J4). Prerequisites
 (M5 HLS sessions, M6 accounts/sessions) are met; no hard blockers remain. Target
 clients and the claimed server version are pinned in §10; the endpoint matrix in
 §11 is the working checklist.
@@ -258,24 +258,83 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
 
 | Endpoint | Purpose |
 |---|---|
-| `[ ] GET /System/Info/Public` | discovery; server id/name/version |
-| `[ ] GET /System/Info` | full info (auth) |
-| `[ ] GET /Branding/Configuration` | login screen branding defaults |
-| `[ ] GET /QuickConnect/Enabled` | `false` (QuickConnect is not implemented) |
-| `[ ] GET /Users/Public` | login-screen profile list |
-| `[ ] POST /Users/AuthenticateByName` | username/password → token + user |
-| `[ ] GET /Users/Me` | current user (auth) |
-| `[ ] GET /Users/{userId}` | one user (auth) |
-| `[ ] GET /Users/{userId}/Views` | libraries as `CollectionFolder`s |
-| `[ ] GET /Users/{userId}/Items` | browse/search list |
-| `[ ] GET /Items` | browse/search list (alternate path) |
-| `[ ] GET /Items/{itemId}` | item detail |
-| `[ ] GET /Items/{itemId}/Images/{type}` | poster/backdrop (thumbnails) |
-| `[ ] GET /Items/{itemId}/Images/{type}/{index}` | poster/backdrop variants |
-| `[ ] GET /Search/Hints` | search suggestions |
+| `[x] GET /System/Info/Public` | discovery; server id/name/version |
+| `[x] GET /System/Info` | full info (auth) |
+| `[x] GET /Branding/Configuration` | login screen branding defaults |
+| `[x] GET /QuickConnect/Enabled` | `false` (QuickConnect is not implemented) |
+| `[x] GET /Users/Public` | login-screen profile list |
+| `[x] POST /Users/AuthenticateByName` | username/password → token + user |
+| `[x] GET /Users/Me` | current user (auth) |
+| `[x] GET /Users/{userId}` | one user (auth) |
+| `[x] GET /Users/{userId}/Views` | libraries as `CollectionFolder`s |
+| `[x] GET /Users/{userId}/Items` | browse/search list |
+| `[x] GET /Items` | browse/search list (alternate path) |
+| `[x] GET /Items/{itemId}` | item detail |
+| `[x] GET /Items/{itemId}/Images/{type}` | poster/backdrop (thumbnails) |
+| `[x] GET /Items/{itemId}/Images/{type}/{index}` | poster/backdrop variants |
+| `[x] GET /Search/Hints` | search suggestions |
+| `[x] GET/POST /Items/{itemId}/PlaybackInfo` | MediaSources + TranscodingUrl/DirectStreamUrl + PlaySessionId |
+| `[x] GET /Videos/{itemId}/master.m3u8` | session-backed HLS manifest with token-bearing segment URLs |
+| `[x] GET /Videos/{itemId}/stream[.ext]` | direct play with byte ranges |
+| `[x] GET /Videos/{itemId}/{source}/Subtitles/{index}/Stream.{format}` | redirect to our WebVTT endpoint |
+| `[x] POST /Sessions/Playing`, `/Progress`, `/Stopped`, `/Ping` | ticks → `playback_progress`; stops the session on `Stopped` |
+| `[x] POST/DELETE /Users/{id}/PlayedItems/{itemId}` | watched state |
+| `[x] POST/DELETE /Users/{id}/FavoriteItems/{itemId}`, `/UserFavoriteItems/{itemId}` | favorites via the system collection |
+| `[x] GET /Shows/{itemId}/Episodes` | episode list per series/season |
+
+J0.5 also ships `GET /UserViews`, `GET /DisplayPreferences/{name}`,
+`GET /Sessions` (empty) and `POST /Sessions/Capabilities/Full` (204).
 
 Later slices: `PlaybackInfo`, `/Videos/*`, `/Sessions/Playing*`, `/Shows/*`,
 `/Items/Resume`, `/Items/Latest`, favorites/played mutations, SSDP.
+
+### J2/J3 implementation notes
+
+- **PlaybackInfo** returns `MediaSources` with `SupportsDirectPlay` (our
+  direct-play matrix), `SupportsTranscoding` (ffmpeg present), a
+  `DirectStreamUrl` and an HLS `TranscodingUrl`. `DeviceProfile` is still ignored
+  (ADR 0005).
+- **TranscodingUrl** contains only `MediaSourceId`, `PlaySessionId` and
+  `api_key`; Jellyfin clients append `StartTimeTicks`/`AudioStreamIndex`/
+  `SubtitleStreamIndex` themselves, so the manifest handler defaults them and
+  duplicate query keys cannot shadow the client's seek.
+- **Manifest**: starts or reuses an M5 session at `StartTimeTicks`, stops the
+  previous session for the same `PlaySessionId` (seek churn), then rewrites the
+  playlist so `init.mp4`/`segN.m4s` are absolute `/hls/{session}/…?api_key=…`
+  URLs. No redirects (ExoPlayer/Safari both resolve relative URIs without the
+  query, which would drop the token).
+- **Subtitles**: requested text tracks (embedded or sidecar) are extracted to the
+  WebVTT cache and burned in via the `subtitles` filter; bitmap tracks use the
+  overlay path. `DeliveryUrl` is still exposed so clients may side-load instead.
+- **Progress**: ticks (100 ns) ↔ ms; `Stopped` marks played at ≥95% and kills the
+  session bound to the `PlaySessionId`. Played/favorite mutations write to
+  `playback_progress` and the user's `favorites` system collection.
+- **Known gaps before TV polish**: `/Items/Resume`, `/Items/Latest`,
+  `/Shows/NextUp`, `/Genres`, `/Persons`, device-profile-aware playback decisions,
+  SSDP discovery, and end-to-end verification against real client builds `[verify]`.
+
+### J0.5 implementation notes
+
+- **Route mount**: adapter paths are registered on the root mux next to the SPA
+  catch-all (`internal/httpapi/jellyfin*.go`); `/api/v1` is untouched.
+- **Token auth**: `anyAuth` accepts the SPA cookie *or* a Jellyfin token
+  (`X-Emby-Authorization`, `X-Emby-Token`, `X-MediaBrowser-Token`, `?api_key=`,
+  `?ApiKey=`). `/hls/*` and `/api/v1/media/*` now accept tokens too, so a client
+  can stream and fetch posters with only its `AccessToken`.
+- **IDs**: `internal/jellyfin` encodes `(kind, id)` as 32 lowercase hex;
+  reversible, stable across restarts, no schema change.
+- **Server id**: random 32-hex persisted in `settings` as `jellyfin.server_id`.
+- **Browse**: `ParentId` accepts a library or item id; `IncludeItemTypes`,
+  `Recursive`, `Filters=IsPlayed/IsUnplayed`, `Genres`, `Years`, `SearchTerm`,
+  `SortBy`, `SortOrder`, `StartIndex`, `Limit` are mapped to `store.ListItems`.
+  Series→season→episode recursion is assembled in the adapter.
+- **Item detail**: MediaSources/MediaStreams are built from `media_files` +
+  `external_subtitles` (text subtitles get a `DeliveryUrl`; bitmap tracks are
+  marked `DeliveryMethod: Encode` for future burn-in). `UserData` carries
+  played/resume state, `ImageTags` a tag derived from art path+mtime.
+- **Known J0.5 gaps**: no playback info/stream URLs yet (J2), episode list rows
+  omit `SeriesId` (detail resolves it), favorites filters are ignored, no
+  `/Genres`/`/Persons` facets, no real device profiles.
 
 ## 12. Build order for J0.5
 

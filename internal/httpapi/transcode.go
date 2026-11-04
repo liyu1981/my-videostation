@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -20,6 +21,10 @@ type transcodeInput struct {
 	ExternalSubtitle int64  `json:"externalSubtitleId"` // sidecar to burn in
 	MaxHeight        int    `json:"maxHeight"`
 	Mode             string `json:"mode"` // "", "remux", "transcode"
+
+	// BurnSubtitlePath is internal: an extracted/cached subtitle file to burn in
+	// (used by the Jellyfin adapter for text tracks). Not part of the JSON API.
+	BurnSubtitlePath string `json:"-"`
 }
 
 // handleStartTranscode resolves or starts an HLS session for one item.
@@ -36,15 +41,25 @@ func (s *Server) handleStartTranscode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// GetItem enforces per-library access; ItemFiles is not scoped on its own.
-	if _, err := s.store.GetItem(r.Context(), id); err != nil {
-		s.fail(w, err)
+	sess, file, err := s.startTranscodeSession(r.Context(), id, in)
+	if err != nil {
+		s.writeTranscodeError(w, id, file, err)
 		return
 	}
-	files, err := s.store.ItemFiles(r.Context(), id)
+	// Not audited: seeks and track switches legitimately start many sessions.
+	writeJSON(w, http.StatusOK, transcodeResponse(sess))
+}
+
+// startTranscodeSession resolves a file and starts (or reuses) an HLS session.
+// Shared by the SPA API and the Jellyfin adapter.
+func (s *Server) startTranscodeSession(ctx context.Context, itemID int64, in transcodeInput) (*playback.Session, *store.File, error) {
+	// GetItem enforces per-library access; ItemFiles is not scoped on its own.
+	if _, err := s.store.GetItem(ctx, itemID); err != nil {
+		return nil, nil, err
+	}
+	files, err := s.store.ItemFiles(ctx, itemID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return nil, nil, err
 	}
 	var file *store.File
 	for i := range files {
@@ -57,12 +72,10 @@ func (s *Server) handleStartTranscode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if file == nil {
-		writeError(w, http.StatusNotFound, "no_playable_file", "no playable file for this item")
-		return
+		return nil, nil, errNoPlayableFile
 	}
 	if !s.transcoder.Available() {
-		writeError(w, http.StatusServiceUnavailable, "ffmpeg_missing", "ffmpeg is required for transcoding")
-		return
+		return nil, file, playback.ErrNoFFmpeg
 	}
 
 	audioIndex := -1
@@ -83,12 +96,11 @@ func (s *Server) handleStartTranscode(w http.ResponseWriter, r *http.Request) {
 	if in.SubtitleIndex != nil {
 		burnIndex = *in.SubtitleIndex
 	}
-	burnPath := ""
+	burnPath := in.BurnSubtitlePath
 	if in.ExternalSubtitle > 0 {
-		sub, err := s.store.ExternalSubtitleByID(r.Context(), in.ExternalSubtitle)
+		sub, err := s.store.ExternalSubtitleByID(ctx, in.ExternalSubtitle)
 		if err != nil || sub.FileID != file.ID {
-			writeError(w, http.StatusNotFound, "not_found", "subtitle not found")
-			return
+			return nil, file, store.ErrNotFound
 		}
 		burnPath = sub.Path
 	}
@@ -121,21 +133,32 @@ func (s *Server) handleStartTranscode(w http.ResponseWriter, r *http.Request) {
 		MaxHeight:        in.MaxHeight,
 		Force:            strings.ToLower(strings.TrimSpace(in.Mode)),
 	}
-	sess, err := s.transcoder.Start(r.Context(), req)
-	if err != nil {
-		switch {
-		case errors.Is(err, playback.ErrNoFFmpeg):
-			writeError(w, http.StatusServiceUnavailable, "ffmpeg_missing", "ffmpeg is required for transcoding")
-		case errors.Is(err, playback.ErrTooManySessions):
-			writeError(w, http.StatusTooManyRequests, "too_many_sessions", "too many concurrent playback sessions; close another player and retry")
-		default:
-			s.log.Error("transcode start failed", "item", id, "file", file.ID, "err", err)
-			writeError(w, http.StatusUnprocessableEntity, "transcode_failed", err.Error())
+	sess, err := s.transcoder.Start(ctx, req)
+	return sess, file, err
+}
+
+// errNoPlayableFile signals an item without a usable media file.
+var errNoPlayableFile = errors.New("no playable file")
+
+// writeTranscodeError maps transcode failures to HTTP responses.
+func (s *Server) writeTranscodeError(w http.ResponseWriter, itemID int64, file *store.File, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "resource not found")
+	case errors.Is(err, errNoPlayableFile):
+		writeError(w, http.StatusNotFound, "no_playable_file", "no playable file for this item")
+	case errors.Is(err, playback.ErrNoFFmpeg):
+		writeError(w, http.StatusServiceUnavailable, "ffmpeg_missing", "ffmpeg is required for transcoding")
+	case errors.Is(err, playback.ErrTooManySessions):
+		writeError(w, http.StatusTooManyRequests, "too_many_sessions", "too many concurrent playback sessions; close another player and retry")
+	default:
+		fileID := int64(0)
+		if file != nil {
+			fileID = file.ID
 		}
-		return
+		s.log.Error("transcode start failed", "item", itemID, "file", fileID, "err", err)
+		writeError(w, http.StatusUnprocessableEntity, "transcode_failed", err.Error())
 	}
-	// Not audited: seeks and track switches legitimately start many sessions.
-	writeJSON(w, http.StatusOK, transcodeResponse(sess))
 }
 
 func transcodeResponse(sess *playback.Session) map[string]any {

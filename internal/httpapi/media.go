@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/liyu1981/myvideostation/internal/store"
 )
 
 var mimeByExt = map[string]string{
@@ -38,6 +40,12 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.serveMediaFile(w, r, file)
+}
+
+// serveMediaFile writes one physical file with byte-range support. Shared by the
+// SPA API and the Jellyfin adapter.
+func (s *Server) serveMediaFile(w http.ResponseWriter, r *http.Request, file *store.File) {
 	f, err := os.Open(file.Path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

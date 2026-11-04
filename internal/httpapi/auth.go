@@ -31,31 +31,77 @@ func tokenFrom(r *http.Request) string {
 	return v
 }
 
+// userContext stamps the authenticated user (and permission/rating scope) onto
+// a request context. Shared by cookie and Jellyfin-token authentication.
+func (s *Server) userContext(ctx context.Context, u *store.User, token string) context.Context {
+	ctx = context.WithValue(ctx, authUserKey{}, u)
+	if token != "" {
+		ctx = context.WithValue(ctx, authTokenKey{}, token)
+	}
+	ctx = store.WithUserID(ctx, u.ID)
+	ctx = store.WithUserRole(ctx, u.Role)
+	ctx = store.WithUserRating(ctx, u.EffectiveRatingCeiling)
+	ctx = store.WithUserLibraryRestricted(ctx, u.LibraryRestricted)
+	return ctx
+}
+
+// cookieUser resolves the session cookie, if present.
+func (s *Server) cookieUser(r *http.Request) (*store.User, string, error) {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return nil, "", store.ErrNotFound
+	}
+	u, err := s.store.SessionUser(r.Context(), auth.HashToken(cookie.Value))
+	if err != nil {
+		return nil, "", err
+	}
+	return u, cookie.Value, nil
+}
+
+// requestUser resolves a cookie first, then a Jellyfin-style token.
+func (s *Server) requestUser(r *http.Request) (*store.User, string) {
+	if u, token, err := s.cookieUser(r); err == nil {
+		return u, token
+	}
+	if u, token, err := s.tokenUser(r); err == nil {
+		return u, token
+	}
+	return nil, ""
+}
+
 // auth requires a valid session cookie and puts the user (and user ID for
 // per-user progress/collections) into the request context.
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(sessionCookieName)
-		if err != nil || strings.TrimSpace(cookie.Value) == "" {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "sign in required")
-			return
-		}
-		u, err := s.store.SessionUser(r.Context(), auth.HashToken(cookie.Value))
+		u, token, err := s.cookieUser(r)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				writeError(w, http.StatusUnauthorized, "unauthorized", "session expired")
+				writeError(w, http.StatusUnauthorized, "unauthorized", "sign in required")
 			} else {
 				s.fail(w, err)
 			}
 			return
 		}
-		ctx := context.WithValue(r.Context(), authUserKey{}, u)
-		ctx = context.WithValue(ctx, authTokenKey{}, cookie.Value)
-		ctx = store.WithUserID(ctx, u.ID)
-		ctx = store.WithUserRole(ctx, u.Role)
-		ctx = store.WithUserRating(ctx, u.EffectiveRatingCeiling)
-		ctx = store.WithUserLibraryRestricted(ctx, u.LibraryRestricted)
-		next(w, r.WithContext(ctx))
+		next(w, r.WithContext(s.userContext(r.Context(), u, token)))
+	}
+}
+
+// anyAuth accepts a session cookie or a Jellyfin client token (header or
+// ?api_key=). Used by the Jellyfin adapter, media streaming and HLS segments,
+// which are fetched by native clients that have no cookies.
+func (s *Server) anyAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u, token := s.requestUser(r)
+		if u == nil {
+			// Jellyfin clients expect a bare 401; the SPA reads the JSON body.
+			if isJellyfinRequest(r) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "unauthorized", "sign in required")
+			return
+		}
+		next(w, r.WithContext(s.userContext(r.Context(), u, token)))
 	}
 }
 

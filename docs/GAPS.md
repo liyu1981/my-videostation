@@ -237,7 +237,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 
 | ID | Gap | VS behavior | Status | Sev | Target | Notes |
 |---|---|---|---|---|---|---|
-| GAP-030 | Native mobile apps + offline downloads | DS video for iOS/Android, with download-for-offline | `GAP-NEVER` (v1) | S1 | — | We ship a responsive PWA. True offline download of DRM-free media is feasible later via service worker + OPFS/IndexedDB but is a project in itself. |
+| GAP-030 | Native mobile apps + offline downloads | DS video for iOS/Android, with download-for-offline | `GAP-NEVER` (v1) | S1 | — | We ship a responsive PWA. Mitigation: the Jellyfin compatibility adapter (`docs/JELLYFIN-COMPAT.md`) — J0.5 delivered discovery/token auth/users/views/browse/detail/images/search and J2/J3 added HLS playback, direct streaming, progress sync and played/favorite actions, so the Jellyfin Android/iOS apps can sign in, browse and play. Offline downloads inside those apps are not supported by the adapter. |
 | GAP-031 | Native TV apps | DS video on Apple TV / Android TV / Fire TV / Roku **[verify]** | `GAP-NEVER` (v1) | S1 | M7 | Mitigation: browser on TV, or expose a Jellyfin-compatible API so existing TV clients work. Plan: `docs/JELLYFIN-COMPAT.md` (adapter over our API, after M5/M6). Target J1–J4 phases.
 | GAP-032 | Zero-config remote access (QuickConnect / DDNS + relay) | VS works outside the LAN with no setup via QuickConnect relay | `GAP-NEVER` | S1 | — | We require the user to provide connectivity: Tailscale/WireGuard, Cloudflare Tunnel, or a reverse proxy. Running a relay is a hosted-service commitment. Document recipes instead. |
 

@@ -316,19 +316,32 @@ func (s *Server) handleSubtitle(w http.ResponseWriter, r *http.Request) {
 
 // extractEmbeddedSubtitle runs ffmpeg once and caches the WebVTT output.
 func (s *Server) extractEmbeddedSubtitle(ctx context.Context, file *store.File, index int) ([]byte, string, error) {
-	dir := filepath.Join(s.cacheDir, "subs")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path, etag, err := s.embeddedSubtitleFile(ctx, file, index)
+	if err != nil {
 		return nil, "", err
 	}
-	name := fmt.Sprintf("%d-%d.vtt", file.ID, index)
-	path := filepath.Join(dir, name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, etag, nil
+}
+
+// embeddedSubtitleFile extracts one embedded text subtitle to the WebVTT cache
+// and returns its path (used for on-demand extraction and burn-in).
+func (s *Server) embeddedSubtitleFile(ctx context.Context, file *store.File, index int) (string, string, error) {
+	if s.ffmpeg == "" {
+		return "", "", errors.New("ffmpeg is required to extract embedded subtitles")
+	}
+	dir := filepath.Join(s.cacheDir, "subs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", err
+	}
+	path := filepath.Join(dir, fmt.Sprintf("%d-%d.vtt", file.ID, index))
 
 	// Reuse the cache while it is newer than the media file.
 	if st, err := os.Stat(path); err == nil && st.ModTime().Unix() >= file.Mtime {
-		data, err := os.ReadFile(path)
-		if err == nil {
-			return data, fmt.Sprintf(`"emb-%d-%d"`, file.ID, st.ModTime().Unix()), nil
-		}
+		return path, fmt.Sprintf(`"emb-%d-%d"`, file.ID, st.ModTime().Unix()), nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
@@ -344,12 +357,12 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, file *store.File, 
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return nil, "", fmt.Errorf("%s", strings.TrimSpace(string(ee.Stderr)))
+			return "", "", fmt.Errorf("%s", strings.TrimSpace(string(ee.Stderr)))
 		}
-		return nil, "", err
+		return "", "", err
 	}
 	if len(strings.TrimSpace(string(out))) == 0 {
-		return nil, "", errors.New("empty subtitle stream")
+		return "", "", errors.New("empty subtitle stream")
 	}
 	if !strings.HasPrefix(string(out), "WEBVTT") {
 		out = append([]byte("WEBVTT\n\n"), out...)
@@ -357,5 +370,5 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, file *store.File, 
 	if err := os.WriteFile(path, out, 0o644); err != nil {
 		s.log.Warn("embedded subtitle cache write failed", "file", file.ID, "index", index, "err", err)
 	}
-	return out, fmt.Sprintf(`"emb-%d-%d"`, file.ID, time.Now().Unix()), nil
+	return path, fmt.Sprintf(`"emb-%d-%d"`, file.ID, time.Now().Unix()), nil
 }
