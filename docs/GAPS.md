@@ -54,14 +54,14 @@ Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
 
 | Area | Open gaps | S1 | S2 | S3 | Notable |
 |---|---|---|---|---|---|
-| Library & indexing | 5 | 1 | 2 | 2 | 1 planned (multi-path) |
+| Library & indexing | 4 | 1 | 1 | 2 | 1 planned (multi-path) |
 | Metadata | 4 | 0 | 2 | 2 | NFO + field locks (ADV) |
 | Playback & transcoding | 11 | 2 | 4 | 5 | — |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
 | Users, security, permissions | 5 | 0 | 4 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
 | Integrations | 4 | 0 | 0 | 4 | all permanent |
-| **Total** | **38** | **6** | **16** | **16** | 10 advantages, 1 planned |
+| **Total** | **37** | **6** | **15** | **16** | 10 advantages, 1 planned |
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
@@ -90,14 +90,12 @@ flowchart TB
   subgraph Library["Library & metadata"]
     direction TB
     G1["GAP-001 network/cloud sources"]
-    G6["GAP-006 thumbnails"]
     G7["GAP-007 scrub previews"]
     G10["GAP-010 provider plugins"]
     G11["GAP-011 trailers"]
     G12["GAP-012 subtitle search"]
 
     G7 --> G16
-    G7 -.-> G6
     G11 -.-> G10
   end
 
@@ -144,7 +142,6 @@ flowchart TB
     G55["GAP-055 cache management"]
 
     G54 --> G16
-    G55 -.-> G6
     G55 -.-> G16
   end
 
@@ -163,8 +160,7 @@ parity-completeness, not a hard feature blocker.
 | gap | depends on | kind | note |
 |---|---|---|---|
 | GAP-001 | — | — | storage abstraction; host mounts today |
-| GAP-006 | — | — | thumbnail worker; GAP-055 depends on it |
-| GAP-007 | GAP-016, GAP-006 | hard / soft | sprites need ffmpeg; shares the thumbnail pipeline |
+| GAP-007 | GAP-016 | hard | sprite sheets need ffmpeg; the resize/cache layer exists in `internal/artwork` |
 | GAP-010 | — | — | provider interface/registry in place; plugin UX is GAP-064 (non-goal) |
 | GAP-011 | GAP-010 | soft | provider trailer keys |
 | GAP-012 | — | — | local subtitle FTS index; no online provider (`docs/SUBTITLE-INDEX.md`) |
@@ -184,7 +180,7 @@ parity-completeness, not a hard feature blocker.
 | GAP-051 | — | — | webhook/SMTP on the job queue |
 | GAP-053 | — | — | i18n scaffolding |
 | GAP-054 | GAP-016 | hard | HW accel plugs into the transcode pipeline |
-| GAP-055 | GAP-006, GAP-016 | soft | cache UI needs thumbnails/transcodes |
+| GAP-055 | GAP-016 | soft | thumbnails already have size/clear/rebuild; art + transcode caches still need UI |
 | GAP-065 | GAP-016 | soft | ffmpeg screenshot |
 
 Non-goals (not in the graph): GAP-003 (ISO/disc images), GAP-004 (TV recording),
@@ -204,7 +200,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | GAP-003 | Optical/ISO image playback (`ISO`, `BDMV/`, `VIDEO_TS/`) | VS can play DVD/BD folder structures and ISOs | `GAP-NEVER` (v1) | S3 | — | **Decision (2026-11-04): non-goal.** ffmpeg can demux these, but playlist/chapter/seek semantics and multi-title disc navigation are a product of their own. Workaround: rip/remux to MKV before scanning — see `docs/DISC-IMAGES.md`. |
 | GAP-004 | TV recording library + EPG + scheduled recording | VS records from USB DTV dongles / HDHomeRun, with EPG and series recording | `GAP-NEVER` (v1) | S1 | — | **[confirmed]** `SYNO.VideoStation2.DTV.{Tuner,Channel,ChannelScan,Program,Schedule,Statistic,Streaming}`. Requires tuner abstraction, EPG ingestion, conflict resolution, post-processing. Live TV is a separate product. Revisit only with a dedicated design. |
 | GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `CLOSED` | S3 | M3 | **Delivered:** per-library `excludeGlobs` / `includeGlobs` (segment patterns and `**` paths, case-insensitive, relative to each root), `minFileSizeMb` and `skipExtras`; `@eaDir`/`#recycle`/hidden folders are always skipped and samples never indexed. Rules are validated (`400` on absolute/`..`/malformed globs), applied while walking (dirs pruned), re-scan automatically on save, and excluded items are soft-hidden (not deleted) and restored when a rule is removed. Samples are always skipped. Rules are configured **per library** and matched relative to each of its roots; per-path overrides are not implemented (a library with different rules per folder needs separate libraries). |
-| GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails, and choose per-item poster/backdrop (Original / URL / from folders), with a global cover setting under Settings › Advanced | `GAP-LATER` | S2 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.ThumbnailQuality`; per-item art picker verified in the Edit dialog (see `UI-PROBE.md` §6). Controls (on/off, size, regenerate, cache budget) land with the first thumbnail worker. |
+| GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails, and choose per-item poster/backdrop (Original / URL / from folders), with a global cover setting under Settings › Advanced | `CLOSED` | S2 | M3 | **Delivered:** Settings › Artwork & thumbnails — on/off, poster width (200/320/480), backdrop width (original/960/1280/1920), JPEG quality (70/82/92), global cover setting (provider artwork vs local files), thumbnail cache size, **Rebuild thumbnails** (job) and **Clear cache**. Variants are generated on demand under `/data/cache/thumbs` (never upscaled, originals untouched) and `?original=1` bypasses them. Per-item poster/backdrop picking was already closed (GAP-067). |
 | GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
 | GAP-008 | Export/import MyVideoStation data (re-scoped from VS DB import) | N/A (VS is no longer the target) | `CLOSED` | S2 | post-M3 | Implemented in-app bundles: consistent SQLite snapshot + artwork/subtitle cache + manifest under `data/export`; newest bundle in `data/import` can be staged, preceded by a safety export, then applied on restart with a maintenance UI. VS PostgreSQL import is intentionally not pursued. |
 | GAP-063 | Indexing of cloud/mounted sources tied to DSM services | VS can index videos surfaced by Synology Drive and DSM cloud mounts | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.SynologyDrive.Services.VideoStation`. We only index real filesystem paths; cloud sources need host mounts (GAP-001). |
@@ -269,7 +265,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | GAP-052 | DSM Package Center install/upgrade and DSM UI integration | VS is a DSM package | `GAP-NEVER` | S2 | — | We are intentionally DSM-independent (Docker/binary). Cost of a `.spk` is high and ties us to Synology. |
 | GAP-053 | UI localization breadth (~20 locales) | VS ships Synology-wide translations | `GAP-LATER` | S2 | M6 | i18n scaffolding in M6, English-first. CJK + de/fr/es are the likely first community contributions. |
 | GAP-054 | Hardware transcoding breadth + autodetect | VS supports Intel QSV on many models; newer DSM gates HEVC/AAC behind Advanced Media Extensions | `GAP-LATER` | S2 | M7 | M5 ships selectable encoders (`libx264`, `h264_nvenc`, `h264_qsv`) and an optional `-hwaccel` decoder hint, but no startup autodetect, no encode smoke test and no VA-API profile. **Advantage**: no Synology account or AME license needed. |
-| GAP-055 | Cache/thumbnail store management UI | VS shows cache size and offers rebuild/clear | `GAP-LATER` | S3 | M3 | Needed because art + transcodes can grow to many GB. M5 adds transcode cache hygiene (sessions are deleted on stop/idle/restart), but there is still no UI: no size display, rebuild or clear. |
+| GAP-055 | Cache/thumbnail store management UI | VS shows cache size and offers rebuild/clear | `GAP-LATER` | S3 | M3 | M5 adds transcode cache hygiene (sessions are deleted on stop/idle/restart) and M3.x adds full thumbnail-cache management (size, rebuild, clear). Still missing: size/clear for the **downloaded artwork** cache and for transcode/subtitle/export artifacts in one place. |
 
 ## 9. Integrations
 

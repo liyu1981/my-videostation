@@ -1,9 +1,7 @@
 package httpapi
 
 import (
-	"mime"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -239,27 +237,10 @@ func (s *Server) handleArt(kind string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		f, err := os.Open(artPath)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		defer f.Close()
-		st, err := f.Stat()
-		if err != nil || st.IsDir() {
-			http.NotFound(w, r)
-			return
-		}
-		if ct := mime.TypeByExtension(filepath.Ext(artPath)); ct != "" {
-			w.Header().Set("Content-Type", ct)
-		}
-		w.Header().Set("Cache-Control", "private, max-age=3600")
-		http.ServeContent(w, r, filepath.Base(artPath), st.ModTime(), f)
+		s.serveArt(w, r, kind, artPath)
 	}
 }
 
-// withinLibrary guards artwork serving against path traversal: only files under a
-// configured library root are served.
 func (s *Server) withinLibrary(r *http.Request, p string) (bool, error) {
 	if !filepath.IsAbs(p) {
 		// Older rows stored paths relative to the process cwd (e.g. "data/cache/...").

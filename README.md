@@ -189,7 +189,7 @@ testdata/           parser corpus and generated sample media
 | Probing | ffprobe container, duration, resolution, codecs, HDR and audio/subtitle tracks; graceful fallback when ffprobe is absent. |
 | Local metadata | Jellyfin/Kodi `.nfo` and Synology `.vsmeta`, with vsmeta winning field-by-field; local artwork; user/TMDb data survives rescans. |
 | TMDb metadata | Search, match and refresh with confidence scoring, low-confidence flag, cast/crew/genres/certification, provider registry and language-aware queries. |
-| Artwork | Cached posters/backdrops with Original / No images / URL / Upload choices, plus sidecar artwork discovery. |
+| Artwork | Cached posters/backdrops with Original / No images / URL / Upload choices, sidecar artwork discovery, and a thumbnail pipeline with size/quality/cover settings plus rebuild/clear controls. |
 | Browse | VS-style hero and ring shelf, continue watching, fixed 120 px poster grid, poster/tile/list views, categories, sorting, pagination, FTS5 search and show → season → episode navigation. |
 | Item detail | VS poster/action layout, badges, metadata rows, paragraph-preserving summary, season bar and episode cards, prev/next arrows, extras and a media-info dialog. |
 | Edit dialog | Video Info / Poster / Backdrop tabs, chip editors, per-field locks, nested TMDb search, best-effort fills, merge/keep prompts and “Select from existing”. |
@@ -480,7 +480,7 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/VSMETA-FORMAT.md`](./docs/VSMETA-FORMAT.md) — reverse-engineered `.vsmeta` protobuf layout
 - [`docs/SUBTITLE-INDEX.md`](./docs/SUBTITLE-INDEX.md) — local subtitle full-text search design (GAP-012)
 - [`docs/DISC-IMAGES.md`](./docs/DISC-IMAGES.md) — why ISO/disc images are a non-goal and how to rip them
-- [`docs/adr/0001-m0-m1-decisions.md`](./docs/adr/0001-m0-m1-decisions.md) — M0/M1 decisions and deviations
+- [`docs/adr/`](./docs/adr) — architecture decisions (M0/M1 deviations, HLS transcoding, thumbnails/cover settings)
 - [`AGENTS.md`](./AGENTS.md) — working rules for contributors and coding agents
 
 ## Non-goals (v1)

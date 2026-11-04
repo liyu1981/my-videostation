@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/liyu1981/myvideostation/internal/artwork"
 	"github.com/liyu1981/myvideostation/internal/backup"
 	"github.com/liyu1981/myvideostation/internal/buildinfo"
 	"github.com/liyu1981/myvideostation/internal/config"
@@ -201,6 +202,16 @@ func run() error {
 		}
 		reportMsg(100, stats.String())
 		return nil
+	})
+	manager.Handle("thumbnails", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
+		lastMsg := ""
+		return artwork.RebuildJob(ctx, st, cacheDir, func(p float64, msg string) {
+			report(p, msg)
+			if msg != lastMsg {
+				lastMsg = msg
+				_ = st.AppendJobLog(ctx, job.ID, "info", msg)
+			}
+		})
 	})
 	manager.Start(ctx)
 

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/liyu1981/myvideostation/internal/artwork"
 	"github.com/liyu1981/myvideostation/internal/metadata"
 	"github.com/liyu1981/myvideostation/internal/redact"
 )
@@ -22,6 +23,7 @@ type settingsDTO struct {
 		Language  string `json:"language"`
 		Region    string `json:"region"`
 	} `json:"metadata"`
+	Artwork artwork.Options `json:"artwork"`
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +36,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out.Metadata.APIKeySet = strings.TrimSpace(all[metadata.SettingAPIKey]) != ""
 	out.Metadata.Language = valueOr(all[metadata.SettingLanguage], "en-US")
 	out.Metadata.Region = valueOr(all[metadata.SettingRegion], "US")
+	out.Artwork = artwork.FromSettings(all)
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -41,6 +44,13 @@ type settingsInput struct {
 	TMDBAPIKey *string `json:"tmdbApiKey"`
 	Language   *string `json:"language"`
 	Region     *string `json:"region"`
+	Artwork    *struct {
+		Thumbnails      *bool   `json:"thumbnails"`
+		PosterWidth     *int    `json:"posterWidth"`
+		BackdropWidth   *int    `json:"backdropWidth"`
+		Quality         *int    `json:"quality"`
+		CoverPreference *string `json:"coverPreference"`
+	} `json:"artwork"`
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +68,44 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Region != nil {
 		values[metadata.SettingRegion] = strings.TrimSpace(*in.Region)
+	}
+	if in.Artwork != nil {
+		all, err := s.store.Settings(r.Context())
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		opts := artwork.FromSettings(all)
+		before := opts
+		if in.Artwork.Thumbnails != nil {
+			opts.Thumbnails = *in.Artwork.Thumbnails
+		}
+		if in.Artwork.PosterWidth != nil {
+			opts.PosterWidth = *in.Artwork.PosterWidth
+		}
+		if in.Artwork.BackdropWidth != nil {
+			opts.BackdropWidth = *in.Artwork.BackdropWidth
+		}
+		if in.Artwork.Quality != nil {
+			opts.Quality = *in.Artwork.Quality
+		}
+		if in.Artwork.CoverPreference != nil {
+			opts.CoverPreference = strings.TrimSpace(*in.Artwork.CoverPreference)
+		}
+		if err := opts.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		for k, v := range opts.SettingsMap() {
+			values[k] = v
+		}
+		// A different size/quality makes existing variant files dead weight.
+		if before.PosterWidth != opts.PosterWidth || before.BackdropWidth != opts.BackdropWidth ||
+			before.Quality != opts.Quality || before.Thumbnails != opts.Thumbnails {
+			if _, _, err := artwork.Clear(s.cacheDir); err != nil {
+				s.log.Warn("thumbnail cache clear failed", "err", err)
+			}
+		}
 	}
 	if len(values) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request", "nothing to update")

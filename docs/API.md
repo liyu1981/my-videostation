@@ -35,7 +35,11 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | POST | `/backup/import` | **admin** — `{name?}`; creates a safety export, stages the newest/named bundle, enters maintenance and restarts the server |
 | POST | `/cast/dlna/discover` | Discover LAN DLNA MediaRenderers → `{devices:[{id,name,controlUrl}]}` |
 | POST | `/cast/dlna/play` | `{fileId,controlUrl,title}` — best-effort DLNA `SetAVTransportURI` + `Play`; returns `422 needs_transcoding` for unsupported formats |
-| GET | `/settings` | **admin** — provider settings (API key never returned) |
+| GET | `/settings` | **admin** — provider settings (API key never returned) plus `artwork` (thumbnail + cover options) |
+| PUT | `/settings` | **admin** — `{tmdbApiKey?,language?,region?,artwork?:{thumbnails?,posterWidth?,backdropWidth?,quality?,coverPreference?}}`; artwork changes to size/quality clear the thumbnail cache |
+| GET | `/artwork/thumbnails` | **admin** — `{files,bytes}` of the disposable thumbnail cache |
+| POST | `/artwork/thumbnails/rebuild` | **admin** — clear the cache and enqueue a `thumbnails` job that pre-generates variants → `202 {job}` |
+| DELETE | `/artwork/thumbnails` | **admin** — clear the thumbnail cache → `{files,bytes}` |
 | GET | `/libraries` | Libraries with paths + item counts |
 | POST | `/libraries` | **admin** — create `{name,type,language?,paths[],autoScanMinutes?,watchEnabled?,excludeGlobs?,includeGlobs?,minFileSizeMb?,skipExtras?}`; validates absolute, existing dirs and rule globs; **queues the initial scan** (auto-scan defaults to 360 min, watcher on) |
 | GET | `/libraries/{id}` | One library |

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,8 +71,14 @@ func New(o Options) *Server {
 	if o.Version == "" {
 		o.Version = buildinfo.Version
 	}
+	cacheDir := o.CacheDir
+	if cacheDir == "" && o.DataDir != "" {
+		// Keep derived files (thumbnails, transcodes, subtitle extracts) inside
+		// the data dir even when the caller only configured DataDir.
+		cacheDir = filepath.Join(o.DataDir, "cache")
+	}
 	t := playback.New(playback.Options{
-		CacheDir:    o.CacheDir,
+		CacheDir:    cacheDir,
 		FFmpeg:      o.FFmpeg,
 		MaxSessions: o.TranscodeSessions,
 		IdleTimeout: o.TranscodeIdle,
@@ -81,7 +88,7 @@ func New(o Options) *Server {
 		Logger:      o.Logger,
 	})
 	return &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
-		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: o.CacheDir, dataDir: o.DataDir, restart: o.Restart,
+		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: cacheDir, dataDir: o.DataDir, restart: o.Restart,
 		transcoder: t}
 }
 
@@ -110,6 +117,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/audit", s.admin(s.handleAudit))
 	mux.HandleFunc("POST /api/v1/cast/dlna/discover", s.auth(s.handleCastDLNADiscover))
 	mux.HandleFunc("POST /api/v1/cast/dlna/play", s.auth(s.handleCastDLNAPlay))
+	mux.HandleFunc("GET /api/v1/artwork/thumbnails", s.admin(s.handleThumbnailStats))
+	mux.HandleFunc("DELETE /api/v1/artwork/thumbnails", s.admin(s.handleClearThumbnails))
+	mux.HandleFunc("POST /api/v1/artwork/thumbnails/rebuild", s.admin(s.handleRebuildThumbnails))
 	mux.HandleFunc("GET /api/v1/backup/status", s.handleBackupStatus)
 	mux.HandleFunc("GET /api/v1/backup/exports", s.admin(s.handleBackupExports))
 	mux.HandleFunc("POST /api/v1/backup/export", s.admin(s.handleBackupExport))

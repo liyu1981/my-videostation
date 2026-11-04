@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liyu1981/myvideostation/internal/artwork"
 	"github.com/liyu1981/myvideostation/internal/auth"
 
 	"github.com/liyu1981/myvideostation/internal/db"
@@ -95,6 +96,9 @@ func newRawTestServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 			report(p, msg)
 		})
 		return err
+	})
+	manager.Handle("thumbnails", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
+		return artwork.RebuildJob(ctx, st, filepath.Join(dir, "cache"), func(p float64, msg string) { report(p, msg) })
 	})
 	manager.Start(ctx)
 

@@ -377,12 +377,21 @@ export interface PlaybackInfo {
   cast: CastInfo;
 }
 
+export interface ArtworkSettings {
+  thumbnails: boolean;
+  posterWidth: number;
+  backdropWidth: number;
+  quality: number;
+  coverPreference: 'provider' | 'local';
+}
+
 export interface Settings {
   metadata: {
     apiKeySet: boolean;
     language: string;
     region: string;
   };
+  artwork: ArtworkSettings;
 }
 
 export interface ItemPatch {
@@ -537,8 +546,12 @@ export const api = {
 
   // metadata
   settings: () => request<Settings>('/settings'),
-  saveSettings: (body: { tmdbApiKey?: string; language?: string; region?: string }) =>
+  saveSettings: (body: { tmdbApiKey?: string; language?: string; region?: string; artwork?: Partial<ArtworkSettings> }) =>
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  thumbnailStats: () => request<{ files: number; bytes: number }>('/artwork/thumbnails'),
+  clearThumbnails: () =>
+    request<{ files: number; bytes: number }>('/artwork/thumbnails', { method: 'DELETE' }),
+  rebuildThumbnails: () => request<Job>('/artwork/thumbnails/rebuild', { method: 'POST' }),
   providers: () => request<{ providers: ProviderInfo[] }>('/providers'),
   matches: (id: number, q?: string, year?: number, language?: string, provider?: string) =>
     request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year, language, provider })}`),

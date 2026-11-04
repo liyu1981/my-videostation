@@ -605,6 +605,7 @@ reporting, watched toggle, local sidecar artwork, end-to-end API test.
 | Facets | ✅ genre + year counts per library, watched-state filter, folder filter (rel-path prefix) |
 | Scheduler | ✅ per-library auto-scan interval (hourly…weekly), dedupe against active scans, `last_auto_scan_at` |
 | Task monitor | ✅ `/tasks` page with live progress for scans and enrichment |
+| Artwork & thumbnails | ✅ Settings › Artwork & thumbnails: thumbnail on/off, poster/backdrop widths, JPEG quality, global cover preference (provider vs local files), cache size, rebuild job and clear; variants generated on demand under `/data/cache/thumbs` (`internal/artwork`) |
 
 ### M3 — known limitations
 

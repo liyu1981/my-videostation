@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liyu1981/myvideostation/internal/artwork"
 	"github.com/liyu1981/myvideostation/internal/metadata"
 	"github.com/liyu1981/myvideostation/internal/store"
 	"github.com/liyu1981/myvideostation/internal/textutil"
@@ -590,14 +591,17 @@ func (s *Service) apply(ctx context.Context, item *store.Item, provider metadata
 		}
 	}
 
-	if !locked("poster") && d.PosterURL != "" {
+	// Global cover setting: with the "local" preference, artwork found next to
+	// the media wins over provider artwork (unless the field is locked).
+	preferLocal := s.coverPreference(ctx) == artwork.CoverLocal
+	if !locked("poster") && d.PosterURL != "" && !(preferLocal && s.isLocalArt(item.PosterPath)) {
 		if p, err := s.cacheImage(ctx, d.PosterURL); err == nil {
 			e.PosterPath = strPtr(p)
 		} else {
 			s.log.Warn("poster download failed", "item", item.ID, "err", err)
 		}
 	}
-	if !locked("backdrop") && d.BackdropURL != "" {
+	if !locked("backdrop") && d.BackdropURL != "" && !(preferLocal && s.isLocalArt(item.BackdropPath)) {
 		if p, err := s.cacheImage(ctx, d.BackdropURL); err == nil {
 			e.BackdropPath = strPtr(p)
 		} else {
@@ -610,6 +614,26 @@ func (s *Service) apply(ctx context.Context, item *store.Item, provider metadata
 	}
 	s.log.Info("metadata applied", "item", item.ID, "title", d.Title, "provider", provider.Name(), "status", status)
 	return nil
+}
+
+// coverPreference reads the global artwork cover setting.
+func (s *Service) coverPreference(ctx context.Context) string {
+	v, ok, err := s.store.Setting(ctx, artwork.SettingCoverPreference)
+	if err != nil || !ok {
+		return artwork.CoverProvider
+	}
+	return v
+}
+
+// isLocalArt reports whether path points at a file beside the media rather than
+// at our own download cache.
+func (s *Service) isLocalArt(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	clean := filepath.Clean(path)
+	cache := filepath.Clean(filepath.Join(s.cacheDir, "images"))
+	return clean != cache && !strings.HasPrefix(clean, cache+string(filepath.Separator))
 }
 
 // cacheImage downloads an image into <cache>/images and returns its path.
