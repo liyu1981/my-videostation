@@ -37,9 +37,9 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | POST | `/cast/dlna/play` | `{fileId,controlUrl,title}` — best-effort DLNA `SetAVTransportURI` + `Play`; returns `422 needs_transcoding` for unsupported formats |
 | GET | `/settings` | **admin** — provider settings (API key never returned) |
 | GET | `/libraries` | Libraries with paths + item counts |
-| POST | `/libraries` | **admin** — create `{name,type,language?,paths[],autoScanMinutes?,watchEnabled?}`; validates absolute, existing dirs; **queues the initial scan** (auto-scan defaults to 360 min, watcher on) |
+| POST | `/libraries` | **admin** — create `{name,type,language?,paths[],autoScanMinutes?,watchEnabled?,excludeGlobs?,includeGlobs?,minFileSizeMb?,skipExtras?}`; validates absolute, existing dirs and rule globs; **queues the initial scan** (auto-scan defaults to 360 min, watcher on) |
 | GET | `/libraries/{id}` | One library |
-| PATCH | `/libraries/{id}` | **admin** — rename / change language / replace paths / `autoScanMinutes` / `watchEnabled` |
+| PATCH | `/libraries/{id}` | **admin** — partial update: rename / language / replace paths / `autoScanMinutes` / `watchEnabled` / scan-rule fields (omitted fields are kept; `paths` replaces the list). A change to paths or rules automatically queues a scan |
 | DELETE | `/libraries/{id}` | **admin** — remove library and derived data (never touches media files) |
 | POST | `/libraries/{id}/scan` | **admin** — enqueue a scan job → `202 {job}`; optional body `{force:true}` re-probes every file |
 | POST | `/libraries/{id}/enrich` | **admin** — enqueue metadata matching for unmatched items → `202 {job}` |

@@ -660,6 +660,8 @@ func (s *Store) DeleteOrphanItems(ctx context.Context, libraryID int64) error {
 	queries := []string{
 		`SELECT id FROM media_items m WHERE m.library_id = ? AND m.kind = 'episode'
 		   AND NOT EXISTS (SELECT 1 FROM media_files f WHERE f.item_id = m.id AND f.missing = 0)`,
+		`SELECT id FROM media_items m WHERE m.library_id = ? AND m.kind = 'extra'
+		   AND NOT EXISTS (SELECT 1 FROM media_files f WHERE f.item_id = m.id AND f.missing = 0)`,
 		`SELECT id FROM media_items m WHERE m.library_id = ? AND m.kind = 'season'
 		   AND NOT EXISTS (SELECT 1 FROM media_items c WHERE c.parent_id = m.id)`,
 		`SELECT id FROM media_items m WHERE m.library_id = ? AND m.kind = 'show'
@@ -717,4 +719,48 @@ func nullInt(n int) any {
 		return nil
 	}
 	return n
+}
+
+// FileRef is the minimal file row needed to reconcile scan-rule exclusions
+// with item visibility. It is intentionally read-only bookkeeping.
+type FileRef struct {
+	ItemID  int64
+	Kind    string
+	Path    string
+	Size    int64
+	Missing bool
+	Hidden  bool
+}
+
+// LibraryFileRefs returns every file of a library with its item visibility.
+func (s *Store) LibraryFileRefs(ctx context.Context, libraryID int64) ([]FileRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT f.item_id, m.kind, f.path, f.size, f.missing, m.hidden
+		FROM media_files f JOIN media_items m ON m.id = f.item_id
+		WHERE f.library_id = ?`, libraryID)
+	if err != nil {
+		return nil, wrap("library file refs", err)
+	}
+	defer rows.Close()
+	out := []FileRef{}
+	for rows.Next() {
+		var r FileRef
+		var missing, hidden int
+		if err := rows.Scan(&r.ItemID, &r.Kind, &r.Path, &r.Size, &missing, &hidden); err != nil {
+			return nil, wrap("scan file ref", err)
+		}
+		r.Missing, r.Hidden = missing != 0, hidden != 0
+		out = append(out, r)
+	}
+	return out, wrap("iterate file refs", rows.Err())
+}
+
+// SetItemHidden toggles the internal visibility flag (scan rules only).
+func (s *Store) SetItemHidden(ctx context.Context, id int64, hidden bool) error {
+	v := 0
+	if hidden {
+		v = 1
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE media_items SET hidden = ?, updated_at = ? WHERE id = ?`, v, now(), id)
+	return wrap("set item hidden", err)
 }

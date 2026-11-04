@@ -34,7 +34,9 @@ export function LibrariesPage() {
   const [paths, setPaths] = useState('');
   const [autoScan, setAutoScan] = useState('360');
   const [watch, setWatch] = useState(true);
+  const [rules, setRules] = useState<RuleValues>(EMPTY_RULES);
   const [editing, setEditing] = useState<Library | null>(null);
+  const [editRules, setEditRules] = useState<RuleValues>(EMPTY_RULES);
 
   const create = useMutation({
     mutationFn: () =>
@@ -47,11 +49,13 @@ export function LibrariesPage() {
           .filter(Boolean),
         autoScanMinutes: Number(autoScan),
         watchEnabled: watch,
+        ...rulesPayload(rules),
       }),
     onSuccess: async () => {
       setShowAdd(false);
       setName('');
       setPaths('');
+      setRules(EMPTY_RULES);
       await qc.invalidateQueries({ queryKey: ['libraries'] });
       await qc.invalidateQueries({ queryKey: ['jobs'] });
     },
@@ -88,12 +92,20 @@ export function LibrariesPage() {
   });
 
   const update = useMutation({
-    mutationFn: (input: { id: number; name: string; paths: string[]; autoScanMinutes: number; watchEnabled: boolean }) =>
+    mutationFn: (input: {
+      id: number;
+      name: string;
+      paths: string[];
+      autoScanMinutes: number;
+      watchEnabled: boolean;
+      rules: RuleValues;
+    }) =>
       api.updateLibrary(input.id, {
         name: input.name,
         paths: input.paths,
         autoScanMinutes: input.autoScanMinutes,
         watchEnabled: input.watchEnabled,
+        ...rulesPayload(input.rules),
       }),
     onSuccess: () => {
       setEditing(null);
@@ -189,6 +201,7 @@ export function LibrariesPage() {
               />
             </div>
           </div>
+          <ScanRulesFields value={rules} onChange={setRules} />
           {create.isError ? <p className="mt-2 text-[12px] text-active">{(create.error as Error).message}</p> : null}
           <div className="mt-3 flex justify-end gap-2">
             <button type="button" onClick={() => setShowAdd(false)} className="rounded-lg border border-hairline px-3 py-1.5 text-[12px] text-fg-muted hover:text-fg">
@@ -246,6 +259,9 @@ export function LibrariesPage() {
                     </li>
                   ))}
                 </ul>
+                {rulesSummary(lib) ? (
+                  <p className="mt-1 text-[11px] text-fg-dim">{rulesSummary(lib)}</p>
+                ) : null}
               </div>
               <div className="flex items-center gap-1.5">
                 <button
@@ -279,7 +295,10 @@ export function LibrariesPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setEditing(editing?.id === lib.id ? null : lib)}
+                  onClick={() => {
+                    setEditing(editing?.id === lib.id ? null : lib);
+                    setEditRules(rulesFromLibrary(lib));
+                  }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-hairline px-2.5 py-1.5 text-[11.5px] text-fg-muted hover:border-hairline-strong hover:text-fg"
                 >
                   <Pencil className="size-3.5" aria-hidden /> Edit
@@ -315,6 +334,7 @@ export function LibrariesPage() {
                       .filter(Boolean),
                     autoScanMinutes: Number(scanSelect.value),
                     watchEnabled: watchInput.checked,
+                    rules: editRules,
                   });
                 }}
                 className="mt-3 border-t border-hairline pt-3"
@@ -359,6 +379,7 @@ export function LibrariesPage() {
                     />
                   </div>
                 </div>
+                <ScanRulesFields value={editRules} onChange={setEditRules} />
                 {update.isError ? <p className="mt-2 text-[12px] text-active">{(update.error as Error).message}</p> : null}
                 <div className="mt-2 flex justify-end gap-2">
                   <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-hairline px-3 py-1.5 text-[12px] text-fg-muted hover:text-fg">
@@ -472,6 +493,109 @@ function appendPath(current: string, path: string): string {
     .filter(Boolean);
   if (!lines.includes(path)) lines.push(path);
   return lines.join('\n');
+}
+
+type RuleValues = { exclude: string; include: string; minSize: string; skipExtras: boolean };
+
+const EMPTY_RULES: RuleValues = { exclude: '', include: '', minSize: '0', skipExtras: false };
+
+function rulesFromLibrary(lib: Library): RuleValues {
+  return {
+    exclude: lib.excludeGlobs.join('\n'),
+    include: lib.includeGlobs.join('\n'),
+    minSize: String(lib.minFileSizeMb || 0),
+    skipExtras: lib.skipExtras,
+  };
+}
+
+function rulesPayload(v: RuleValues) {
+  return {
+    excludeGlobs: splitLines(v.exclude),
+    includeGlobs: splitLines(v.include),
+    minFileSizeMb: Math.max(0, Math.round(Number(v.minSize) || 0)),
+    skipExtras: v.skipExtras,
+  };
+}
+
+function splitLines(value: string): string[] {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function rulesSummary(lib: Library): string {
+  const parts: string[] = [];
+  if (lib.excludeGlobs.length) parts.push(`${lib.excludeGlobs.length} exclusion${lib.excludeGlobs.length === 1 ? '' : 's'}`);
+  if (lib.includeGlobs.length) parts.push(`${lib.includeGlobs.length} include filter${lib.includeGlobs.length === 1 ? '' : 's'}`);
+  if (lib.minFileSizeMb > 0) parts.push(`min ${lib.minFileSizeMb} MB`);
+  if (lib.skipExtras) parts.push('extras skipped');
+  return parts.length ? `Scan rules: ${parts.join(' · ')}` : '';
+}
+
+function ScanRulesFields({ value, onChange }: { value: RuleValues; onChange: (v: RuleValues) => void }) {
+  const set = (patch: Partial<RuleValues>) => onChange({ ...value, ...patch });
+  return (
+    <details className="mt-3 rounded-lg border border-hairline bg-surface-2/40 px-3 py-2">
+      <summary className="cursor-pointer select-none text-[12px] font-medium text-fg-muted hover:text-fg">
+        Scan rules
+        <span className="ml-2 font-normal text-fg-dim">optional — exclude folders, filter files, skip extras</span>
+      </summary>
+      <p className="mt-2 text-[10.5px] leading-relaxed text-fg-dim">
+        Patterns are matched relative to each library folder, case-insensitively. A pattern without
+        <code className="mx-1 rounded bg-surface-3 px-1">/</code>
+        matches any folder or file name (<code className="rounded bg-surface-3 px-1">Sample</code>,
+        <code className="ml-1 rounded bg-surface-3 px-1">*.sample.mkv</code>); with
+        <code className="mx-1 rounded bg-surface-3 px-1">/</code>
+        it matches the whole relative path, and <code className="rounded bg-surface-3 px-1">**</code> spans folders
+        (<code className="ml-1 rounded bg-surface-3 px-1">**/Extras/**</code>).
+        <code className="mx-1 rounded bg-surface-3 px-1">@eaDir</code>,
+        <code className="mx-1 rounded bg-surface-3 px-1">#recycle</code> and hidden folders are always skipped.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] text-fg-muted">Exclude patterns (one per line)</span>
+          <textarea
+            value={value.exclude}
+            onChange={(e) => set({ exclude: e.target.value })}
+            rows={3}
+            placeholder={'Sample\n**/Extras/**\n*.sample.mkv'}
+            className={`${inputClass} font-mono text-[12px]`}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] text-fg-muted">Include only (one per line, optional)</span>
+          <textarea
+            value={value.include}
+            onChange={(e) => set({ include: e.target.value })}
+            rows={3}
+            placeholder={'Movies/**'}
+            className={`${inputClass} font-mono text-[12px]`}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] text-fg-muted">Minimum file size (MB)</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={value.minSize}
+            onChange={(e) => set({ minSize: e.target.value })}
+            className={inputClass}
+          />
+        </label>
+        <label className="flex items-center gap-2 self-end pb-2 text-[12px] text-fg-muted">
+          <input
+            type="checkbox"
+            checked={value.skipExtras}
+            onChange={(e) => set({ skipExtras: e.target.checked })}
+            className="size-4 rounded border-hairline bg-surface-2"
+          />
+          Skip trailers and featurettes
+        </label>
+      </div>
+    </details>
+  );
 }
 
 const inputClass =

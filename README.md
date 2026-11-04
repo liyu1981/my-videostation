@@ -184,7 +184,7 @@ testdata/           parser corpus and generated sample media
 | Audit | Admin Activity log for auth, account, library, settings and metadata actions. |
 | Localisation | English / German / Chinese UI scaffold with an account-menu language selector. |
 | Libraries | Movie / TV / home-video libraries, multiple read-only paths, server-side folder picker, scheduled scans and an fsnotify watcher. |
-| Scanning | Incremental size/mtime scans, durable jobs, four-worker probing, per-file failure isolation, `@eaDir`/`#recycle` skipping, extras/samples handling, placeholder indexing. |
+| Scanning | Incremental size/mtime scans, durable jobs, four-worker probing, per-file failure isolation, `@eaDir`/`#recycle` skipping, extras/samples handling, placeholder indexing, and per-library scan rules (exclude/include globs, minimum file size, skip extras) that soft-hide excluded items. |
 | Naming | Scene names, `SxxExx`, `1x02`, multi-episode ranges, CJK titles, editions and folder fallbacks. |
 | Probing | ffprobe container, duration, resolution, codecs, HDR and audio/subtitle tracks; graceful fallback when ffprobe is absent. |
 | Local metadata | Jellyfin/Kodi `.nfo` and Synology `.vsmeta`, with vsmeta winning field-by-field; local artwork; user/TMDb data survives rescans. |
@@ -478,14 +478,17 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/GAPS.md`](./docs/GAPS.md) — feature-parity register vs. Synology Video Station
 - [`docs/UI-PROBE.md`](./docs/UI-PROBE.md) — verified UI measurements from a live 3.0.7 instance
 - [`docs/VSMETA-FORMAT.md`](./docs/VSMETA-FORMAT.md) — reverse-engineered `.vsmeta` protobuf layout
+- [`docs/SUBTITLE-INDEX.md`](./docs/SUBTITLE-INDEX.md) — local subtitle full-text search design (GAP-012)
+- [`docs/DISC-IMAGES.md`](./docs/DISC-IMAGES.md) — why ISO/disc images are a non-goal and how to rip them
 - [`docs/adr/0001-m0-m1-decisions.md`](./docs/adr/0001-m0-m1-decisions.md) — M0/M1 decisions and deviations
 - [`AGENTS.md`](./AGENTS.md) — working rules for contributors and coding agents
 
 ## Non-goals (v1)
 
 Live TV/DVR, DLNA/UPnP serving, native mobile/TV apps, a plugin marketplace, cloud sync,
-and zero-config remote access (use Tailscale/Cloudflare Tunnel). Workarounds for each are
-documented alongside the gap entries.
+optical/disc-image playback (rip to MKV instead: [`docs/DISC-IMAGES.md`](./docs/DISC-IMAGES.md)),
+online subtitle downloads, and zero-config remote access (use Tailscale/Cloudflare Tunnel).
+Workarounds for each are documented alongside the gap entries.
 
 ## License
 

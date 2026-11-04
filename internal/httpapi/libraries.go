@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/liyu1981/myvideostation/internal/scanrules"
 	"github.com/liyu1981/myvideostation/internal/store"
 )
 
@@ -18,6 +19,50 @@ type libraryInput struct {
 	Paths           []string `json:"paths"`
 	AutoScanMinutes *int     `json:"autoScanMinutes"`
 	WatchEnabled    *bool    `json:"watchEnabled"`
+
+	// Indexing rules (GAP-005). Pointers distinguish "not sent" (PATCH keeps
+	// the current value) from an explicit empty/zero value.
+	ExcludeGlobs  *[]string `json:"excludeGlobs"`
+	IncludeGlobs  *[]string `json:"includeGlobs"`
+	MinFileSizeMB *int64    `json:"minFileSizeMb"`
+	SkipExtras    *bool     `json:"skipExtras"`
+}
+
+const maxLibraryRules = 100
+
+// normalizeRules validates glob lists and the size floor from a request.
+func normalizeRules(in libraryInput) (exclude, include []string, minSize int64, skipExtras bool, err error) {
+	if in.ExcludeGlobs != nil {
+		exclude, err = scanrules.Validate(*in.ExcludeGlobs)
+		if err != nil {
+			return nil, nil, 0, false, store.NewInvalid("%s", err.Error())
+		}
+		if len(exclude) > maxLibraryRules {
+			return nil, nil, 0, false, store.NewInvalid("at most %d exclude patterns are supported", maxLibraryRules)
+		}
+	}
+	if in.IncludeGlobs != nil {
+		include, err = scanrules.Validate(*in.IncludeGlobs)
+		if err != nil {
+			return nil, nil, 0, false, store.NewInvalid("%s", err.Error())
+		}
+		if len(include) > maxLibraryRules {
+			return nil, nil, 0, false, store.NewInvalid("at most %d include patterns are supported", maxLibraryRules)
+		}
+	}
+	if in.MinFileSizeMB != nil {
+		minSize = *in.MinFileSizeMB
+		if minSize < 0 {
+			return nil, nil, 0, false, store.NewInvalid("minFileSizeMb must be zero or greater")
+		}
+		if minSize > 1_000_000 {
+			return nil, nil, 0, false, store.NewInvalid("minFileSizeMb is unreasonably large")
+		}
+	}
+	if in.SkipExtras != nil {
+		skipExtras = *in.SkipExtras
+	}
+	return exclude, include, minSize, skipExtras, nil
 }
 
 type libraryDTO struct {
@@ -88,12 +133,26 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 	if in.WatchEnabled != nil {
 		watch = *in.WatchEnabled
 	}
-	lib, err := s.store.CreateLibraryWithOptions(r.Context(), in.Name, in.Type, in.Language, in.Paths, autoScan, watch)
+	exclude, include, minSize, skipExtras, err := normalizeRules(in)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.log.Info("library created", "id", lib.ID, "name", lib.Name, "type", lib.Type, "autoScanMinutes", autoScan, "watch", watch)
+	lib, err := s.store.CreateLibraryWithOptions(r.Context(), in.Name, in.Type, in.Language, in.Paths, store.LibraryOptions{
+		AutoScanMinutes: autoScan,
+		WatchEnabled:    watch,
+		ExcludeGlobs:    exclude,
+		IncludeGlobs:    include,
+		MinFileSizeMB:   minSize,
+		SkipExtras:      skipExtras,
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.log.Info("library created", "id", lib.ID, "name", lib.Name, "type", lib.Type,
+		"autoScanMinutes", autoScan, "watch", watch, "exclude", len(exclude), "include", len(include),
+		"minFileSizeMb", minSize, "skipExtras", skipExtras)
 	s.audit(r, "library.create", "library:"+strconv.FormatInt(lib.ID, 10), lib.Name)
 	if s.jobs != nil {
 		if _, err := s.jobs.Enqueue(r.Context(), "scan", map[string]any{"libraryId": lib.ID}); err != nil {
@@ -127,7 +186,40 @@ func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.store.UpdateLibrary(r.Context(), id, in.Name, in.Language, in.Paths, in.AutoScanMinutes, in.WatchEnabled); err != nil {
+	before, err := s.store.GetLibrary(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	exclude, include, minSize, skipExtras, err := normalizeRules(in)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	upd := store.LibraryUpdate{
+		Name:            in.Name,
+		Language:        in.Language,
+		Paths:           in.Paths,
+		AutoScanMinutes: in.AutoScanMinutes,
+		WatchEnabled:    in.WatchEnabled,
+		MinFileSizeMB:   in.MinFileSizeMB,
+		SkipExtras:      in.SkipExtras,
+	}
+	if in.ExcludeGlobs != nil {
+		upd.ExcludeGlobs = &exclude
+	}
+	if in.IncludeGlobs != nil {
+		upd.IncludeGlobs = &include
+	}
+	if in.MinFileSizeMB != nil {
+		v := minSize
+		upd.MinFileSizeMB = &v
+	}
+	if in.SkipExtras != nil {
+		v := skipExtras
+		upd.SkipExtras = &v
+	}
+	if err := s.store.UpdateLibrary(r.Context(), id, upd); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -140,6 +232,17 @@ func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	rulesChanged := in.Paths != nil ||
+		before.MinFileSizeMB != lib.MinFileSizeMB ||
+		before.SkipExtras != lib.SkipExtras ||
+		strings.Join(before.ExcludeGlobs, "\n") != strings.Join(lib.ExcludeGlobs, "\n") ||
+		strings.Join(before.IncludeGlobs, "\n") != strings.Join(lib.IncludeGlobs, "\n")
+	if rulesChanged && s.jobs != nil {
+		// Apply the new rules right away instead of waiting for the next scheduled scan.
+		if _, err := s.jobs.Enqueue(r.Context(), "scan", map[string]any{"libraryId": id}); err != nil {
+			s.log.Warn("post-edit scan enqueue failed", "library", id, "err", err)
+		}
 	}
 	s.audit(r, "library.update", "library:"+strconv.FormatInt(id, 10), lib.Name)
 	writeJSON(w, http.StatusOK, dto)

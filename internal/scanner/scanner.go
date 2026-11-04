@@ -15,6 +15,7 @@ import (
 
 	"github.com/liyu1981/myvideostation/internal/media"
 	"github.com/liyu1981/myvideostation/internal/naming"
+	"github.com/liyu1981/myvideostation/internal/scanrules"
 	"github.com/liyu1981/myvideostation/internal/sidecar"
 	"github.com/liyu1981/myvideostation/internal/store"
 )
@@ -136,11 +137,18 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 		return stats, err
 	}
 
+	rules := scanrules.New(scanrules.Options{
+		ExcludeGlobs:  lib.ExcludeGlobs,
+		IncludeGlobs:  lib.IncludeGlobs,
+		MinFileSizeMB: lib.MinFileSizeMB,
+		SkipExtras:    lib.SkipExtras,
+	})
+
 	report(0, "walking folders")
 	var files []foundFile
 	for _, p := range lib.Paths {
 		sc.logf("info", "walking %s", p.Path)
-		got, err := sc.discover(ctx, p.Path)
+		got, err := sc.discover(ctx, p.Path, rules, &stats)
 		if err != nil {
 			sc.logf("warn", "walk failed: %s: %v", p.Path, err)
 			stats.Errors++
@@ -151,7 +159,7 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 	stats.Discovered = len(files)
 	report(3, fmt.Sprintf("%d video files found", len(files)))
 
-	plans := sc.classify(lib.Type, files, &stats)
+	plans := sc.classify(lib.Type, files, rules.SkipExtras(), &stats)
 	sc.logf("info", "classified %d items (extras %d, samples %d, unidentified %d)",
 		len(plans), stats.Extras, stats.Samples, stats.Unidentified)
 	for i := range plans {
@@ -254,6 +262,7 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 	} else if merged > 0 {
 		sc.logf("info", "merged %d duplicate part item(s)", merged)
 	}
+	sc.reconcileRuleVisibility(ctx, lib, rules)
 	for _, p := range lib.Paths {
 		if err := sc.store.MarkScanned(ctx, p.ID); err != nil {
 			return stats, err
@@ -261,6 +270,78 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 	}
 	report(100, stats.String())
 	return stats, nil
+}
+
+// reconcileRuleVisibility hides items whose every file is now excluded by the
+// library's rules, and unhides them when a file is indexed again. Deleted files
+// (not excluded by a rule) keep the existing "missing" behaviour.
+func (sc *Scanner) reconcileRuleVisibility(ctx context.Context, lib *store.Library, rules scanrules.Rules) {
+	refs, err := sc.store.LibraryFileRefs(ctx, lib.ID)
+	if err != nil {
+		sc.logf("warn", "rule visibility check failed: %v", err)
+		return
+	}
+	roots := make([]string, 0, len(lib.Paths))
+	for _, p := range lib.Paths {
+		roots = append(roots, filepath.Clean(p.Path))
+	}
+	type itemState struct {
+		kind        string
+		visible     bool
+		allExcluded bool
+		hidden      bool
+		seen        bool
+	}
+	items := map[int64]*itemState{}
+	for _, r := range refs {
+		st := items[r.ItemID]
+		if st == nil {
+			st = &itemState{kind: r.Kind, allExcluded: true, hidden: r.Hidden}
+			items[r.ItemID] = st
+		}
+		st.seen = true
+		if !r.Missing {
+			st.visible = true
+			continue
+		}
+		rel := ""
+		for _, root := range roots {
+			if r.Path == root {
+				rel = ""
+				break
+			}
+			if strings.HasPrefix(r.Path, root+string(filepath.Separator)) {
+				rel = strings.TrimPrefix(r.Path, root+string(filepath.Separator))
+				break
+			}
+		}
+		skip, _ := rules.SkipFile(rel, r.Size)
+		if !skip {
+			st.allExcluded = false
+		}
+	}
+	var hiddenN, shownN int
+	for id, st := range items {
+		if st.kind == store.KindExtra || !st.seen {
+			continue // extras stay hidden by design
+		}
+		want := !st.visible && st.allExcluded
+		if want == st.hidden {
+			continue
+		}
+		if err := sc.store.SetItemHidden(ctx, id, want); err != nil {
+			sc.logf("warn", "could not update visibility for item %d: %v", id, err)
+			continue
+		}
+		if want {
+			hiddenN++
+		} else {
+			shownN++
+		}
+	}
+	if hiddenN > 0 || shownN > 0 {
+		sc.logf("info", "scan rules hid %d item(s) and restored %d", hiddenN, shownN)
+	}
 }
 
 // attachSidecars loads .nfo/.vsmeta metadata for one planned file.
@@ -359,7 +440,7 @@ func applyTech(item *store.ScannedFile, tech *media.Technical) {
 }
 
 // classify turns discovered files into items, resolving extra parents in a second pass.
-func (sc *Scanner) classify(libraryType string, files []foundFile, stats *Stats) []planned {
+func (sc *Scanner) classify(libraryType string, files []foundFile, skipExtras bool, stats *Stats) []planned {
 	plans := make([]planned, 0, len(files))
 	dirHasMedia := map[string]int{}
 	type extraCandidate struct {
@@ -381,6 +462,11 @@ func (sc *Scanner) classify(libraryType string, files []foundFile, stats *Stats)
 		case naming.KindExtra:
 			if res.Extra == "sample" {
 				stats.Samples++
+				continue
+			}
+			if skipExtras {
+				// Library rule: trailers/featurettes are not indexed at all.
+				stats.Skipped++
 				continue
 			}
 			extras = append(extras, extraCandidate{file: f, res: res})
@@ -495,7 +581,16 @@ func nearestDirWithMedia(dir, root string, dirHasMedia map[string]int) string {
 	return ""
 }
 
-func (sc *Scanner) discover(ctx context.Context, root string) ([]foundFile, error) {
+// relOf returns the slash-separated path of child relative to root.
+func relOf(root, child string) string {
+	rel, err := filepath.Rel(root, child)
+	if err != nil {
+		return filepath.Base(child)
+	}
+	return rel
+}
+
+func (sc *Scanner) discover(ctx context.Context, root string, rules scanrules.Rules, stats *Stats) ([]foundFile, error) {
 	info, err := os.Stat(root)
 	if err != nil {
 		return nil, err
@@ -519,6 +614,10 @@ func (sc *Scanner) discover(ctx context.Context, root string) ([]foundFile, erro
 			if path != root && (skipDirs[strings.ToLower(name)] || strings.HasPrefix(name, ".")) {
 				return filepath.SkipDir
 			}
+			if path != root && rules.Excluded(relOf(root, path)) {
+				stats.Skipped++
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if strings.HasPrefix(name, ".") || !naming.IsVideoFile(name) {
@@ -528,9 +627,11 @@ func (sc *Scanner) discover(ctx context.Context, root string) ([]foundFile, erro
 		if err != nil {
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			rel = name
+		rel := relOf(root, path)
+		if skip, why := rules.SkipFile(rel, st.Size()); skip {
+			stats.Skipped++
+			sc.log.Debug("skip file", "path", path, "reason", why)
+			return nil
 		}
 		f := foundFile{path: path, rel: rel, root: root, size: st.Size(), mtime: st.ModTime().Unix()}
 		f.inode = inodeOf(st)

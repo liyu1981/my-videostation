@@ -54,14 +54,14 @@ Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
 
 | Area | Open gaps | S1 | S2 | S3 | Notable |
 |---|---|---|---|---|---|
-| Library & indexing | 7 | 1 | 2 | 4 | 1 planned (multi-path) |
+| Library & indexing | 5 | 1 | 2 | 2 | 1 planned (multi-path) |
 | Metadata | 4 | 0 | 2 | 2 | NFO + field locks (ADV) |
 | Playback & transcoding | 11 | 2 | 4 | 5 | — |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
 | Users, security, permissions | 5 | 0 | 4 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
 | Integrations | 4 | 0 | 0 | 4 | all permanent |
-| **Total** | **40** | **6** | **16** | **18** | 10 advantages, 1 planned |
+| **Total** | **38** | **6** | **16** | **16** | 10 advantages, 1 planned |
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
@@ -90,15 +90,12 @@ flowchart TB
   subgraph Library["Library & metadata"]
     direction TB
     G1["GAP-001 network/cloud sources"]
-    G3["GAP-003 ISO/disc playback"]
-    G5["GAP-005 indexing rules"]
     G6["GAP-006 thumbnails"]
     G7["GAP-007 scrub previews"]
     G10["GAP-010 provider plugins"]
     G11["GAP-011 trailers"]
     G12["GAP-012 subtitle search"]
 
-    G3 --> G16
     G7 --> G16
     G7 -.-> G6
     G11 -.-> G10
@@ -166,13 +163,11 @@ parity-completeness, not a hard feature blocker.
 | gap | depends on | kind | note |
 |---|---|---|---|
 | GAP-001 | — | — | storage abstraction; host mounts today |
-| GAP-003 | GAP-016 | hard | disc/ISO playback needs the transcode pipeline |
-| GAP-005 | — | — | globs, min-size and exclusion rules |
 | GAP-006 | — | — | thumbnail worker; GAP-055 depends on it |
 | GAP-007 | GAP-016, GAP-006 | hard / soft | sprites need ffmpeg; shares the thumbnail pipeline |
 | GAP-010 | — | — | provider interface/registry in place; plugin UX is GAP-064 (non-goal) |
 | GAP-011 | GAP-010 | soft | provider trailer keys |
-| GAP-012 | — | — | OpenSubtitles policy/API and rate limits |
+| GAP-012 | — | — | local subtitle FTS index; no online provider (`docs/SUBTITLE-INDEX.md`) |
 | GAP-016 | — | — | core transcode/codec pipeline |
 | GAP-017 | — | — | SMI subtitles |
 | GAP-018 | GAP-016 | hard | image subtitles need burn-in/transcode |
@@ -192,7 +187,8 @@ parity-completeness, not a hard feature blocker.
 | GAP-055 | GAP-006, GAP-016 | soft | cache UI needs thumbnails/transcodes |
 | GAP-065 | GAP-016 | soft | ffmpeg screenshot |
 
-Non-goals (not in the graph): GAP-004 (TV recording), GAP-021 (ISO/3D), GAP-023 (DLNA),
+Non-goals (not in the graph): GAP-003 (ISO/disc images), GAP-004 (TV recording),
+GAP-021 (ISO/3D), GAP-023 (DLNA),
 GAP-030 (mobile apps), GAP-031 (TV apps), GAP-032 (remote access), GAP-052 (DSM package),
 GAP-060 (DSM apps), GAP-061 (cloud sync), GAP-062 (DSM SSO), GAP-063 (DSM cloud sources),
 GAP-064 (plugin marketplace), GAP-066 (voice).
@@ -205,9 +201,9 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 |---|---|---|---|---|---|---|
 | GAP-001 | Network/cloud sources configured in-app | VS indexes SMB/NFS shares and cloud folders configured inside DSM | `GAP-LATER` | S2 | post-M7 | v1 requires host-mounted paths (compose `volumes:`). SMB/NFS clients and S3/WebDAV/SFTP backends are a separate storage-abstraction project. |
 | GAP-002 | Real-time index watching on by default | VS has real-time indexing plus scheduled indexing | `CLOSED` | S3 | M3.x | Implemented: fsnotify watcher for local/bind-mounted libraries (the Synology Docker deployment), debounced scans; CIFS/SMB/NFS and Docker Desktop shares are detected and fall back to scheduled scans; inotify `ENOSPC`/overflow disables the watcher with a warning. Per-library watch toggle. |
-| GAP-003 | Optical/ISO image playback (`ISO`, `BDMV/`, `VIDEO_TS/`) | VS can play DVD/BD folder structures and ISOs | `GAP-UNDECIDED` | S3 | — | ffmpeg can read these, but stream/seek/subtitle semantics and chapter handling are nontrivial. Decide after M5. |
+| GAP-003 | Optical/ISO image playback (`ISO`, `BDMV/`, `VIDEO_TS/`) | VS can play DVD/BD folder structures and ISOs | `GAP-NEVER` (v1) | S3 | — | **Decision (2026-11-04): non-goal.** ffmpeg can demux these, but playlist/chapter/seek semantics and multi-title disc navigation are a product of their own. Workaround: rip/remux to MKV before scanning — see `docs/DISC-IMAGES.md`. |
 | GAP-004 | TV recording library + EPG + scheduled recording | VS records from USB DTV dongles / HDHomeRun, with EPG and series recording | `GAP-NEVER` (v1) | S1 | — | **[confirmed]** `SYNO.VideoStation2.DTV.{Tuner,Channel,ChannelScan,Program,Schedule,Statistic,Streaming}`. Requires tuner abstraction, EPG ingestion, conflict resolution, post-processing. Live TV is a separate product. Revisit only with a dedicated design. |
-| GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `GAP-LATER` | S3 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.{Scheduler,IndexFolder}`. We ship sane defaults; user-configurable globs, min-size, and "skip extras" toggles come with bulk edit. |
+| GAP-005 | Indexing/exclusion rules per folder | VS excludes folders, skips `@eaDir`, allows include filters | `CLOSED` | S3 | M3 | **Delivered:** per-library `excludeGlobs` / `includeGlobs` (segment patterns and `**` paths, case-insensitive, relative to each root), `minFileSizeMb` and `skipExtras`; `@eaDir`/`#recycle`/hidden folders are always skipped and samples never indexed. Rules are validated (`400` on absolute/`..`/malformed globs), applied while walking (dirs pruned), re-scan automatically on save, and excluded items are soft-hidden (not deleted) and restored when a rule is removed. Samples are always skipped. Rules are configured **per library** and matched relative to each of its roots; per-path overrides are not implemented (a library with different rules per folder needs separate libraries). |
 | GAP-006 | Thumbnail generation controls | VS lets you toggle thumbnail generation, set quality, rebuild thumbnails, and choose per-item poster/backdrop (Original / URL / from folders), with a global cover setting under Settings › Advanced | `GAP-LATER` | S2 | M3 | **[confirmed]** `SYNO.Core.MediaIndexing.ThumbnailQuality`; per-item art picker verified in the Edit dialog (see `UI-PROBE.md` §6). Controls (on/off, size, regenerate, cache budget) land with the first thumbnail worker. |
 | GAP-007 | Scrub-preview trickplay sprites | VS shows a preview thumbnail while seeking | `GAP-LATER` | S3 | M5 | **[confirmed]** `SYNO.VideoStation2.Screenshot`. Requires a sprite/BIF pipeline + player overlay. Cheap once the transcode worker exists. |
 | GAP-008 | Export/import MyVideoStation data (re-scoped from VS DB import) | N/A (VS is no longer the target) | `CLOSED` | S2 | post-M3 | Implemented in-app bundles: consistent SQLite snapshot + artwork/subtitle cache + manifest under `data/export`; newest bundle in `data/import` can be staged, preceded by a safety export, then applied on restart with a maintenance UI. VS PostgreSQL import is intentionally not pursued. |
@@ -221,7 +217,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 |---|---|---|---|---|---|---|
 | GAP-010 | Multiple scrapers + per-library provider choice | Per-type plugin list under Settings › Video Info Plugin, with drag-to-reorder priority and `Test Connection`; only **The Movie Database (System default)** was installed here for both Movie and TV Show | `GAP-LATER` | S2 | M2 / M6 | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch,Metadata}` + live UI. No TVDB/Douban present — they would be installed plugins. **M2 ships TMDb behind a provider interface; the provider registry, provider-aware search/match/refresh, `item_provider_ids` and the search-dialog provider selector plumbing are now in place** (only TMDb is registered; plugin UX and extra providers are still missing — TheTVDB was deferred, see ADR 0002). Automatic first-time scraping was implemented in M3.x (GAP-070, closed). |
 | GAP-011 | Trailer playback (YouTube) | VS fetches and plays trailers | `GAP-LATER` | S3 | M7 | Requires provider trailer keys + an embed/privacy decision (no third-party iframe by default). |
-| GAP-012 | Online subtitle search & download | VS has a "Search for subtitles" flow with Language / File name / Source columns | `GAP-UNDECIDED` | S2 | M6 | **[confirmed]** dialog captured; no provider configured on this instance ("No match found"). OpenSubtitles needs an account/API key + rate limits, and this is copyright-sensitive — decide policy explicitly. |
+| GAP-012 | Subtitle full-text search (re-scoped from online subtitle download) | VS has a "Search for subtitles" flow with Language / File name / Source columns and downloads from a provider | `GAP-LATER` | S2 | M7 | **Decision (2026-11-04): no online subtitle download** (provider account/rate limits/copyright). Instead: index the text of subtitles we already have (sidecar SRT/ASS/VTT and embedded text tracks) into a **disposable, separate SQLite+FTS5 database**, and search it locally with timestamp jump-to-cue. Design recorded in `docs/SUBTITLE-INDEX.md`; not yet coded. |
 | GAP-013 | Metadata language/region per library | VS selects scraper language per library | `PLANNED` | S3 | M1 | Already in the plan (`libraries.language` + provider language param); listed to confirm parity intent rather than claim a gap. |
 | GAP-014 | Rich person pages / filmography | VS shows cast lists only | `ADV` | — | M2 | We store `people` as first-class rows, so filmography pages are cheap and exceed VS. |
 | GAP-064 | Third-party scraper/plugin marketplace | VS exposes a metadata plugin system (install/search plugins, per-type ordering) | `GAP-NEVER` | S3 | — | **[confirmed]** `SYNO.VideoStation2.{Plugin,PluginSearch}` + Settings › Video Info Plugin. We expose a Go provider interface + config instead of a sandboxed plugin runtime. Revisit only if third-party providers become a real demand. |
@@ -237,7 +233,7 @@ GAP-064 (plugin marketplace), GAP-066 (voice).
 | GAP-018 | Image-based subtitles (PGS/VobSub) | VS renders or burns them in | `CLOSED` | S2 | M5 | **Delivered:** bitmap tracks appear in the subtitle menu as `image · burn-in`; selecting one restarts the session and composites it with ffmpeg `overlay`. Delay/styling do not apply (documented in the menu). |
 | GAP-019 | Continuous play, "play all", shuffle | VS plays a season/collection continuously and supports play-all | `CLOSED` | S2 | M4 | Implemented: next-up prompt + autoplay countdown, cross-season rollover, and Play all/Shuffle queues for a show/season's episodes. |
 | GAP-020 | Batch/offline conversion ("convert video") | VS converts files to MP4 with target device profiles, as a background job | `GAP-LATER` | S3 | M7 | **[confirmed]** `SYNO.VideoStation2.{OfflineConversion,Setting.PreAnalysis}`. Our job queue makes this straightforward, but it writes new files — needs an explicit output policy that respects the read-only rule. |
-| GAP-021 | ISO/3D/MVC playback | VS supported 3D MVC and disc images | `GAP-NEVER` (v1) | S3 | — | 3D is effectively dead; disc images fold into GAP-003. |
+| GAP-021 | ISO/3D/MVC playback | VS supported 3D MVC and disc images | `GAP-NEVER` (v1) | S3 | — | 3D is effectively dead; disc images are GAP-003, also a non-goal. |
 | GAP-022 | Casting: Chromecast, AirPlay, DLNA renderers | VS casts from web and mobile to TVs/speakers | `GAP-LATER` | S1 | M7 | **[confirmed]** `SYNO.VideoStation2.Controller.{Device,Password,Playback,Volume}`. **Best-effort delivered:** Chromecast/AirPlay via browser remote playback, DLNA discovery + SOAP playback, signed cast URLs, and an MP4/H.264/AAC format gate that reports `needs_transcoding`. Full Cast/AirPlay SDK coverage and HLS output wait on M5/M7. |
 | GAP-023 | DLNA/UPnP media server | VS exposes libraries to TVs/consoles over DLNA | `GAP-NEVER` (v1) | S2 | — | Large, cursed spec; Jellyfin/minidlna can front our files if needed. Revisit only on demand. |
 | GAP-024 | Multi-audio-track switching during transcode | VS switches tracks and keeps position | `CLOSED` | S2 | M5 | **Delivered:** the session model is keyed by `(file, startMs, audioIndex, burn-in, maxHeight)`, so switching a track restarts the job at the current position; the player swaps the HLS source without losing resume state. |
@@ -353,7 +349,7 @@ public stylesheet and the unauth API inventory; deeper items still need a DSM se
 |---|---|---|
 | D-1 | Do we want a **Jellyfin-compatible API** layer so existing TV/mobile clients work (closes GAP-030/031 cheaply)? | Yes, but only after M5 — as an adapter over our own API. |
 | D-2 | Import tool from Video Station's PostgreSQL DB (GAP-008)? | Re-scoped: MyVideoStation export/import bundles are implemented; a VS PostgreSQL importer is intentionally not pursued. |
-| D-3 | Subtitle download integration (GAP-012): include or leave to the user? | Leave out of v1; revisit on request. |
+| D-3 | Subtitle download integration (GAP-012): include or leave to the user? | **Resolved (2026-11-04): no online download.** GAP-012 becomes a local subtitle full-text index over subtitles we already have (`docs/SUBTITLE-INDEX.md`), target M7. |
 | D-4 | Allow opt-in writes to media folders (`.nfo`, `poster.jpg`) for Kodi interop? | Yes, opt-in per library, default off. |
 | D-5 | DLNA (GAP-023): never, or "minidlna recipe + docs"? | Docs recipe only. |
 | D-6 | Anything USB DTV/DVR (GAP-004): permanently out? | Out of scope; document a Tvheadend + folder-ingest recipe. |

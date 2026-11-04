@@ -12,6 +12,10 @@ Companion docs:
 (42 screenshots): shell geometry, colour/type/layout tokens, component specs, verbatim
 labels, field lists, and a parity checklist for M1–M3.
 [`MONITORING.md`](./MONITORING.md) — library monitoring + auto-scrape audit and plan.
+[`SUBTITLE-INDEX.md`](./SUBTITLE-INDEX.md) — local subtitle full-text index design (GAP-012).
+[`DISC-IMAGES.md`](./DISC-IMAGES.md) — ISO/disc images non-goal + rip workaround (GAP-003).
+[`JELLYFIN-COMPAT.md`](./JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan (GAP-030/031).
+[`adr/`](./adr) — accepted architecture decisions.
 
 ---
 
@@ -34,7 +38,8 @@ MyVideoStation aims at:
   Runs on Alpine, a NAS, a Raspberry Pi, or a laptop.
 
 Non-goals for v1: live TV/DVR, DLNA/UPnP server, native mobile/TV apps,
-plugin marketplace, cloud sync, distributed multi-node.
+plugin marketplace, cloud sync, distributed multi-node, optical/disc-image
+playback (`docs/DISC-IMAGES.md`), online subtitle download.
 
 ---
 
@@ -48,7 +53,7 @@ plugin marketplace, cloud sync, distributed multi-node.
 | TV hierarchy Season/Episode, next-up | `shows → seasons → episodes`, auto-advance | M2/M3 |
 | Home videos / personal videos | `kind=home_video`, minimal metadata, date-sorted | M3 |
 | Web playback (HTML5 + transcode for unsupported codecs) | Direct play + HLS transcode on demand | M4/M5 |
-| Subtitles (external + embedded), online subtitle search | Sidecar/embedded tracks, OpenSubtitles later | M4/M6 |
+| Subtitles (external + embedded), online subtitle search | Sidecar/embedded tracks (M4); **local subtitle full-text index** instead of provider download (GAP-012, `docs/SUBTITLE-INDEX.md`) | M4/M7 |
 | Resume playback / watched state | Central `playback_progress` per user | M4 |
 | Collections, genres, favorites, recently added | Collections + genre/favorite/recent browse | M2/M3 |
 | Search | FTS5 index over titles/overview/cast | M1/M2 |
@@ -210,7 +215,8 @@ Notes:
 ## 5. Scan & identification pipeline
 
 ```
-walk (skip @eaDir, #recycle, .hidden, sample/ extras rules)
+walk (always skip @eaDir, #recycle, .hidden, samples;
+      per-library exclude/include globs, min-size floor, skip-extras)
   → classify file (video ext, sample/trailer/extra heuristics)
   → change detect (size+mtime+inode)
   → probe (ffprobe) → technical metadata
@@ -404,8 +410,8 @@ seek-by-session-restart, audio/quality switching and image-subtitle burn-in.
   overrides, playback events in the audit log.
 
 ### M7 — Polish / optional
-- PWA/offline shell, online subtitle search, trailers, duplicate detection,
-  file-move re-link, Prometheus metrics, ARM builds
+- PWA/offline shell, local subtitle full-text search (`docs/SUBTITLE-INDEX.md`),
+  trailers, duplicate detection, file-move re-link, Prometheus metrics, ARM builds
 - Casting: best-effort Chromecast/AirPlay remote playback and DLNA renderer
   discovery/SOAP delivery are in place; full SDK/AirPlay format breadth waits on M5 HLS.
 
@@ -540,7 +546,7 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
 | Plan item | Status |
 |---|---|
 | Libraries CRUD, multiple paths | ✅ (API + UI, path validation + server-side folder picker) |
-| Incremental scanner, ignore rules, jobs | ✅ durable `jobs`, progress polling, missing-file + orphan cleanup |
+| Incremental scanner, ignore rules, jobs | ✅ durable `jobs`, progress polling, missing-file + orphan cleanup, per-library include/exclude globs + min-size floor + skip-extras (excluded items soft-hidden and restored when rules change) |
 | Filename parser + corpus | ✅ 34-case table test (scene, SxxExx, 1x02, multi-ep, CJK, editions) |
 | Schema + FTS5 | ✅ single self-referencing `media_items`, `media_files`, people/genres/locks, `media_fts` |
 | Browse UI (grid/list/tile, sort, filter) | ✅ plus pagination, per-library filter, empty/error states |

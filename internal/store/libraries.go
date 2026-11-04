@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -17,9 +19,39 @@ type Library struct {
 	ItemCount       int64         `json:"itemCount"`
 	AutoScanMinutes int           `json:"autoScanMinutes"`
 	WatchEnabled    bool          `json:"watchEnabled"`
-	LastAutoScanAt  *time.Time    `json:"lastAutoScanAt,omitempty"`
-	CreatedAt       time.Time     `json:"createdAt"`
-	UpdatedAt       time.Time     `json:"updatedAt"`
+
+	// Indexing rules (GAP-005). Globs are matched relative to each path.
+	ExcludeGlobs  []string `json:"excludeGlobs"`
+	IncludeGlobs  []string `json:"includeGlobs"`
+	MinFileSizeMB int64    `json:"minFileSizeMb"`
+	SkipExtras    bool     `json:"skipExtras"`
+
+	LastAutoScanAt *time.Time `json:"lastAutoScanAt,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+}
+
+// LibraryOptions carries the mutable settings of a library.
+type LibraryOptions struct {
+	AutoScanMinutes int
+	WatchEnabled    bool
+	ExcludeGlobs    []string
+	IncludeGlobs    []string
+	MinFileSizeMB   int64
+	SkipExtras      bool
+}
+
+// LibraryUpdate is a partial update; nil fields keep their current value.
+type LibraryUpdate struct {
+	Name            string
+	Language        string
+	Paths           []string // nil keeps the existing paths
+	AutoScanMinutes *int
+	WatchEnabled    *bool
+	ExcludeGlobs    *[]string
+	IncludeGlobs    *[]string
+	MinFileSizeMB   *int64
+	SkipExtras      *bool
 }
 
 // LibraryPath is one root folder of a library.
@@ -45,7 +77,8 @@ func (s *Store) ListLibraries(ctx context.Context) ([]Library, error) {
 		SELECT l.id, l.name, l.type, l.language, l.created_at, l.updated_at,
 		       (SELECT COUNT(*) FROM media_items m
 		         WHERE m.library_id = l.id AND m.kind IN ('movie','show','home_video')) AS item_count,
-		       l.auto_scan_minutes, l.watch_enabled, l.last_auto_scan_at
+		       l.auto_scan_minutes, l.watch_enabled, l.last_auto_scan_at,
+		       l.exclude_globs, l.include_globs, l.min_file_size_mb, l.skip_extras
 		FROM libraries l WHERE 1=1`+scope+` ORDER BY l.name COLLATE NOCASE`, scopeArgs...)
 	if err != nil {
 		return nil, wrap("list libraries", err)
@@ -57,13 +90,17 @@ func (s *Store) ListLibraries(ctx context.Context) ([]Library, error) {
 		var l Library
 		var created, updated string
 		var lastAuto sql.NullString
-		var watch int
+		var watch, skipExtras int
+		var exclude, include string
 		if err := rows.Scan(&l.ID, &l.Name, &l.Type, &l.Language, &created, &updated, &l.ItemCount,
-			&l.AutoScanMinutes, &watch, &lastAuto); err != nil {
+			&l.AutoScanMinutes, &watch, &lastAuto, &exclude, &include, &l.MinFileSizeMB, &skipExtras); err != nil {
 			return nil, wrap("scan library", err)
 		}
 		l.CreatedAt, l.UpdatedAt = parseTime(created), parseTime(updated)
 		l.WatchEnabled = watch != 0
+		l.SkipExtras = skipExtras != 0
+		l.ExcludeGlobs = parseGlobs(exclude)
+		l.IncludeGlobs = parseGlobs(include)
 		if lastAuto.Valid {
 			t := parseTime(lastAuto.String)
 			l.LastAutoScanAt = &t
@@ -116,21 +153,26 @@ func (s *Store) GetLibrary(ctx context.Context, id int64) (*Library, error) {
 	var l Library
 	var created, updated string
 	var lastAuto sql.NullString
-	var watch int
+	var watch, skipExtras int
+	var exclude, include string
 	scope, scopeArgs := libraryScope(ctx, "l")
 	err := s.db.QueryRowContext(ctx, `
 		SELECT l.id, l.name, l.type, l.language, l.created_at, l.updated_at,
 		       (SELECT COUNT(*) FROM media_items m
 		         WHERE m.library_id = l.id AND m.kind IN ('movie','show','home_video')),
-		       l.auto_scan_minutes, l.watch_enabled, l.last_auto_scan_at
+		       l.auto_scan_minutes, l.watch_enabled, l.last_auto_scan_at,
+		       l.exclude_globs, l.include_globs, l.min_file_size_mb, l.skip_extras
 		FROM libraries l WHERE l.id = ?`+scope, append([]any{id}, scopeArgs...)...).
 		Scan(&l.ID, &l.Name, &l.Type, &l.Language, &created, &updated, &l.ItemCount,
-			&l.AutoScanMinutes, &watch, &lastAuto)
+			&l.AutoScanMinutes, &watch, &lastAuto, &exclude, &include, &l.MinFileSizeMB, &skipExtras)
 	if err != nil {
 		return nil, wrap("get library", err)
 	}
 	l.CreatedAt, l.UpdatedAt = parseTime(created), parseTime(updated)
 	l.WatchEnabled = watch != 0
+	l.SkipExtras = skipExtras != 0
+	l.ExcludeGlobs = parseGlobs(exclude)
+	l.IncludeGlobs = parseGlobs(include)
 	if lastAuto.Valid {
 		t := parseTime(lastAuto.String)
 		l.LastAutoScanAt = &t
@@ -143,11 +185,11 @@ func (s *Store) GetLibrary(ctx context.Context, id int64) (*Library, error) {
 
 // CreateLibrary inserts a library with default options (auto-scan off, watcher on).
 func (s *Store) CreateLibrary(ctx context.Context, name, typ, language string, paths []string) (*Library, error) {
-	return s.CreateLibraryWithOptions(ctx, name, typ, language, paths, 0, true)
+	return s.CreateLibraryWithOptions(ctx, name, typ, language, paths, LibraryOptions{WatchEnabled: true})
 }
 
 // CreateLibraryWithOptions inserts a library and its paths.
-func (s *Store) CreateLibraryWithOptions(ctx context.Context, name, typ, language string, paths []string, autoScanMinutes int, watchEnabled bool) (*Library, error) {
+func (s *Store) CreateLibraryWithOptions(ctx context.Context, name, typ, language string, paths []string, opts LibraryOptions) (*Library, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, wrap("create library", errInvalid("name is required"))
@@ -168,17 +210,29 @@ func (s *Store) CreateLibraryWithOptions(ctx context.Context, name, typ, languag
 	}
 	defer tx.Rollback()
 
+	autoScanMinutes := opts.AutoScanMinutes
 	if autoScanMinutes < 0 {
 		autoScanMinutes = 0
 	}
 	watch := 0
-	if watchEnabled {
+	if opts.WatchEnabled {
 		watch = 1
 	}
+	if opts.MinFileSizeMB < 0 {
+		opts.MinFileSizeMB = 0
+	}
+	skipExtras := 0
+	if opts.SkipExtras {
+		skipExtras = 1
+	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO libraries (name, type, language, auto_scan_minutes, watch_enabled, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?)`,
-		name, typ, language, autoScanMinutes, watch, ts, ts)
+		`INSERT INTO libraries (name, type, language, auto_scan_minutes, watch_enabled,
+		                        exclude_globs, include_globs, min_file_size_mb, skip_extras,
+		                        created_at, updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		name, typ, language, autoScanMinutes, watch,
+		mustJSON(nonNil(opts.ExcludeGlobs)), mustJSON(nonNil(opts.IncludeGlobs)), opts.MinFileSizeMB, skipExtras,
+		ts, ts)
 	if err != nil {
 		if sqliteErrIsUnique(err) {
 			return nil, wrap("create library", errInvalid("a library with that name already exists"))
@@ -202,59 +256,84 @@ func (s *Store) CreateLibraryWithOptions(ctx context.Context, name, typ, languag
 	return s.GetLibrary(ctx, id)
 }
 
-// UpdateLibrary renames a library, replaces its paths and/or sets the auto-scan interval.
-func (s *Store) UpdateLibrary(ctx context.Context, id int64, name, language string, paths []string, autoScanMinutes *int, watchEnabled *bool) error {
+// UpdateLibrary applies a partial update. Nil fields keep their value; a nil
+// Paths slice keeps the existing paths, an empty non-nil slice clears them.
+func (s *Store) UpdateLibrary(ctx context.Context, id int64, upd LibraryUpdate) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrap("begin", err)
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `SELECT id FROM libraries WHERE id = ?`, id); err != nil {
-		return wrap("get library", err)
-	}
 	var cur struct {
-		name, lang string
-		autoScan   int
-		watch      int
+		name, lang, exclude, include string
+		autoScan, watch, skipExtras  int
+		minSize                      int64
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT name, language, auto_scan_minutes, watch_enabled FROM libraries WHERE id = ?`, id).
-		Scan(&cur.name, &cur.lang, &cur.autoScan, &cur.watch); err != nil {
+	if err := tx.QueryRowContext(ctx,
+		`SELECT name, language, auto_scan_minutes, watch_enabled,
+		        exclude_globs, include_globs, min_file_size_mb, skip_extras
+		 FROM libraries WHERE id = ?`, id).
+		Scan(&cur.name, &cur.lang, &cur.autoScan, &cur.watch,
+			&cur.exclude, &cur.include, &cur.minSize, &cur.skipExtras); err != nil {
 		return wrap("get library", err)
 	}
-	if autoScanMinutes != nil {
-		v := *autoScanMinutes
+	if upd.AutoScanMinutes != nil {
+		v := *upd.AutoScanMinutes
 		if v < 0 {
 			v = 0
 		}
 		cur.autoScan = v
 	}
-	if strings.TrimSpace(name) != "" {
-		cur.name = strings.TrimSpace(name)
+	if strings.TrimSpace(upd.Name) != "" {
+		cur.name = strings.TrimSpace(upd.Name)
 	}
-	if strings.TrimSpace(language) != "" {
-		cur.lang = strings.TrimSpace(language)
+	if strings.TrimSpace(upd.Language) != "" {
+		cur.lang = strings.TrimSpace(upd.Language)
 	}
-	if watchEnabled != nil {
-		if *watchEnabled {
+	if upd.WatchEnabled != nil {
+		if *upd.WatchEnabled {
 			cur.watch = 1
 		} else {
 			cur.watch = 0
 		}
 	}
+	if upd.ExcludeGlobs != nil {
+		cur.exclude = mustJSON(nonNil(*upd.ExcludeGlobs))
+	}
+	if upd.IncludeGlobs != nil {
+		cur.include = mustJSON(nonNil(*upd.IncludeGlobs))
+	}
+	if upd.MinFileSizeMB != nil {
+		v := *upd.MinFileSizeMB
+		if v < 0 {
+			v = 0
+		}
+		cur.minSize = v
+	}
+	if upd.SkipExtras != nil {
+		if *upd.SkipExtras {
+			cur.skipExtras = 1
+		} else {
+			cur.skipExtras = 0
+		}
+	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE libraries SET name = ?, language = ?, auto_scan_minutes = ?, watch_enabled = ?, updated_at = ? WHERE id = ?`,
-		cur.name, cur.lang, cur.autoScan, cur.watch, now(), id); err != nil {
+		`UPDATE libraries SET name = ?, language = ?, auto_scan_minutes = ?, watch_enabled = ?,
+		        exclude_globs = ?, include_globs = ?, min_file_size_mb = ?, skip_extras = ?,
+		        updated_at = ? WHERE id = ?`,
+		cur.name, cur.lang, cur.autoScan, cur.watch,
+		cur.exclude, cur.include, cur.minSize, cur.skipExtras, now(), id); err != nil {
 		if sqliteErrIsUnique(err) {
 			return wrap("update library", errInvalid("a library with that name already exists"))
 		}
 		return wrap("update library", err)
 	}
-	if paths != nil {
+	if upd.Paths != nil {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM library_paths WHERE library_id = ?`, id); err != nil {
 			return wrap("clear paths", err)
 		}
-		for _, p := range paths {
+		for _, p := range upd.Paths {
 			p = strings.TrimSpace(p)
 			if p == "" {
 				continue
@@ -305,6 +384,31 @@ func (s *Store) DeleteLibrary(ctx context.Context, id int64) error {
 func (s *Store) MarkScanned(ctx context.Context, pathID int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE library_paths SET last_scan_at = ? WHERE id = ?`, now(), pathID)
 	return wrap("mark scanned", err)
+}
+
+// parseGlobs decodes a JSON string-array column, tolerating empty/legacy values.
+func parseGlobs(raw string) []string {
+	out := []string{}
+	if strings.TrimSpace(raw) == "" {
+		return out
+	}
+	_ = json.Unmarshal([]byte(raw), &out)
+	if out == nil {
+		out = []string{}
+	}
+	return out
+}
+
+func nonNil(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
+}
+
+// NewInvalid builds a validation error that maps to HTTP 400.
+func NewInvalid(format string, args ...any) error {
+	return errInvalid(fmt.Sprintf(format, args...))
 }
 
 type errInvalid string

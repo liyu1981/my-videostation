@@ -154,9 +154,23 @@ export interface Library {
   unmatchedCount: number;
   autoScanMinutes: number;
   watchEnabled: boolean;
+  /** Glob patterns matched relative to each library folder; no "/" matches any segment. */
+  excludeGlobs: string[];
+  /** When set, only files matching one of these patterns are indexed. */
+  includeGlobs: string[];
+  minFileSizeMb: number;
+  /** Do not index trailers/featurettes (samples are always skipped). */
+  skipExtras: boolean;
   lastAutoScanAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LibraryRulesInput {
+  excludeGlobs?: string[];
+  includeGlobs?: string[];
+  minFileSizeMb?: number;
+  skipExtras?: boolean;
 }
 
 export interface FSEntry {
@@ -508,9 +522,9 @@ export const api = {
   libraries: () => request<{ libraries: Library[] }>('/libraries'),
   listFS: (path?: string) => request<FSListing>(`/fs${qs({ path })}`),
   library: (id: number) => request<Library>(`/libraries/${id}`),
-  createLibrary: (body: { name: string; type: LibraryType; language?: string; paths: string[]; autoScanMinutes?: number; watchEnabled?: boolean }) =>
+  createLibrary: (body: { name: string; type: LibraryType; language?: string; paths: string[]; autoScanMinutes?: number; watchEnabled?: boolean } & LibraryRulesInput) =>
     request<Library>('/libraries', { method: 'POST', body: JSON.stringify(body) }),
-  updateLibrary: (id: number, body: { name?: string; language?: string; paths?: string[]; autoScanMinutes?: number; watchEnabled?: boolean }) =>
+  updateLibrary: (id: number, body: { name?: string; language?: string; paths?: string[]; autoScanMinutes?: number; watchEnabled?: boolean } & LibraryRulesInput) =>
     request<Library>(`/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteLibrary: (id: number) => request<void>(`/libraries/${id}`, { method: 'DELETE' }),
   scanLibrary: (id: number, force = false) =>
