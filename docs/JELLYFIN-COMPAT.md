@@ -263,8 +263,9 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
   `ServerName` remains `MyVideoStation` (shown in the client UI).
 - **Target clients (test matrix)**: native clients only — Jellyfin **Android TV**
   (Google TV) and **Wholphin** (Android TV, `jellyfin-sdk-kotlin` 1.7.1),
-  Jellyfin **iOS/Swiftfin**, and native phone apps such as **Findroid**/**Streamyfin**
-  (`jellyfin-sdk-kotlin` 1.9.x). All talk to the REST API directly.
+  Jellyfin **iOS/Swiftfin**, native phone apps such as **Findroid**/**Streamyfin**
+  (`jellyfin-sdk-kotlin` 1.9.x), and **Moonfin** (Flutter; its own Dart API layer,
+  Jellyfin 10.8+). All talk to the REST API directly.
   **The Jellyfin Android phone app is not usable against us**: it is a WebView shell
   (`WebViewFragment.loadUrl("${hostname}/")` plus JS bridges) that expects the
   **Jellyfin web client** to be served at `/`. We serve our own SPA there. Supporting
@@ -277,7 +278,8 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
   expiry. Plain HTTP on a LAN means the password crosses the wire on login — document
   HTTPS/reverse proxy; identical trade-off to Jellyfin itself.
 - **Out of scope**: plugin/config UI endpoints, playlist management, live TV, sync,
-  QuickConnect (returns `false`), lyrics, theme media, HDHR.
+  QuickConnect (reports disabled: `GET /QuickConnect/Enabled` → `false`,
+  `POST /QuickConnect/Initiate` → 401), lyrics, theme-media indexing, HDHR.
 - **Reserved paths**: adapter routes are mounted at the root (`/System`, `/Users`,
   `/Items`, `/Items/{id}/Images`, ...). They must never collide with SPA routes; the
   SPA catch-all remains the fallback.
@@ -300,6 +302,9 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
 | `[x] GET /Users/{userId}/Items` | browse/search list |
 | `[x] GET /Items` | browse/search list (alternate path) |
 | `[x] GET /Items/{itemId}` | item detail |
+| `[x] GET /Users/{userId}/Items/{itemId}` | user-scoped detail (Moonfin) |
+| `[x] GET /Users/{userId}/Items/{itemId}/LocalTrailers`, `/Intros` | user-scoped relation rows |
+| `[x] GET /Items/{itemId}/Ancestors` | parent chain (series/season) |
 | `[x] GET /Items/{itemId}/Images/{type}` | poster/backdrop (thumbnails) |
 | `[x] GET /Items/{itemId}/Images/{type}/{index}` | poster/backdrop variants |
 | `[x] GET /Search/Hints` | search suggestions |
@@ -329,9 +334,16 @@ No hard blockers. Everything the adapter needs already exists; the five enablers
 | `[x] GET /Items/{id}/Download` | original file as attachment |
 | `[x] POST /Items/{id}/RemoteSearch/Subtitles/{id}` | 501 (no online subtitle providers) |
 | `[x] DELETE /Items/{id}` | 403 (media folders are read-only) |
-| `[x] GET /Items` params | `isPlayed`, `isUnplayed`, `isFavorite`, `isResumable`, `excludeItemIds`; `Resume` honours `includeItemTypes`/`excludeItemTypes` |
+| `[x] GET /Items` params | `isPlayed`, `isUnplayed`, `isFavorite`, `isResumable`, `excludeItemIds`, `nameStartsWith`, `nameLessThan`; pipe-separated `Genres`/`OfficialRatings`; `Resume` honours `includeItemTypes`/`excludeItemTypes` |
 | `[x] GET /UserItems/{itemId}/UserData` | user data (played/resume/favorite) |
 | `[x] POST /UserItems/{itemId}/UserData` | update played/position/favorite |
+| `[x] POST/DELETE /UserItems/{itemId}/Rating` | accepted (likes are not stored separately from favourites) |
+| `[x] GET /System/Ping` | unauthenticated reachability probe |
+| `[x] POST /QuickConnect/Initiate`, `/Connect`, `/Authorize`, `/Users/AuthenticateWithQuickConnect` | 401 (disabled), so clients fall back to the password form |
+| `[x] POST /Sessions/Logout` | revokes the caller's token |
+| `[x] POST /Users/Configuration` | accepted (our settings stay under `/api/v1`) |
+| `[x] GET /Localization/Countries`, `/Options`, `/ParentalRatings` | empty lists (settings/admin screens) |
+| `[x] GET /Artists`, `/Artists/AlbumArtists`, `/Items/{itemId}/InstantMix` | empty results (no music library) |
 | `[x] POST/DELETE /UserPlayedItems/{itemId}` | SDK played/unplayed aliases |
 | `[x] GET /MediaSegments/{itemId}` | empty (no intro/outro detection) |
 | `[x] POST /Devices/Options` | accepted and ignored |
@@ -392,6 +404,17 @@ Later slices: `PlaybackInfo`, `/Videos/*`, `/Sessions/Playing*`, `/Shows/*`,
   `/Videos/{id}/stream`), loads artwork through Coil (no token → anonymous images),
   and uses `/UserData` + `/UserPlayedItems` for watch state, `/MediaSegments` for
   skip-intro, and `/Devices/Options` for device naming. All are implemented.
+- **Moonfin specifics** (scanned from `Moonfin-Client/Moonfin-Core`, Flutter/Dart,
+  claims Jellyfin 10.8+): it assumes Quick Connect exists on every Jellyfin server,
+  so `POST /QuickConnect/Initiate` must answer **401** (disabled) for the login
+  screen to switch to the password form. Detail and relation rows are read through
+  user-scoped paths (`/Users/{userId}/Items/{itemId}`,
+  `/Users/{userId}/Items/{itemId}/LocalTrailers|Intros`). It sends camelCase query
+  names, pipe-separated `Genres`/`OfficialRatings`, and `NameStartsWith`/
+  `NameLessThan` for A–Z browsing; all are handled. Likes (`/UserItems/{id}/Rating`)
+  are accepted but not stored separately from favourites. Music/live TV/admin
+  screens are out of scope; `/Artists`, `/Localization/Countries` etc. answer empty.
+  Validated by `tools/jellyfin-validator/moonfin.sh` (71/71 checks).
 - **Known gaps before TV polish**: device-profile-aware playback decisions, box
   sets/playlists, SSDP discovery, WebSocket events, and end-to-end verification
   against real client builds `[verify]`.

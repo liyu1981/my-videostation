@@ -177,6 +177,9 @@ func TestJellyfinBrowseFilters(t *testing.T) {
 		want  string
 	}{
 		{"&Genres=Drama", "Drama Movie"},
+		{"&Genres=Drama|Comedy", "Drama Movie,Comedy Movie"},
+		{"&NameStartsWith=Drama", "Drama Movie"},
+		{"&NameLessThan=Drama", "Comedy Movie"},
 		{"&Years=2001", "Drama Movie"},
 		{"&OfficialRatings=R", "Drama Movie"},
 		{"&Filters=IsFavorite", "Drama Movie"},
@@ -249,6 +252,84 @@ func TestJellyfinBrowseFilters(t *testing.T) {
 	env.get(t, base+"&PersonIds="+actorID, &byActor)
 	if names(byActor) != "Drama Movie" {
 		t.Fatalf("person filter = %s", names(byActor))
+	}
+}
+
+func TestJellyfinMoonfinPaths(t *testing.T) {
+	env := setupJellyfinBrowse(t)
+	drama := jellyfinItemID(t, env.dramaID)
+	episode := jellyfinItemID(t, env.ep1)
+
+	// Moonfin reads detail through /Users/{userId}/Items/{itemId}.
+	var detail struct {
+		ID           string `json:"Id"`
+		Type         string `json:"Type"`
+		MediaSources []struct {
+			ID string `json:"Id"`
+		} `json:"MediaSources"`
+	}
+	env.get(t, env.srv+"/Users/"+env.userID+"/Items/"+drama, &detail)
+	if detail.ID != drama || detail.Type != "Movie" || len(detail.MediaSources) == 0 {
+		t.Fatalf("user-scoped detail = %+v", detail)
+	}
+
+	// Ancestors are root-first: series then season for an episode.
+	var ancestors []struct {
+		ID   string `json:"Id"`
+		Type string `json:"Type"`
+	}
+	env.get(t, env.srv+"/Items/"+episode+"/Ancestors", &ancestors)
+	if len(ancestors) != 2 || ancestors[0].Type != "Series" || ancestors[1].Type != "Season" {
+		t.Fatalf("ancestors = %+v", ancestors)
+	}
+
+	// User-scoped trailer/intro paths and the rating endpoints.
+	for _, tc := range []struct {
+		method string
+		path   string
+		want   int
+	}{
+		{http.MethodGet, "/Users/" + env.userID + "/Items/" + drama + "/LocalTrailers", http.StatusOK},
+		{http.MethodGet, "/Users/" + env.userID + "/Items/" + drama + "/Intros", http.StatusOK},
+		{http.MethodPost, "/UserItems/" + drama + "/Rating?Likes=true", http.StatusNoContent},
+		{http.MethodDelete, "/UserItems/" + drama + "/Rating", http.StatusNoContent},
+		{http.MethodPost, "/Users/Configuration", http.StatusNoContent},
+		{http.MethodGet, "/System/Ping", http.StatusOK},
+		{http.MethodGet, "/Artists?Limit=5", http.StatusOK},
+	} {
+		var body []byte
+		if tc.method == http.MethodPost && strings.HasSuffix(tc.path, "/Configuration") {
+			body = []byte(`{"GroupedFolders":[]}`)
+		}
+		res := jfDo(t, tc.method, env.srv+tc.path, env.token, body)
+		res.Body.Close()
+		if res.StatusCode != tc.want {
+			t.Errorf("%s %s = %d, want %d", tc.method, tc.path, res.StatusCode, tc.want)
+		}
+	}
+
+	// Quick Connect is advertised as disabled with Jellyfin's 401.
+	res := jfDo(t, http.MethodPost, env.srv+"/QuickConnect/Initiate", "", nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("QuickConnect initiate = %d", res.StatusCode)
+	}
+
+	// Logout revokes the token. The test admin login installed a cookie jar on
+	// http.DefaultClient; clear it so the cookie does not mask the revoked token.
+	jar := http.DefaultClient.Jar
+	http.DefaultClient.Jar = nil
+	defer func() { http.DefaultClient.Jar = jar }()
+
+	res = jfDo(t, http.MethodPost, env.srv+"/Sessions/Logout", env.token, nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("logout = %d", res.StatusCode)
+	}
+	res = jfDo(t, http.MethodGet, env.srv+"/Users/Me", env.token, nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token after logout = %d", res.StatusCode)
 	}
 }
 

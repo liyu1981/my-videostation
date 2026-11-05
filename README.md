@@ -95,6 +95,30 @@ The first visit opens the **admin setup** page; create the administrator account
 > The image's default user is `100:101`. If you omit `--user`, chown `/data` to `100:101`
 > (or use a named volume) and grant that user read access to media instead.
 
+### Container exits immediately (Synology)
+
+If the log contains only tini's help text (`Usage: tini [OPTIONS] PROGRAM -- [ARGS]`) and
+the container restarts, the container was created with a broken entrypoint/command
+override: tini is being started **without a program**. This is a container setting, not an
+image problem. Recreate it without overriding the entrypoint or execution command:
+
+- **Container Manager**: stop and delete the container (the `/data` bind mount is
+  untouched), then create it again from the image and leave **Execution command** empty.
+- **SSH**: inspect what the container actually runs:
+
+  ```bash
+  sudo docker inspect <container> \
+    --format '{{json .Config.Entrypoint}} {{json .Config.Cmd}}'
+  ```
+
+  A healthy config is `["/usr/local/bin/docker-entrypoint.sh"]` +
+  `["/usr/local/bin/mvs"]` (images built after this change) or
+  `["/sbin/tini","--","/usr/local/bin/mvs"]` (0.1.3 and older). If the entrypoint is only
+  `["/sbin/tini"]`, delete and recreate the container with the `docker run` command above.
+
+The current Dockerfile uses a single-script entrypoint that falls back to `mvs` when the
+command is empty, so a container UI that drops the image CMD still starts correctly.
+
 ### 4. Allow Docker bridge traffic in the DSM firewall
 
 Synology's firewall can drop Docker's forwarded traffic even though `docker pull` works.
@@ -200,7 +224,7 @@ testdata/           parser corpus and generated sample media
 | Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
 | Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich; in-app export/import bundles in `data/export` / `data/import` with maintenance restart; backup/restore docs and cache-path repair. |
 | Casting | Best-effort Chromecast/AirPlay via browser remote playback and DLNA renderer discovery + SOAP playback. MP4/H.264/AAC only; unsupported formats report that transcoding is required. |
-| Jellyfin clients (partial) | Jellyfin compatibility adapter (ADR 0005, claims server 12.4) for **native** clients — Findroid, Android TV, Wholphin, Swiftfin, Streamyfin: discovery, token auth, users/views, browse with filters/facets/home rows, detail with media streams and artwork, search, HLS/direct playback, progress and watched/favorite sync. The Jellyfin Android *phone* app is a WebView of jellyfin-web and is not supported (`docs/JELLYFIN-COMPAT.md`). |
+| Jellyfin clients (partial) | Jellyfin compatibility adapter (ADR 0005, claims server 12.4) for **native** clients — Findroid, Android TV, Wholphin, Swiftfin, Streamyfin, Moonfin: discovery, token auth, users/views, browse with filters/facets/home rows, detail with media streams and artwork, search, HLS/direct playback, progress and watched/favorite sync. The Jellyfin Android *phone* app is a WebView of jellyfin-web and is not supported (`docs/JELLYFIN-COMPAT.md`). |
 | Packaging | Single static Go binary with embedded SPA; Alpine Docker image for linux/amd64 and linux/arm64; Synology deployment guide. |
 
 Casting caveats: open the app through the NAS LAN IP (not localhost), Chromecast remote playback/AirPlay need a secure browser context, and DLNA discovery uses SSDP multicast — Docker bridge networking may not receive it, so host networking may be needed for DLNA renderers.
@@ -487,7 +511,7 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/TRAILERS.md`](./docs/TRAILERS.md) — why online trailers are a non-goal and how local trailer extras work
 - [`docs/JELLYFIN-COMPAT.md`](./docs/JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan and endpoint matrix
 - [`docs/ENDPOINTS.md`](./docs/ENDPOINTS.md) — generated inventory of every registered route (canonical API + Jellyfin adapter)
-- [`tools/jellyfin-validator/`](./tools/jellyfin-validator) — runs Findroid's SDK against the server to catch API contract regressions
+- [`tools/jellyfin-validator/`](./tools/jellyfin-validator) — contract validators for Findroid, Wholphin and Moonfin against a live server
 - [`docs/adr/`](./docs/adr) — architecture decisions (M0/M1 deviations, HLS transcoding, thumbnails/cover settings)
 - [`AGENTS.md`](./AGENTS.md) — working rules for contributors and coding agents
 

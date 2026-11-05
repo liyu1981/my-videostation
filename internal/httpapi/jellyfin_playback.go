@@ -521,6 +521,20 @@ func (s *Server) handleJFUpdateUserData(w http.ResponseWriter, r *http.Request) 
 	s.handleJFUserData(w, r)
 }
 
+// handleJFRating accepts POST/DELETE /UserItems/{itemId}/Rating. Jellyfin keeps
+// "likes" separate from favourites; we do not store it, but answering 204 keeps
+// the thumb controls usable instead of failing the request.
+func (s *Server) handleJFRating(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
+	if _, ok := s.jfResolveItemID(r); !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleJFMediaSegments answers GET /MediaSegments/{itemId}. We do not detect
 // intro/outro segments (the client then simply hides the skip button).
 func (s *Server) handleJFMediaSegments(w http.ResponseWriter, r *http.Request) {

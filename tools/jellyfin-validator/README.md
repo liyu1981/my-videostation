@@ -1,9 +1,16 @@
-# Jellyfin / Findroid contract validator
+# Jellyfin client contract validators
 
-Runs the **exact SDK version Findroid 1.2.0 uses** (`jellyfin-sdk-kotlin` 1.9.4)
-against a server and walks Findroid's real call sequence. It catches API contract
-failures (missing required JSON fields, wrong enum values, hyphenated UUIDs, …)
-**before** installing/retrying the Android app.
+Three validators walk the real call sequences of the Jellyfin clients we support,
+against a live server:
+
+| Script | Client | Transport |
+|---|---|---|
+| `run.sh` | Findroid 1.2.0 (`jellyfin-sdk-kotlin` 1.9.4) | Kotlin SDK |
+| `run-wholphin.sh` | Wholphin, Android TV (`jellyfin-sdk-kotlin` 1.7.1) | Kotlin SDK |
+| `moonfin.sh` | Moonfin (Flutter; its own Dart API layer) | curl + jq |
+
+They catch API contract failures (missing required JSON fields, wrong enum values,
+hyphenated UUIDs, wrong path shapes, …) **before** installing/retrying the app.
 
 ## Why
 
@@ -14,11 +21,12 @@ field makes `kotlinx.serialization` throw, and clients surface a generic
 
 ## Requirements
 
-- Java 21+ (only the runtime/compiler already installed)
-- Kotlin CLI (`kotlin`, tested with 2.4.21)
+- Java 21+ and Kotlin CLI (`kotlin`, tested with 2.4.21) for the SDK validators
+- `curl` and `jq` for the Moonfin validator
 - Network access on first run (Maven Central); dependencies are cached afterwards
 
-No Gradle, no Maven, no build files — a single Kotlin main-kts script.
+No Gradle, no Maven, no build files — the SDK validators are single Kotlin
+main-kts scripts; the Moonfin one is a plain bash script.
 
 ## Run
 
@@ -30,6 +38,9 @@ cd tools/jellyfin-validator
 
 # Wholphin / Android TV (jellyfin-sdk-kotlin 1.7.1)
 ./run-wholphin.sh http://192.168.0.221:6500 admin 'your-password'
+
+# Moonfin (curl + jq; 71 checks)
+./moonfin.sh http://192.168.0.221:6500 admin 'your-password'
 
 # or via env
 MVS_URL=http://192.168.0.221:6500 MVS_USER=admin MVS_PASS=... ./run.sh
@@ -51,6 +62,23 @@ Exit code is `0` only when every step passes.
 8. Anonymous artwork (`/Items/{id}/Images/Primary`)
 9. `/Sessions/Capabilities/Full`, `/DisplayPreferences/{id}`,
    `/Devices/Options`, `/Sessions/Playing` + `/Progress` + `/Stopped`
+
+## Moonfin checks
+
+1. `/System/Info/Public`, `/System/Ping`, `/Branding/Configuration`,
+   `/QuickConnect/Initiate` (must be 401 so Moonfin falls back to password login)
+2. Login, `/Users/Me`, `/UserViews`
+3. Home rows: `/Users/{id}/Items/Latest` (array), `/UserItems/Resume`,
+   `/Shows/NextUp`
+4. Library browse through `/Users/{id}/Items` with fields/filters
+5. Detail through the user-scoped `/Users/{id}/Items/{itemId}`, plus
+   `/Items/{id}/Ancestors`, `/Similar`, `/ThemeMedia`, `/SpecialFeatures`,
+   `/MediaSegments`, user-scoped `/LocalTrailers` and `/Intros`
+6. Anonymous artwork and `/Videos/{id}/stream` (byte range)
+7. `PlaybackInfo` → MediaSources/streams/PlaySessionId, progress reporting,
+   user data, ratings, played/favorite, display preferences, device options
+8. `/Users/Configuration`, `/Localization/*`, `/Artists`
+9. `/Sessions/Logout` (token must be rejected afterwards)
 
 ## Notes
 

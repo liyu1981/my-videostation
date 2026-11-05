@@ -157,6 +157,8 @@ type ItemFilter struct {
 	ExcludeKinds   []string
 	ParentID       int64 // 0 = any
 	Query          string
+	NamePrefix     string // sort title starts with (Jellyfin NameStartsWith)
+	NameLessThan   string // sort title before (Jellyfin NameLessThan)
 	Sort           string // added|title|year|rating|runtime
 	Page           int
 	PerPage        int
@@ -301,6 +303,14 @@ func (s *Store) ListItems(ctx context.Context, f ItemFilter) ([]Item, int, error
 		} else {
 			where = append(where, "COALESCE(p.played,0) = 0")
 		}
+	}
+	if f.NamePrefix != "" {
+		where = append(where, "lower(m.sort_title) LIKE lower(?) || '%'")
+		args = append(args, f.NamePrefix)
+	}
+	if f.NameLessThan != "" {
+		where = append(where, "lower(m.sort_title) < lower(?)")
+		args = append(args, f.NameLessThan)
 	}
 	if f.Folder != "" {
 		where = append(where, `EXISTS (SELECT 1 FROM media_files mf WHERE mf.item_id = m.id AND mf.rel_path LIKE ?)`)

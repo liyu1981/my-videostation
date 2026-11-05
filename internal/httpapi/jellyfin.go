@@ -23,8 +23,16 @@ const jfServerIDSetting = "jellyfin.server_id"
 func (s *Server) registerJellyfinRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /System/Info/Public", s.handleJFPublicInfo)
 	mux.HandleFunc("GET /System/Info", s.anyAuth(s.handleJFSystemInfo))
+	mux.HandleFunc("GET /System/Ping", s.handleJFSystemPing)
 	mux.HandleFunc("GET /Branding/Configuration", s.handleJFBranding)
 	mux.HandleFunc("GET /QuickConnect/Enabled", s.handleJFQuickConnect)
+	// Quick Connect is not implemented. Real Jellyfin answers 401 when it is
+	// disabled, which makes clients (Moonfin, jellyfin-web) fall back to the
+	// password form instead of retrying the code flow.
+	mux.HandleFunc("POST /QuickConnect/Initiate", s.handleJFQuickConnectDisabled)
+	mux.HandleFunc("GET /QuickConnect/Connect", s.handleJFQuickConnectDisabled)
+	mux.HandleFunc("POST /QuickConnect/Authorize", s.handleJFQuickConnectDisabled)
+	mux.HandleFunc("POST /Users/AuthenticateWithQuickConnect", s.handleJFQuickConnectDisabled)
 	mux.HandleFunc("GET /Users/Public", s.handleJFUsersPublic)
 	mux.HandleFunc("POST /Users/AuthenticateByName", s.handleJFAuthenticate)
 	mux.HandleFunc("GET /Users/Me", s.anyAuth(s.handleJFMe))
@@ -33,8 +41,18 @@ func (s *Server) registerJellyfinRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /UserViews", s.anyAuth(s.handleJFViews))
 	mux.HandleFunc("GET /DisplayPreferences/{name}", s.anyAuth(s.handleJFDisplayPreferences))
 	mux.HandleFunc("GET /Users/{userId}/Items", s.anyAuth(s.handleJFItems))
+	// Moonfin (and some other clients) read item detail through the
+	// user-scoped path rather than /Items/{id}.
+	mux.HandleFunc("GET /Users/{userId}/Items/{itemId}", s.anyAuth(s.handleJFItem))
+	mux.HandleFunc("GET /Users/{userId}/Items/{itemId}/LocalTrailers", s.anyAuth(s.handleJFLocalTrailers))
+	mux.HandleFunc("GET /Users/{userId}/Items/{itemId}/Intros", s.anyAuth(s.handleJFEmptyQuery))
+	mux.HandleFunc("GET /Users/{userId}/Images/{imageType}", s.handleJFUserImage)
 	mux.HandleFunc("GET /UserItems/{itemId}/UserData", s.anyAuth(s.handleJFUserData))
 	mux.HandleFunc("POST /UserItems/{itemId}/UserData", s.anyAuth(s.handleJFUpdateUserData))
+	// Likes are separate from favourites in Jellyfin; we accept the call so
+	// thumb up/down does not error, without conflating it with the favourite flag.
+	mux.HandleFunc("POST /UserItems/{itemId}/Rating", s.anyAuth(s.handleJFRating))
+	mux.HandleFunc("DELETE /UserItems/{itemId}/Rating", s.anyAuth(s.handleJFRating))
 	mux.HandleFunc("POST /UserPlayedItems/{itemId}", s.anyAuth(s.handleJFMarkPlayed))
 	mux.HandleFunc("DELETE /UserPlayedItems/{itemId}", s.anyAuth(s.handleJFMarkUnplayed))
 	mux.HandleFunc("GET /MediaSegments/{itemId}", s.anyAuth(s.handleJFMediaSegments))
@@ -52,6 +70,8 @@ func (s *Server) registerJellyfinRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /items/{itemId}/Images/{imageType}/{index}", s.handleJFImage)
 	mux.HandleFunc("GET /Search/Hints", s.anyAuth(s.handleJFSearchHints))
 	mux.HandleFunc("GET /Sessions", s.anyAuth(s.handleJFSessions))
+	mux.HandleFunc("POST /Sessions/Logout", s.anyAuth(s.handleJFLogout))
+	mux.HandleFunc("POST /Users/Configuration", s.anyAuth(s.handleJFSaveUserConfiguration))
 	mux.HandleFunc("POST /Sessions/Capabilities", s.anyAuth(s.handleJFCapabilities))
 	mux.HandleFunc("POST /Sessions/Capabilities/Full", s.anyAuth(s.handleJFCapabilities))
 	s.registerJellyfinPlaybackRoutes(mux)
@@ -127,6 +147,36 @@ func (s *Server) handleJFBranding(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleJFQuickConnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, false)
+}
+
+// handleJFQuickConnectDisabled answers the Quick Connect flow with the same 401
+// a Jellyfin server with the feature turned off returns.
+func (s *Server) handleJFQuickConnectDisabled(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusUnauthorized)
+}
+
+// handleJFSystemPing is the unauthenticated reachability probe clients use
+// before signing in.
+func (s *Server) handleJFSystemPing(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("Jellyfin Server"))
+}
+
+// handleJFLogout revokes the caller's token.
+func (s *Server) handleJFLogout(w http.ResponseWriter, r *http.Request) {
+	if tok := jellyfinToken(r); tok != "" {
+		_ = s.store.DeleteSession(r.Context(), auth.HashToken(tok))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleJFSaveUserConfiguration accepts user configuration changes. Our own
+// settings live under /api/v1, so this is a compatibility no-op.
+func (s *Server) handleJFSaveUserConfiguration(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleJFUsersPublic(w http.ResponseWriter, r *http.Request) {

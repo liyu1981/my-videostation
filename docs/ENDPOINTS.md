@@ -15,7 +15,7 @@ Auth legend:
   `X-MediaBrowser-Token`, `?api_key=`) **or** the SPA cookie
 - **token|session|cast** — additionally a signed `?cast=` token (cast receivers)
 
-Totals: **153** registered routes (plus the SPA fallback at `/`).
+Totals: **173** registered routes (plus the SPA fallback at `/`).
 
 ## Canonical API — health, config, auth (8)
 
@@ -120,14 +120,18 @@ Totals: **153** registered routes (plus the SPA fallback at `/`).
 | GET | `/hls/{session}/{file...}` | token\|session |
 | GET | `/api/v1/media/{fileId}/subtitle` | session |
 
-## Jellyfin — discovery, auth, users, views (13)
+## Jellyfin — discovery, auth, users, views (20)
 
 | Method | Path | Auth |
 |---|---|---|
 | GET | `/System/Info/Public` | public |
 | GET | `/System/Info` | token\|session |
+| GET | `/System/Ping` | public |
 | GET | `/Branding/Configuration` | public |
 | GET | `/QuickConnect/Enabled` | public |
+| POST | `/QuickConnect/Initiate` | public |
+| GET | `/QuickConnect/Connect` | public |
+| POST | `/QuickConnect/Authorize` | public |
 | GET | `/Users/Public` | public |
 | POST | `/Users/AuthenticateByName` | public |
 | GET | `/Users/Me` | token\|session |
@@ -137,11 +141,15 @@ Totals: **153** registered routes (plus the SPA fallback at `/`).
 | GET | `/DisplayPreferences/{name}` | token\|session |
 | GET | `/Localization/Cultures` | token\|session |
 | POST | `/DisplayPreferences/{name}` | token\|session |
+| GET | `/Localization/Countries` | token\|session |
+| GET | `/Localization/Options` | token\|session |
+| GET | `/Localization/ParentalRatings` | token\|session |
 
-## Jellyfin — images (anonymous, opaque ids) (6)
+## Jellyfin — images (anonymous, opaque ids) (7)
 
 | Method | Path | Auth |
 |---|---|---|
+| GET | `/Users/{userId}/Images/{imageType}` | public |
 | GET | `/Items/{itemId}/Images/{imageType}` | public |
 | GET | `/Items/{itemId}/Images/{imageType}/{index}` | public |
 | GET | `/items/{itemId}/Images/{imageType}` | public |
@@ -159,7 +167,7 @@ Totals: **153** registered routes (plus the SPA fallback at `/`).
 | GET | `/Videos/{itemId}/stream` | public |
 | GET | `/Videos/{itemId}/{rest...}` | token\|session |
 
-## Jellyfin — progress, sessions, played/favorites, devices (19)
+## Jellyfin — progress, sessions, played/favorites, devices (20)
 
 | Method | Path | Auth |
 |---|---|---|
@@ -169,6 +177,7 @@ Totals: **153** registered routes (plus the SPA fallback at `/`).
 | DELETE | `/UserPlayedItems/{itemId}` | token\|session |
 | POST | `/Devices/Options` | token\|session |
 | GET | `/Sessions` | token\|session |
+| POST | `/Sessions/Logout` | token\|session |
 | POST | `/Sessions/Capabilities` | token\|session |
 | POST | `/Sessions/Capabilities/Full` | token\|session |
 | GET | `/socket` | token\|session |
@@ -193,11 +202,14 @@ Totals: **153** registered routes (plus the SPA fallback at `/`).
 | GET | `/Shows/{itemId}/Seasons` | token\|session |
 | GET | `/Shows/{itemId}/Episodes` | token\|session |
 
-## Jellyfin — items, browse, facets, search (27)
+## Jellyfin — items, browse, facets, search (32)
 
 | Method | Path | Auth |
 |---|---|---|
 | GET | `/Users/{userId}/Items` | token\|session |
+| GET | `/Users/{userId}/Items/{itemId}` | token\|session |
+| GET | `/Users/{userId}/Items/{itemId}/LocalTrailers` | token\|session |
+| GET | `/Users/{userId}/Items/{itemId}/Intros` | token\|session |
 | GET | `/MediaSegments/{itemId}` | token\|session |
 | GET | `/Items` | token\|session |
 | GET | `/Items/{itemId}` | token\|session |
@@ -216,6 +228,8 @@ Totals: **153** registered routes (plus the SPA fallback at `/`).
 | GET | `/UserItems/Resume` | token\|session |
 | GET | `/Items/{itemId}/Intros` | token\|session |
 | GET | `/Items/{itemId}/Similar` | token\|session |
+| GET | `/Items/{itemId}/Ancestors` | token\|session |
+| GET | `/Items/{itemId}/InstantMix` | token\|session |
 | GET | `/Items/{itemId}/ThemeMedia` | token\|session |
 | GET | `/Items/{itemId}/LocalTrailers` | token\|session |
 | GET | `/Items/{itemId}/SpecialFeatures` | token\|session |
@@ -224,6 +238,17 @@ Totals: **153** registered routes (plus the SPA fallback at `/`).
 | GET | `/Items/{itemId}/Download` | token\|session |
 | DELETE | `/Items/{itemId}` | token\|session |
 | POST | `/Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}` | token\|session |
+
+## Other (6)
+
+| Method | Path | Auth |
+|---|---|---|
+| POST | `/Users/AuthenticateWithQuickConnect` | public |
+| POST | `/UserItems/{itemId}/Rating` | token\|session |
+| DELETE | `/UserItems/{itemId}/Rating` | token\|session |
+| POST | `/Users/Configuration` | token\|session |
+| GET | `/Artists` | token\|session |
+| GET | `/Artists/AlbumArtists` | token\|session |
 
 ## Dispatch details
 

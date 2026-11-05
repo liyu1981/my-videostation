@@ -41,6 +41,13 @@ func (s *Server) registerJellyfinBrowseRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /DisplayPreferences/{name}", s.anyAuth(s.handleJFSaveDisplayPreferences))
 	mux.HandleFunc("GET /socket", s.anyAuth(s.handleJFSocket))
 	mux.HandleFunc("GET /Items/{itemId}/Similar", s.anyAuth(s.handleJFSimilar))
+	mux.HandleFunc("GET /Items/{itemId}/Ancestors", s.anyAuth(s.handleJFAncestors))
+	mux.HandleFunc("GET /Items/{itemId}/InstantMix", s.anyAuth(s.handleJFEmptyQuery))
+	mux.HandleFunc("GET /Artists", s.anyAuth(s.handleJFEmptyQuery))
+	mux.HandleFunc("GET /Artists/AlbumArtists", s.anyAuth(s.handleJFEmptyQuery))
+	mux.HandleFunc("GET /Localization/Countries", s.anyAuth(s.handleJFEmptyList))
+	mux.HandleFunc("GET /Localization/Options", s.anyAuth(s.handleJFEmptyList))
+	mux.HandleFunc("GET /Localization/ParentalRatings", s.anyAuth(s.handleJFEmptyList))
 	mux.HandleFunc("GET /Items/{itemId}/ThemeMedia", s.anyAuth(s.handleJFThemeMedia))
 	mux.HandleFunc("GET /Items/{itemId}/LocalTrailers", s.anyAuth(s.handleJFLocalTrailers))
 	mux.HandleFunc("GET /Items/{itemId}/SpecialFeatures", s.anyAuth(s.handleJFSpecialFeatures))
@@ -549,6 +556,49 @@ func (s *Server) handleJFNextUpAll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jellyfin.QueryResult{
 		Items: s.jfItemDTOs(ctx, s.jellyfinServerID(ctx), next, false), TotalRecordCount: len(next),
 	})
+}
+
+// handleJFAncestors answers GET /Items/{itemId}/Ancestors with the parent chain
+// (series/season for episodes, and so on), root first. Moonfin uses it to find
+// box-set membership; an empty list is valid.
+func (s *Server) handleJFAncestors(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := s.jfBrowseContext(w, r)
+	if !ok {
+		return
+	}
+	id, err := jellyfin.DecodeKind(r.PathValue("itemId"), jellyfin.KindItem)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	it, err := s.store.GetItem(ctx, id)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	serverID := s.jellyfinServerID(ctx)
+	out := make([]jellyfin.BaseItemDto, 0, 3)
+	for depth := 0; depth < 5 && it.ParentID != 0; depth++ {
+		parent, err := s.store.GetItem(ctx, it.ParentID)
+		if err != nil {
+			break
+		}
+		out = append(out, s.jfBaseItem(ctx, parent, serverID, false))
+		it = parent
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleJFEmptyList answers list endpoints for features we do not index (music
+// artists, localization tables) with an empty JSON array.
+func (s *Server) handleJFEmptyList(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.jfBrowseContext(w, r); !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, []any{})
 }
 
 func (s *Server) handleJFSimilar(w http.ResponseWriter, r *http.Request) {

@@ -35,7 +35,9 @@ func jfCSV(q map[string][]string, key string) []string {
 	}
 	out := []string{}
 	for _, entry := range raw {
-		for _, part := range strings.Split(entry, ",") {
+		// Jellyfin separates most lists with commas but pipes for values that
+		// may contain a comma (Genres, OfficialRatings, Tags, Studios).
+		for _, part := range strings.FieldsFunc(entry, func(r rune) bool { return r == ',' || r == '|' }) {
 			if p := strings.TrimSpace(part); p != "" {
 				out = append(out, p)
 			}
@@ -172,6 +174,8 @@ func (s *Server) jfQueryItems(ctx context.Context, q map[string][]string) (jelly
 		Page:         start/limit + 1,
 		Genres:       jfCSV(q, "Genres"),
 		Ratings:      jfCSV(q, "OfficialRatings"),
+		NamePrefix:   firstValue(q, "NameStartsWith"),
+		NameLessThan: firstValue(q, "NameLessThan"),
 	}
 	if parentID > 0 && parentKind != store.KindShow {
 		filter.ParentID = parentID

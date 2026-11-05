@@ -26,8 +26,9 @@ Jellyfin **web client** is out of scope for v1.
   product") and refuses to connect. `ServerName` stays `MyVideoStation` (that is
   what client UIs display).
 - **Qualified clients:** native clients only — Jellyfin Android TV / Google TV,
-  Wholphin (Android TV, SDK 1.7.1), Jellyfin iOS/Swiftfin, and native third-party
-  apps (Findroid, Streamyfin, SDK 1.9.x). The
+  Wholphin (Android TV, SDK 1.7.1), Jellyfin iOS/Swiftfin, native third-party
+  apps (Findroid, Streamyfin, SDK 1.9.x), and Moonfin (Flutter/Dart client,
+  Jellyfin 10.8+). The
   Jellyfin **Android phone app is a WebView shell that loads jellyfin-web from the
   server root**, so it cannot work unless we ship jellyfin-web; it is out of scope.
   Support is defined as "these builds work"; other clients are best-effort.

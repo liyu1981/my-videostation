@@ -37,6 +37,8 @@ RUN apk add --no-cache ffmpeg tzdata ca-certificates tini wget \
  && chown -R mvs:mvs /data
 
 COPY --from=build /out/mvs /usr/local/bin/mvs
+COPY deployments/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 USER mvs
 ENV MVS_LISTEN=0.0.0.0:6500 \
@@ -50,4 +52,6 @@ EXPOSE 6500
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD wget -qO- http://127.0.0.1:6500/api/v1/health >/dev/null || exit 1
 
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/mvs"]
+# Single-element entrypoint: a container UI that drops CMD still starts mvs.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/usr/local/bin/mvs"]
