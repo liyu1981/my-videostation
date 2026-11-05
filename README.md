@@ -39,7 +39,7 @@ read-only media mounts. Run these commands over SSH as root (or with `sudo`).
 ### 1. Pull the image
 
 ```bash
-docker pull ghcr.io/liyu1981/my-videostation:0.1.3
+docker pull ghcr.io/liyu1981/my-videostation:0.1.4
 # or track the latest release:
 # docker pull ghcr.io/liyu1981/my-videostation:latest
 ```
@@ -81,7 +81,7 @@ docker run -d \
   -e MVS_DATA_DIR=/data \
   -v /volume1/docker/myvideostation:/data \
   -v /volume1/video:/media/video:ro \
-  ghcr.io/liyu1981/my-videostation:0.1.3
+  ghcr.io/liyu1981/my-videostation:0.1.4
 ```
 
 - `/volume1/docker/myvideostation:/data` — SQLite DB, artwork cache, subtitle cache and
