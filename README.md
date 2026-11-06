@@ -4,12 +4,15 @@
 and your existing folders — point it at a library and it identifies, organises, and plays
 your movies and shows.
 
-> **Status: M0–M4 plus M3.x monitoring and M6 account/access groundwork.** A single static binary with an
+> **Status: M0–M5 plus M3.x monitoring and M6 account/access groundwork.** A single static binary with an
 > embedded React UI indexes movie / TV / home-video libraries, probes with ffprobe, groups
-> shows into seasons and episodes, browses and searches, edits metadata, direct-plays,
-> and now has first-run admin setup, local user/admin accounts, per-user watch state,
-> per-library permissions, rating ceilings, audit activity and an i18n scaffold.
-> Transcoding (M5) and sharing links are still open.
+> shows into seasons and episodes, browses and searches, edits metadata, direct-plays and
+> transcodes (HLS), and now has first-run admin setup, local user/admin accounts, per-user
+> watch state, per-library permissions, rating ceilings, audit activity and an i18n scaffold.
+> Sharing links are still open. Full list: [Features delivered](#features-delivered).
+>
+> It also **speaks the Jellyfin API**: **Moonfin**, **Findroid** and **Wholphin** connect
+> to it directly — see [Works with existing Jellyfin clients](#works-with-existing-jellyfin-clients).
 
 ![MyVideoStation demo](https://raw.githubusercontent.com/liyu1981/my-videostation/master/assets/myvideostation-demo.jpg)
 
@@ -149,14 +152,17 @@ queued automatically.
 
 ## Planned features
 
-| Area | Capabilities |
+Only what is **still open** — everything already shipped is in
+[Features delivered](#features-delivered) below, and deliberate non-goals are in
+[Non-goals (v1)](#non-goals-v1).
+
+| Area | Still planned |
 |---|---|
-| Libraries | Movies / TV Shows / Home Videos / TV Recordings, multiple paths per library, scheduled + optional live scanning |
-| Metadata | TMDB provider (pluggable), poster/backdrop management, manual edit with per-field locks, "needs attention" queue, NFO sidecar support |
-| Organisation | Poster grid, tile and list views, categories (recently added / watched / released, by folder, timeline), facets, global search, collections, favorites, watchlist |
-| Playback | Direct play with range requests, subtitles (SRT/ASS/VTT), resume + watched state, then HLS remux/transcode with quality selection and optional hardware acceleration |
-| People | Multi-user accounts, per-library permissions, parental controls, public share links |
-| Ops | Durable job queue with progress, incremental scans, metrics/logs, backup/restore |
+| Playback | SMI subtitles (GAP-017, M6) · per-user bandwidth / stream limits (GAP-025, M6) · scrub-preview sprite sheets (GAP-007, M7) · offline conversion (GAP-020, M7) · in-player screenshots (GAP-065, M7) · hardware-acceleration detection & config UI (GAP-054, M7) |
+| Clients & casting | Broader Chromecast/AirPlay coverage with HLS output (GAP-022, M7) · Jellyfin adapter: SSDP discovery, box sets/playlists, device-profile-aware playback decisions |
+| Users & security | OIDC/LDAP identity (GAP-040, M6) · 2FA and session management (GAP-041, M6) · parental PIN (GAP-042, M6) · public share links (GAP-045, M6) |
+| Metadata & library | Provider plugin interface (GAP-010) · local subtitle full-text search (GAP-012, M7) · metadata language/region per library (GAP-013, M1) |
+| Ops & admin | Notifications/webhooks (GAP-051, M7) · metrics (M7) · i18n beyond the scaffold (GAP-053, M6) · art/transcode cache management UI (GAP-055) |
 
 Known gaps versus the original (and where we deliberately diverge) are tracked
 individually in [`docs/GAPS.md`](./docs/GAPS.md).
@@ -199,7 +205,10 @@ docs/               PLAN · GAPS · UI-PROBE · ADRs
 testdata/           parser corpus and generated sample media
 ```
 
-## What works today
+## Features delivered
+
+Everything in this table ships today in the single binary — no plugins, no optional
+services. Anything not listed is tracked in [Planned features](#planned-features).
 
 | Area | Capabilities |
 |---|---|
@@ -224,12 +233,53 @@ testdata/           parser corpus and generated sample media
 | Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
 | Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich; in-app export/import bundles in `data/export` / `data/import` with maintenance restart; backup/restore docs and cache-path repair. |
 | Casting | Best-effort Chromecast/AirPlay via browser remote playback and DLNA renderer discovery + SOAP playback. MP4/H.264/AAC only; unsupported formats report that transcoding is required. |
-| Jellyfin clients (partial) | Jellyfin compatibility adapter (ADR 0005, claims server 12.4) for **native** clients — Findroid, Android TV, Wholphin, Swiftfin, Streamyfin, Moonfin: discovery, token auth, users/views, browse with filters/facets/home rows, detail with media streams and artwork, search, HLS/direct playback, progress and watched/favorite sync. The Jellyfin Android *phone* app is a WebView of jellyfin-web and is not supported (`docs/JELLYFIN-COMPAT.md`). |
+| Jellyfin clients | **Validated: Moonfin, Findroid, Wholphin** — point them at `http://<nas-ip>:6500` and sign in with your MyVideoStation account. The adapter (ADR 0005, claims server 12.4) covers discovery, token auth, users/views, browse with filters/facets/home rows, detail with media streams and artwork, search, HLS/direct playback, progress and watched/favorite sync. Jellyfin Android TV/Swiftfin/Streamyfin talk to the same surface `[verify]`. The Jellyfin Android *phone* app is a WebView of jellyfin-web and is not supported (`docs/JELLYFIN-COMPAT.md`). |
 | Packaging | Single static Go binary with embedded SPA; Alpine Docker image for linux/amd64 and linux/arm64; Synology deployment guide. |
 
 Casting caveats: open the app through the NAS LAN IP (not localhost), Chromecast remote playback/AirPlay need a secure browser context, and DLNA discovery uses SSDP multicast — Docker bridge networking may not receive it, so host networking may be needed for DLNA renderers.
 
-**Not yet:** HLS remux/transcoding (M5), broad Chromecast/AirPlay format coverage (requires M5), PGS/VobSub/SMI subtitles, sharing links, OIDC/LDAP/SSO, 2FA and parental PIN.
+**Not yet:** broad Chromecast/AirPlay format coverage, SMI subtitles, sharing links, OIDC/LDAP/SSO, 2FA and parental PIN.
+
+## Works with existing Jellyfin clients
+
+MyVideoStation exposes a subset of the Jellyfin REST API from the paths native clients
+expect, so you can keep using apps you already know instead of a browser tab. Sign in
+with your normal MyVideoStation account — no second set of credentials.
+
+| Client | Platforms | Status |
+|---|---|---|
+| **[Moonfin](https://github.com/Moonfin-Client/Moonfin-Core)** | Android, Android TV / Fire TV, iOS, macOS/Windows/Linux, web | ✅ **validated** — 71/71 contract checks |
+| **[Findroid](https://github.com/jarnedemeulemeester/findroid)** | Android phone / tablet | ✅ **validated** — 24/24 contract checks |
+| **[Wholphin](https://github.com/damontecres/Wholphin)** | Android TV / Fire TV | ✅ **validated** — 24/24 contract checks |
+| Jellyfin Android TV, Swiftfin, Streamyfin | TV, iOS, Android | same adapter surface, `[verify]` on device |
+
+What works through these clients: server discovery, login, home rows, libraries and
+browse with filters/facets, item detail with media streams, artwork, search,
+**direct play and HLS transcoding**, resume/watched/favourite sync and progress
+reporting.
+
+Caveats:
+
+- The Jellyfin **Android phone app is a WebView of jellyfin-web** and therefore not
+  supported — use Findroid or Moonfin instead. The Jellyfin **web** client is likewise
+  out of scope.
+- Quick Connect (code sign-in) is disabled; use username/password.
+- Music, live TV, playlists, SyncPlay/WebSocket and online subtitle search are not part
+  of the adapter.
+
+The contract is pinned in [ADR 0005](docs/adr/0005-jellyfin-compat-targets.md) (server
+version `12.4.0`, `ProductName: Jellyfin Server`) and enforced by
+[`tools/jellyfin-validator`](./tools/jellyfin-validator), which walks each client's real
+call sequence against a live server:
+
+```bash
+cd tools/jellyfin-validator
+./moonfin.sh    http://192.168.0.221:6500 admin 'your-password'   # Moonfin   71 checks
+./run.sh        http://192.168.0.221:6500 admin 'your-password'   # Findroid  24 checks
+./run-wholphin.sh http://192.168.0.221:6500 admin 'your-password' # Wholphin  24 checks
+```
+
+Full endpoint matrix: [`docs/JELLYFIN-COMPAT.md`](./docs/JELLYFIN-COMPAT.md).
 
 ## Getting started
 
@@ -490,7 +540,7 @@ error responses automatically.
 | **M2** ✅ | TMDB matching, art management, identify/correct flows |
 | **M3** ✅ | Collections, selection/bulk actions, categories/facets, scheduler, task monitor |
 | **M4** ✅ | Player: subtitle tracks, resume, next episode |
-| **M5** | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |
+| **M5** ✅ | HLS remux/transcode, audio/subtitle switching, optional HW acceleration |
 | **M6** 🟡 | Accounts, roles, per-library permissions, rating ceilings, audit log, i18n scaffold (delivered); sharing/OG links deferred, OIDC/LDAP/2FA/PIN open |
 | **M7** | PWA, casting, offline conversion, metrics |
 
@@ -509,7 +559,7 @@ Details and acceptance criteria: [`docs/PLAN.md`](./docs/PLAN.md) §8.
 - [`docs/DISC-IMAGES.md`](./docs/DISC-IMAGES.md) — why ISO/disc images are a non-goal and how to rip them
 - [`docs/NETWORK-STORAGE.md`](./docs/NETWORK-STORAGE.md) — why SMB/NFS/cloud sources are a non-goal and how to mount them
 - [`docs/TRAILERS.md`](./docs/TRAILERS.md) — why online trailers are a non-goal and how local trailer extras work
-- [`docs/JELLYFIN-COMPAT.md`](./docs/JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan and endpoint matrix
+- [`docs/JELLYFIN-COMPAT.md`](./docs/JELLYFIN-COMPAT.md) — Jellyfin client compatibility plan and endpoint matrix (Moonfin / Findroid / Wholphin)
 - [`docs/ENDPOINTS.md`](./docs/ENDPOINTS.md) — generated inventory of every registered route (canonical API + Jellyfin adapter)
 - [`tools/jellyfin-validator/`](./tools/jellyfin-validator) — contract validators for Findroid, Wholphin and Moonfin against a live server
 - [`docs/adr/`](./docs/adr) — architecture decisions (M0/M1 deviations, HLS transcoding, thumbnails/cover settings)
