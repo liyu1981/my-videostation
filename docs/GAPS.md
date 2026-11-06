@@ -54,14 +54,14 @@ Last verified: 2026-11-01 against the live probe (see `UI-PROBE.md`).
 
 | Area | Open gaps | S1 | S2 | S3 | Notable |
 |---|---|---|---|---|---|
-| Library & indexing | 3 | 1 | 0 | 2 | 1 planned (multi-path) |
-| Metadata | 3 | 0 | 2 | 1 | NFO + field locks (ADV) |
-| Playback & transcoding | 11 | 2 | 4 | 5 | — |
+| Library & indexing | 5 | 1 | 1 | 3 | 3 permanent (network sources, disc images, DVR) |
+| Metadata | 5 | 0 | 2 | 3 | 1 planned (multi-path); NFO + field locks (ADV) |
+| Playback & transcoding | 7 | 1 | 2 | 4 | codec breadth (GAP-016) closed in M5 |
 | Clients & remote access | 3 | 3 | 0 | 0 | all permanent-for-v1 |
 | Users, security, permissions | 5 | 0 | 4 | 1 | — |
 | Admin, ops, i18n | 6 | 0 | 4 | 2 | single binary, job visibility |
 | Integrations | 4 | 0 | 0 | 4 | all permanent |
-| **Total** | **35** | **6** | **14** | **15** | 10 advantages, 1 planned |
+| **Total** | **35** | **5** | **13** | **17** | 10 advantages, 1 planned |
 
 Four gaps (GAP-063…066) were discovered during the live UI/API probe documented in
 [`UI-PROBE.md`](./UI-PROBE.md); several previously `[verify]` claims are now `[confirmed]`.
@@ -71,11 +71,12 @@ info" re-match flow), so parity expectations in M1–M3 were raised accordingly.
 GAP-068/070/071 and GAP-002 were added by the library-monitoring audit and then
 closed in M3.x (see [`MONITORING.md`](./MONITORING.md)).
 
-Distribution of the six S1 gaps matters more than the total: **five are client/playback
-side** (codec breadth, casting, mobile apps, TV apps, remote access) and only one is
-library-side (DVR/TV recording). That matches the agreed priority: management
-(M1–M3) first, with playback/client parity debt paid in M4–M7. Nothing S1 in M1–M3
-remains unaddressed by the plan.
+Distribution of the five remaining S1 gaps matters more than the total: **four are
+permanent non-goals** (mobile apps GAP-030, TV apps GAP-031, remote access GAP-032,
+DVR recording GAP-004) and **one is scheduled** — casting (GAP-022, M7). Codec
+breadth (GAP-016) closed with M5, so no S1 is blocked on the transcode pipeline any
+more. That matches the agreed priority: management (M1–M3) first, with playback/client
+parity debt paid in M4–M7. Nothing S1 in M1–M3 remains unaddressed by the plan.
 
 ## 2. Dependency map (open gaps)
 
@@ -85,6 +86,11 @@ dependencies, not hard blockers. The graph covers the buildable open gaps
 (`GAP-LATER`/`GAP-UNDECIDED`); `GAP-NEVER` non-goals, `PLANNED`, `ADV` and `CLOSED` rows
 are excluded (they have no planned work or are already done).
 
+`GAP-016` (core transcode/codec pipeline) closed with M5, so it left the graph
+together with its dependents that closed alongside it (`GAP-018` image subtitles,
+`GAP-024` audio switching). The remaining playback gaps no longer wait on the
+transcode pipeline.
+
 ```mermaid
 flowchart TB
   subgraph Library["Library & metadata"]
@@ -92,27 +98,15 @@ flowchart TB
     G7["GAP-007 scrub previews"]
     G10["GAP-010 provider plugins"]
     G12["GAP-012 subtitle search"]
-
-    G7 --> G16
   end
 
   subgraph Playback["Playback & transcoding"]
     direction TB
-    G16["GAP-016 transcode / codecs"]
     G17["GAP-017 SMI subtitles"]
-    G18["GAP-018 image subtitles"]
     G20["GAP-020 offline conversion"]
     G22["GAP-022 casting"]
-    G24["GAP-024 audio switching"]
     G25["GAP-025 bandwidth limits"]
     G65["GAP-065 screenshots"]
-
-    G18 --> G16
-    G20 --> G16
-    G24 --> G16
-    G22 -.-> G16
-    G65 -.-> G16
-    G25 -.-> G40
   end
 
   subgraph Users["Users & security"]
@@ -137,34 +131,31 @@ flowchart TB
     G53["GAP-053 i18n"]
     G54["GAP-054 HW transcoding"]
     G55["GAP-055 cache management"]
-
-    G54 --> G16
-    G55 -.-> G16
   end
 
+  %% cross-cluster edges declared after all nodes exist
+  G25 -.-> G40
+
   %% layout-only links keep the clusters stacked
-  G12 ~~~ G16
+  G12 ~~~ G17
   G65 ~~~ G40
   G45 ~~~ G50
-  G55 ~~~ G16
 ```
 
 ### Dependency lookup table
 
 Read `Depends on` as "must land first". `soft` means shared infrastructure or
-parity-completeness, not a hard feature blocker.
+parity-completeness, not a hard feature blocker. Closed gaps are excluded; where a
+closed gap used to be the blocker the note records what unblocked the work.
 
 | gap | depends on | kind | note |
 |---|---|---|---|
-| GAP-007 | GAP-016 | hard | sprite sheets need ffmpeg; the resize/cache layer exists in `internal/artwork` |
+| GAP-007 | — | — | unblocked by M5 (GAP-016 closed): ffmpeg screenshot/sprite generation exists; sprite sheet + player overlay remain |
 | GAP-010 | — | — | provider interface/registry in place; plugin UX is GAP-064 (non-goal) |
 | GAP-012 | — | — | local subtitle FTS index; no online provider (`docs/SUBTITLE-INDEX.md`) |
-| GAP-016 | — | — | core transcode/codec pipeline |
 | GAP-017 | — | — | SMI subtitles |
-| GAP-018 | GAP-016 | hard | image subtitles need burn-in/transcode |
-| GAP-020 | GAP-016 | hard | offline conversion writes new files |
-| GAP-022 | GAP-016 | soft | casting needs HLS/transcode for many codecs |
-| GAP-024 | GAP-016 | hard | audio switching restarts the HLS session |
+| GAP-020 | — | — | unblocked by M5 (GAP-016 closed); remaining blocker is policy: offline conversion writes new files and needs an explicit output policy that respects the read-only rule |
+| GAP-022 | — | — | unblocked by M5 (GAP-016 closed): HLS/transcode output exists; Cast/AirPlay SDK coverage and HLS output remain for M7 |
 | GAP-025 | GAP-040 | soft | per-user limits need users/sessions |
 | GAP-040 | — | — | OIDC/LDAP identity |
 | GAP-041 | GAP-040 | soft | 2FA/session management on top of identity |
@@ -174,9 +165,9 @@ parity-completeness, not a hard feature blocker.
 | GAP-050 | — | — | DB/art/watch-state backup |
 | GAP-051 | — | — | webhook/SMTP on the job queue |
 | GAP-053 | — | — | i18n scaffolding |
-| GAP-054 | GAP-016 | hard | HW accel plugs into the transcode pipeline |
-| GAP-055 | GAP-016 | soft | thumbnails already have size/clear/rebuild; art + transcode caches still need UI |
-| GAP-065 | GAP-016 | soft | ffmpeg screenshot |
+| GAP-054 | — | — | unblocked by M5 (GAP-016 closed): NVENC/QSV already plug into the transcode pipeline; what remains is detection/config UI |
+| GAP-055 | — | — | unblocked by M5 (GAP-016 closed): thumbnails already ship (GAP-006); art + transcode cache UI remain |
+| GAP-065 | — | — | unblocked by M5 (GAP-016 closed): ffmpeg screenshot is available; needs a storage policy (`/data` only) |
 
 Non-goals (not in the graph): GAP-001 (in-app SMB/NFS/cloud sources), GAP-003 (ISO/disc images),
 GAP-004 (TV recording), GAP-011 (online trailers),
