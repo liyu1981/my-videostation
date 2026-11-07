@@ -69,6 +69,7 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | GET | `/items/{id}` | Detail: item + genres + people + files + locks + children (seasons/episodes), including the current user’s watch state |
 | GET | `/items/{id}/children?kind=` | Seasons for a show, episodes for a season |
 | GET | `/items/{id}/neighbors` | Previous/next item in browse order (`prev`, `next`) |
+| POST | `/items/{id}/reclassify` | **admin** — `{kind: movie\|episode\|home_video, showTitle?, seasonNumber?, episodeNumber?}` — manually assign the item's type. `episode` attaches it to (or creates) a show/season in the same library; the choice is remembered (`kind_locked`) so rescans do not undo it. Clears the stale provider match. Returns the updated detail |
 | POST | `/items/{id}/rescan` | **admin** — Queue a folder-scoped rescan (`{force?}`): a show re-walks its own folder (new seasons included), a season/episode/movie its folder. Only files under that folder are re-read; the rest of the library is untouched. `409 no_files` when the item has no files |
 | PATCH | `/items/{id}` | **admin** — metadata patch (`title, year, overview, tagline, genres[], locks[], locked, …`) |
 | POST | `/items/{id}/progress` | `{positionMs, durationMs, played}` (upsert for the current user) |

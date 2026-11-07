@@ -13,7 +13,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { api, type Candidate, type Item, type ItemDetail, type ItemPatch } from '../lib/api';
+import { api, type Candidate, type Item, type ItemDetail, type ItemPatch, type Kind } from '../lib/api';
 import { Dialog, DialogButton, DialogTab } from './Dialog';
 
 type Tab = 'info' | 'poster' | 'backdrop';
@@ -80,6 +80,11 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   const [locks, setLocks] = useState<string[]>(item.locks);
   const [locked, setLocked] = useState(item.locked);
   const [advanced, setAdvanced] = useState(false);
+  // Manual type assignment (movie / TV episode / home video).
+  const [kind, setKind] = useState<Kind>(item.kind);
+  const [showTitle, setShowTitle] = useState(item.showTitle ?? '');
+  const [seasonNumber, setSeasonNumber] = useState(String(item.seasonNumber ?? 1));
+  const [episodeNumber, setEpisodeNumber] = useState(String(item.episodeNumber ?? 1));
 
   const [posterChoice, setPosterChoice] = useState<ArtChoice>('original');
   const [backdropChoice, setBackdropChoice] = useState<ArtChoice>('original');
@@ -104,6 +109,10 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
     setCast(castOf(d));
     setLocks(d.locks);
     setLocked(d.locked);
+    setKind(d.kind);
+    setShowTitle(d.showTitle ?? '');
+    setSeasonNumber(String(d.seasonNumber ?? 1));
+    setEpisodeNumber(String(d.episodeNumber ?? 1));
     if (posterPreview) URL.revokeObjectURL(posterPreview);
     if (backdropPreview) URL.revokeObjectURL(backdropPreview);
     setPosterChoice('original');
@@ -238,6 +247,23 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
       }
       const r = Number(rating);
       if (rating.trim() !== '' && Number.isFinite(r)) patch.rating = r;
+      const typeChanged =
+        kind !== item.kind ||
+        (kind === 'episode' &&
+          (showTitle.trim() !== (item.showTitle ?? '') ||
+            Number(seasonNumber) !== (item.seasonNumber ?? 0) ||
+            Number(episodeNumber) !== (item.episodeNumber ?? 0)));
+      if (typeChanged) {
+        if (kind === 'episode' && showTitle.trim() === '') {
+          throw new Error('Show title is required for a TV episode.');
+        }
+        await api.reclassifyItem(item.id, {
+          kind: kind as 'movie' | 'episode' | 'home_video',
+          showTitle: showTitle.trim(),
+          seasonNumber: Number(seasonNumber) || 0,
+          episodeNumber: Number(episodeNumber) || 0,
+        });
+      }
       await api.patchItem(item.id, patch);
       if (posterChoice === 'upload' && posterFile) await api.uploadArt(item.id, 'poster', posterFile);
       else if (posterChoice === 'none') await api.setArt(item.id, 'poster', '');
@@ -301,6 +327,39 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
               <div className="p-5">
                 {bestEffort ? (
                   <p className="mb-3 rounded-md border border-new/40 bg-new/10 px-3 py-2 text-[11.5px] text-new">{bestEffort}</p>
+                ) : null}
+                {item.kind === 'movie' || item.kind === 'episode' || item.kind === 'home_video' ? (
+                  <div className="mb-4 rounded-md border border-hairline bg-surface-2/40 p-3">
+                    <div className="grid grid-cols-1 gap-x-4 gap-y-2.5 sm:grid-cols-[118px_1fr] sm:items-center">
+                      <Field label="Type">
+                        <select
+                          value={kind}
+                          onChange={(e) => setKind(e.target.value as Kind)}
+                          className={inputClass}
+                        >
+                          <option value="movie">Movie</option>
+                          <option value="episode">TV episode</option>
+                          <option value="home_video">Home video</option>
+                        </select>
+                      </Field>
+                      {kind === 'episode' ? (
+                        <>
+                          <Field label="Show title">
+                            <input value={showTitle} onChange={(e) => setShowTitle(e.target.value)} className={inputClass} placeholder="e.g. Breaking Bad" />
+                          </Field>
+                          <Field label="Season">
+                            <input type="number" min={0} value={seasonNumber} onChange={(e) => setSeasonNumber(e.target.value)} className={inputClass} />
+                          </Field>
+                          <Field label="Episode">
+                            <input type="number" min={0} value={episodeNumber} onChange={(e) => setEpisodeNumber(e.target.value)} className={inputClass} />
+                          </Field>
+                        </>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-[11px] text-fg-dim">
+                      Changing the type clears the current provider match; search again after saving. The choice survives rescans.
+                    </p>
+                  </div>
                 ) : null}
                 <div className="mb-4 flex flex-wrap items-center gap-2">
                   {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' || item.kind === 'season' || item.kind === 'home_video' ? (

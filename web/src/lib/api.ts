@@ -488,6 +488,10 @@ export const api = {
   neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
   rescanItem: (id: number, force = false) =>
     request<Job>(`/items/${id}/rescan`, { method: 'POST', body: JSON.stringify({ force }) }),
+  reclassifyItem: (
+    id: number,
+    body: { kind: 'movie' | 'episode' | 'home_video'; showTitle?: string; seasonNumber?: number; episodeNumber?: number },
+  ) => request<ItemDetail>(`/items/${id}/reclassify`, { method: 'POST', body: JSON.stringify(body) }),
   progress: (id: number, body: { positionMs: number; durationMs: number; played: boolean }) =>
     request<{ ok: boolean }>(`/items/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),
   castDLNADevices: () => request<{ devices: DLNADevice[] }>('/cast/dlna/discover', { method: 'POST' }),

@@ -707,6 +707,124 @@ type ItemPatch struct {
 	Locks         *[]string `json:"locks"` // full replacement of per-field locks
 }
 
+// ReclassifyInput is a manual type assignment for one item.
+type ReclassifyInput struct {
+	Kind          string // movie | episode | home_video
+	ShowTitle     string // required for episode
+	Year          int    // show year, used when the show is created
+	SeasonNumber  int
+	EpisodeNumber int
+}
+
+// ReclassifyItem changes an item's kind. Episode assignment attaches the item to
+// (or creates) a show and season in the same library; movie/home_video detaches
+// it. The choice is persisted with kind_locked so a later scan cannot move the
+// file back to the kind inferred from its filename. A stale provider match is
+// cleared because it referred to a different media type.
+func (s *Store) ReclassifyItem(ctx context.Context, id int64, in ReclassifyInput) (*Item, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, wrap("begin", err)
+	}
+	defer tx.Rollback()
+
+	var libraryID, oldParent int64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT library_id, parent_id FROM media_items WHERE id = ?`, id).
+		Scan(&libraryID, &oldParent); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, wrap("load item", err)
+	}
+
+	newParent := int64(0)
+	seasonNumber, episodeNumber := 0, 0
+	switch in.Kind {
+	case KindMovie, KindHomeVideo:
+		// leaf item: no parent, no episode numbers
+	case KindEpisode:
+		showTitle := strings.TrimSpace(in.ShowTitle)
+		if showTitle == "" {
+			return nil, errInvalid("show title is required for an episode")
+		}
+		if in.SeasonNumber < 0 || in.EpisodeNumber < 0 {
+			return nil, errInvalid("season and episode numbers cannot be negative")
+		}
+		showID, _, err := ensureShow(ctx, tx, libraryID, showTitle, in.Year, "", "")
+		if err != nil {
+			return nil, err
+		}
+		seasonID, err := ensureSeason(ctx, tx, libraryID, showID, in.SeasonNumber, "")
+		if err != nil {
+			return nil, err
+		}
+		newParent = seasonID
+		seasonNumber = in.SeasonNumber
+		episodeNumber = in.EpisodeNumber
+	default:
+		return nil, errInvalid("kind must be movie, episode or home_video")
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE media_items SET
+			kind = ?, parent_id = ?, season_number = ?, episode_number = ?, episode_end = 0,
+			kind_locked = 1, provider = NULL, provider_id = NULL,
+			metadata_status = 'manual', match_confidence = 0, updated_at = ?
+		WHERE id = ?`,
+		in.Kind, newParent, seasonNumber, episodeNumber, now(), id); err != nil {
+		return nil, wrap("reclassify item", err)
+	}
+	// The cached provider ids belong to the old kind (a movie id is not a show id).
+	if _, err := tx.ExecContext(ctx, `DELETE FROM item_provider_ids WHERE item_id = ?`, id); err != nil {
+		return nil, wrap("clear provider ids", err)
+	}
+	if oldParent != newParent {
+		if err := pruneEmptyParents(ctx, tx, oldParent); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, wrap("commit", err)
+	}
+	return s.GetItem(ctx, id)
+}
+
+// pruneEmptyParents removes season/show rows that no longer have children after
+// an item was moved out of them.
+func pruneEmptyParents(ctx context.Context, tx *sql.Tx, parentID int64) error {
+	for depth := 0; depth < 4 && parentID > 0; depth++ {
+		var kind string
+		var parent int64
+		if err := tx.QueryRowContext(ctx,
+			`SELECT kind, parent_id FROM media_items WHERE id = ?`, parentID).Scan(&kind, &parent); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return wrap("load parent", err)
+		}
+		if kind != KindSeason && kind != KindShow {
+			return nil
+		}
+		var children int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM media_items WHERE parent_id = ?`, parentID).Scan(&children); err != nil {
+			return wrap("count children", err)
+		}
+		if children > 0 {
+			return nil
+		}
+		if err := deleteFTS(ctx, tx, parentID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM media_items WHERE id = ?`, parentID); err != nil {
+			return wrap("delete empty parent", err)
+		}
+		parentID = parent
+	}
+	return nil
+}
+
 var lockableFields = map[string]bool{
 	"title": true, "original_title": true, "overview": true, "tagline": true,
 	"year": true, "release_date": true, "rating": true, "content_rating": true, "genres": true,

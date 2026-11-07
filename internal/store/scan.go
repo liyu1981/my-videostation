@@ -167,13 +167,16 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 	// sidecar metadata renames must not create duplicates on the next scan.
 	var existingID int64
 	var existingKind string
+	var kindLocked int
 	if err := tx.QueryRowContext(ctx, `
-		SELECT m.id, m.kind FROM media_files mf JOIN media_items m ON m.id = mf.item_id
-		WHERE mf.path = ? AND m.library_id = ?`, f.Path, f.LibraryID).Scan(&existingID, &existingKind); err == nil && existingKind == f.Kind {
+		SELECT m.id, m.kind, m.kind_locked FROM media_files mf JOIN media_items m ON m.id = mf.item_id
+		WHERE mf.path = ? AND m.library_id = ?`, f.Path, f.LibraryID).Scan(&existingID, &existingKind, &kindLocked); err == nil && (existingKind == f.Kind || kindLocked != 0) {
 		if err := touchItem(ctx, tx, existingID, f); err != nil {
 			return 0, false, err
 		}
-		if f.Kind == KindEpisode {
+		// A manual type assignment wins over the filename; only repair episode
+		// titles when the file is still parsed as that episode.
+		if existingKind == KindEpisode && f.Kind == KindEpisode {
 			if err := repairEpisodeTitle(ctx, tx, existingID, f); err != nil {
 				return 0, false, err
 			}

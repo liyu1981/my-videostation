@@ -498,3 +498,31 @@ func showScopeDir(lib *store.Library, dir string) string {
 		dir = parent
 	}
 }
+
+// handleReclassifyItem changes an item's type (movie / TV episode / home video).
+// Episode assignment creates or reuses the show and season in the same library;
+// the choice survives rescans.
+func (s *Server) handleReclassifyItem(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	var in store.ReclassifyInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body: "+err.Error())
+		return
+	}
+	it, err := s.store.ReclassifyItem(r.Context(), id, in)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.audit(r, "item.reclassify", "item:"+strconv.FormatInt(id, 10), in.Kind)
+	detail, err := s.itemDetail(r.Context(), it)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}

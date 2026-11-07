@@ -15,7 +15,7 @@ Auth legend:
   `X-MediaBrowser-Token`, `?api_key=`) **or** the SPA cookie
 - **token|session|cast** — additionally a signed `?cast=` token (cast receivers)
 
-Totals: **174** registered routes (plus the SPA fallback at `/`).
+Totals: **175** registered routes (plus the SPA fallback at `/`).
 
 ## Canonical API — health, config, auth (8)
 
@@ -50,7 +50,7 @@ Totals: **174** registered routes (plus the SPA fallback at `/`).
 | DELETE | `/api/v1/jobs` | admin |
 | GET | `/api/v1/fs` | admin |
 
-## Canonical API — browse, items, metadata, artwork (28)
+## Canonical API — browse, items, metadata, artwork (29)
 
 | Method | Path | Auth |
 |---|---|---|
@@ -68,6 +68,7 @@ Totals: **174** registered routes (plus the SPA fallback at `/`).
 | PATCH | `/api/v1/items/{id}` | admin |
 | GET | `/api/v1/items/{id}/children` | session |
 | POST | `/api/v1/items/{id}/rescan` | admin |
+| POST | `/api/v1/items/{id}/reclassify` | admin |
 | GET | `/api/v1/items/{id}/neighbors` | session |
 | GET | `/api/v1/items/{id}/matches` | admin |
 | GET | `/api/v1/items/{id}/duplicate` | admin |
