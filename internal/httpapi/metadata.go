@@ -150,7 +150,7 @@ func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query().Get("q")
-	candidates, err := s.enricher.Search(r.Context(), id, query, intQuery(r, "year", 0), r.URL.Query().Get("language"), r.URL.Query().Get("provider"))
+	candidates, err := s.enricher.SearchAs(r.Context(), id, r.URL.Query().Get("kind"), query, intQuery(r, "year", 0), r.URL.Query().Get("language"), r.URL.Query().Get("provider"))
 	if err != nil {
 		s.failMetadata(w, err)
 		return

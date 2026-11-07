@@ -559,8 +559,8 @@ export const api = {
     request<{ files: number; bytes: number }>('/artwork/thumbnails', { method: 'DELETE' }),
   rebuildThumbnails: () => request<Job>('/artwork/thumbnails/rebuild', { method: 'POST' }),
   providers: () => request<{ providers: ProviderInfo[] }>('/providers'),
-  matches: (id: number, q?: string, year?: number, language?: string, provider?: string) =>
-    request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year, language, provider })}`),
+  matches: (id: number, q?: string, year?: number, language?: string, provider?: string, kind?: Kind) =>
+    request<{ candidates: Candidate[] }>(`/items/${id}/matches${qs({ q, year, language, provider, kind })}`),
   duplicate: (id: number) => request<{ item?: Item }>(`/items/${id}/duplicate`),
   applyLocal: (id: number, sourceId: number) =>
     request<ItemDetail>(`/items/${id}/apply-local`, { method: 'POST', body: JSON.stringify({ sourceId }) }),

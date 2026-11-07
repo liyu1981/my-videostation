@@ -80,11 +80,10 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   const [locks, setLocks] = useState<string[]>(item.locks);
   const [locked, setLocked] = useState(item.locked);
   const [advanced, setAdvanced] = useState(false);
-  // Manual type assignment (movie / TV episode / home video).
+  // Manual type assignment (movie / TV episode / home video). The type is
+  // applied when a provider/local result is picked, so no show/season fields
+  // are needed here.
   const [kind, setKind] = useState<Kind>(item.kind);
-  const [showTitle, setShowTitle] = useState(item.showTitle ?? '');
-  const [seasonNumber, setSeasonNumber] = useState(String(item.seasonNumber ?? 1));
-  const [episodeNumber, setEpisodeNumber] = useState(String(item.episodeNumber ?? 1));
 
   const [posterChoice, setPosterChoice] = useState<ArtChoice>('original');
   const [backdropChoice, setBackdropChoice] = useState<ArtChoice>('original');
@@ -110,9 +109,6 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
     setLocks(d.locks);
     setLocked(d.locked);
     setKind(d.kind);
-    setShowTitle(d.showTitle ?? '');
-    setSeasonNumber(String(d.seasonNumber ?? 1));
-    setEpisodeNumber(String(d.episodeNumber ?? 1));
     if (posterPreview) URL.revokeObjectURL(posterPreview);
     if (backdropPreview) URL.revokeObjectURL(backdropPreview);
     setPosterChoice('original');
@@ -247,22 +243,14 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
       }
       const r = Number(rating);
       if (rating.trim() !== '' && Number.isFinite(r)) patch.rating = r;
-      const typeChanged =
-        kind !== item.kind ||
-        (kind === 'episode' &&
-          (showTitle.trim() !== (item.showTitle ?? '') ||
-            Number(seasonNumber) !== (item.seasonNumber ?? 0) ||
-            Number(episodeNumber) !== (item.episodeNumber ?? 0)));
-      if (typeChanged) {
-        if (kind === 'episode' && showTitle.trim() === '') {
-          throw new Error('Show title is required for a TV episode.');
-        }
-        await api.reclassifyItem(item.id, {
-          kind: kind as 'movie' | 'episode' | 'home_video',
-          showTitle: showTitle.trim(),
-          seasonNumber: Number(seasonNumber) || 0,
-          episodeNumber: Number(episodeNumber) || 0,
-        });
+      // A TV episode needs a show/season, which comes from the search result;
+      // movie/home video can be applied directly here. The episode type is
+      // applied by SearchPluginDialog/LocalSearchDialog when the user picks one.
+      if (kind === 'episode' && item.kind !== 'episode') {
+        throw new Error('To make this a TV episode, pick the show with “Search from Video Info Plugin” or “Select from existing videos”.');
+      }
+      if (kind !== item.kind && kind !== 'episode') {
+        await api.reclassifyItem(item.id, { kind: kind as 'movie' | 'home_video' });
       }
       await api.patchItem(item.id, patch);
       if (posterChoice === 'upload' && posterFile) await api.uploadArt(item.id, 'poster', posterFile);
@@ -342,22 +330,11 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                           <option value="home_video">Home video</option>
                         </select>
                       </Field>
-                      {kind === 'episode' ? (
-                        <>
-                          <Field label="Show title">
-                            <input value={showTitle} onChange={(e) => setShowTitle(e.target.value)} className={inputClass} placeholder="e.g. Breaking Bad" />
-                          </Field>
-                          <Field label="Season">
-                            <input type="number" min={0} value={seasonNumber} onChange={(e) => setSeasonNumber(e.target.value)} className={inputClass} />
-                          </Field>
-                          <Field label="Episode">
-                            <input type="number" min={0} value={episodeNumber} onChange={(e) => setEpisodeNumber(e.target.value)} className={inputClass} />
-                          </Field>
-                        </>
-                      ) : null}
                     </div>
                     <p className="mt-2 text-[11px] text-fg-dim">
-                      Changing the type clears the current provider match; search again after saving. The choice survives rescans.
+                      Pick a type, then use <strong className="text-fg-muted">Search from Video Info Plugin</strong> or{' '}
+                      <strong className="text-fg-muted">Select from existing videos</strong> — the chosen type is applied when you pick a result.
+                      The choice survives rescans.
                     </p>
                   </div>
                 ) : null}
@@ -518,6 +495,7 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
       {localOpen ? (
         <LocalSearchDialog
           item={base}
+          kind={kind}
           onClose={() => setLocalOpen(false)}
           onApplied={(d) => {
             applyDetail(d);
@@ -534,8 +512,8 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
       {searchOpen ? (
         <SearchPluginDialog
           item={base}
-          query={base.kind === 'episode' || base.kind === 'season' ? base.showTitle || base.title : base.title}
-          mode={base.kind === 'episode' ? 'episode' : base.kind === 'season' ? 'season' : undefined}
+          query={kind === 'episode' ? item.showTitle || item.title : item.title}
+          kind={kind}
           onClose={() => setSearchOpen(false)}
           onMatched={(d) => {
             applyDetail(d);
@@ -801,17 +779,18 @@ function ArtPanel({
 
 function LocalSearchDialog({
   item,
+  kind,
   onClose,
   onApplied,
   onBestEffort,
 }: {
   item: ItemDetail;
+  kind: Kind;
   onClose: () => void;
   onApplied: (d: ItemDetail) => void;
   onBestEffort: (source: Item) => void;
 }) {
-  const seriesTarget = item.kind === 'episode' || item.kind === 'season';
-  const defaultQuery = seriesTarget ? item.showTitle || item.title : item.title;
+  const defaultQuery = kind === 'episode' ? item.showTitle || item.title : item.title;
   const [query, setQuery] = useState(defaultQuery);
   const [searchFor, setSearchFor] = useState(defaultQuery);
   const [selected, setSelected] = useState<number | null>(null);
@@ -825,15 +804,19 @@ function LocalSearchDialog({
 
   const apply = useMutation({
     mutationFn: async (source: Item) => {
-      if (seriesTarget && source.kind === 'show') {
-        if (!source.providerId) {
-          throw new Error('This series has no TMDb match yet — match the series first.');
+      if (kind === 'episode') {
+        const sourceDetail = await api.item(source.id);
+        if (source.kind !== 'episode' || !sourceDetail.showTitle) {
+          throw new Error('Pick an existing episode so its show/season/episode can be applied.');
         }
-        const lang = window.localStorage.getItem('mvs.tmdbLanguage') || 'en-US';
-        if (item.kind === 'episode') {
-          return api.match(item.id, source.providerId, lang, item.seasonNumber, item.episodeNumber);
-        }
-        return api.match(item.id, source.providerId, lang, item.seasonNumber);
+        await api.reclassifyItem(item.id, {
+          kind: 'episode',
+          showTitle: sourceDetail.showTitle,
+          seasonNumber: sourceDetail.seasonNumber ?? 1,
+          episodeNumber: sourceDetail.episodeNumber ?? 1,
+        });
+      } else if (kind !== item.kind) {
+        await api.reclassifyItem(item.id, { kind: kind as 'movie' | 'home_video' });
       }
       return api.applyLocal(item.id, source.id);
     },
@@ -844,9 +827,8 @@ function LocalSearchDialog({
     },
   });
 
-  const targetKind = seriesTarget ? 'show' : item.kind;
   const candidates = (results.data?.items ?? []).filter(
-    (c) => c.kind === targetKind && c.id !== item.id && c.libraryId === item.libraryId,
+    (c) => c.kind === kind && c.id !== item.id && c.libraryId === item.libraryId,
   );
   const selectedItem = candidates.find((c) => c.id === selected) ?? null;
 
@@ -860,8 +842,8 @@ function LocalSearchDialog({
       footer={
         <>
           <p className="text-[11px] text-fg-dim">
-            {seriesTarget
-              ? 'Select the TV series; the episode/season is fetched from TMDb using the series match.'
+            {kind === 'episode'
+              ? 'Pick an existing episode: its show, season/episode numbers and metadata are applied.'
               : 'Copies title, overview, genres, cast and artwork from the selected item.'}
           </p>
           <div className="flex items-center gap-2">
@@ -893,7 +875,7 @@ function LocalSearchDialog({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={seriesTarget ? 'Search TV series in your library…' : 'Search your library…'}
+            placeholder={kind === 'episode' ? 'Search episodes in your library…' : 'Search your library…'}
             aria-label="Search your library"
             className="h-9 w-full rounded-md border border-hairline-strong bg-surface-2 pl-8 pr-3 text-[12.5px] text-fg outline-none placeholder:text-fg-dim"
           />
@@ -913,7 +895,7 @@ function LocalSearchDialog({
           <p className="px-4 py-8 text-center text-[12.5px] text-fg-dim">Searching…</p>
         ) : candidates.length === 0 ? (
           <p className="px-4 py-8 text-center text-[12.5px] text-fg-dim">
-            No matching {seriesTarget ? 'TV series' : item.kind === 'show' ? 'TV shows' : 'movies'} in this library.
+            No matching {kind === 'episode' ? 'episodes' : kind === 'movie' ? 'movies' : 'home videos'} in this library.
           </p>
         ) : (
           <table className="w-full text-left text-[12px]">
@@ -970,26 +952,27 @@ function LocalSearchDialog({
 function SearchPluginDialog({
   item,
   query: initialQuery,
-  mode,
+  kind,
   onClose,
   onMatched,
   onBestEffort,
 }: {
   item: ItemDetail;
   query: string;
-  mode?: 'episode' | 'season';
+  kind: Kind;
   onClose: () => void;
   onMatched: (d: ItemDetail) => void;
   onBestEffort: (c: Candidate) => void;
 }) {
+  const mode = kind === 'episode' ? 'episode' : kind === 'season' ? 'season' : undefined;
   const [query, setQuery] = useState(initialQuery);
   const [language, setLanguage] = useState(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem(LANG_KEY) : null;
     return saved && LANGUAGES.some(([v]) => v === saved) ? saved : 'en-US';
   });
   const [searchFor, setSearchFor] = useState({ q: initialQuery, language });
-  const [season, setSeason] = useState(item.seasonNumber ? String(item.seasonNumber) : '');
-  const [episodeNo, setEpisodeNo] = useState(item.episodeNumber ? String(item.episodeNumber) : '');
+  const [season, setSeason] = useState(item.seasonNumber ? String(item.seasonNumber) : '1');
+  const [episodeNo, setEpisodeNo] = useState(item.episodeNumber ? String(item.episodeNumber) : '1');
   const [selected, setSelected] = useState<string | null>(null);
   const [provider, setProvider] = useState(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem('mvs.metadataProvider') : null;
@@ -998,8 +981,10 @@ function SearchPluginDialog({
   const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers, staleTime: 60_000 });
   // Providers that are configured and support this item kind. With one provider
   // the selector is hidden; future plugins appear here automatically.
+  // Home videos are searched as movies, so movie providers serve them too.
+  const providerKind = kind === 'home_video' ? 'movie' : kind;
   const available = (providers.data?.providers ?? []).filter(
-    (p) => p.configured && p.kinds.includes(item.kind),
+    (p) => p.configured && p.kinds.includes(providerKind),
   );
 
   useEffect(() => {
@@ -1007,29 +992,39 @@ function SearchPluginDialog({
     if (!available.some((p) => p.name === provider)) {
       setProvider(available[0]?.name ?? 'tmdb');
     }
-  }, [providers.data, provider, item.kind]);
+  }, [providers.data, provider, kind]);
 
   const matches = useQuery({
-    queryKey: ['matches', item.id, searchFor.q, searchFor.language, provider],
-    queryFn: () => api.matches(item.id, searchFor.q, undefined, searchFor.language, provider),
+    queryKey: ['matches', item.id, kind, searchFor.q, searchFor.language, provider],
+    queryFn: () => api.matches(item.id, searchFor.q, undefined, searchFor.language, provider, kind),
     enabled: searchFor.q.trim().length > 0 && !providers.isLoading,
     retry: false,
   });
 
   const match = useMutation({
-    mutationFn: (c: Candidate) => {
-      if (mode === 'episode') {
-        return api.match(
-          item.id,
-          c.providerId,
-          searchFor.language,
-          Number(season) || undefined,
-          Number(episodeNo) || undefined,
-          provider,
-        );
+    mutationFn: async (c: Candidate) => {
+      // Apply the selected type first: an episode needs a show/season parent, and
+      // a home video must become a movie before movie details are applied.
+      const seasonNo = Number(season) || 1;
+      const episodeNoValue = Number(episodeNo) || 1;
+      const typeChanged =
+        kind !== item.kind ||
+        (kind === 'episode' &&
+          (seasonNo !== (item.seasonNumber ?? 0) || episodeNoValue !== (item.episodeNumber ?? 0)));
+      if (typeChanged) {
+        if (kind === 'episode') {
+          await api.reclassifyItem(item.id, {
+            kind: 'episode',
+            showTitle: c.title,
+            seasonNumber: seasonNo,
+            episodeNumber: episodeNoValue,
+          });
+        } else {
+          await api.reclassifyItem(item.id, { kind: kind as 'movie' | 'home_video' });
+        }
       }
-      if (mode === 'season') {
-        return api.match(item.id, c.providerId, searchFor.language, Number(season) || undefined, undefined, provider);
+      if (kind === 'episode') {
+        return api.match(item.id, c.providerId, searchFor.language, seasonNo, episodeNoValue, provider);
       }
       return api.match(item.id, c.providerId, searchFor.language, undefined, undefined, provider);
     },

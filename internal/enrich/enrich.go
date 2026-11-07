@@ -202,6 +202,15 @@ func (s *Service) SetArtFromURL(ctx context.Context, itemID int64, kind, url str
 
 // Search returns provider candidates for an item, best first.
 func (s *Service) Search(ctx context.Context, itemID int64, query string, year int, language, providerName string) ([]metadata.Candidate, error) {
+	return s.SearchAs(ctx, itemID, "", query, year, language, providerName)
+}
+
+// SearchAs is Search with a type override. The edit dialog lets the admin pick
+// movie / TV episode / home video before searching, so the query must run
+// against the chosen type even though the item has not been reclassified yet.
+// For an episode without a parent show, the item's own title is used as the
+// show-title query (the user picks the series from the results).
+func (s *Service) SearchAs(ctx context.Context, itemID int64, kindOverride, query string, year int, language, providerName string) ([]metadata.Candidate, error) {
 	provider, err := s.providers.Get(ctx, providerName)
 	if err != nil {
 		return nil, err
@@ -210,34 +219,31 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 	if err != nil {
 		return nil, err
 	}
-	searchTV := item.Kind == store.KindShow
-	if item.Kind == store.KindSeason {
-		show, err := s.showForSeason(ctx, item)
-		if err != nil {
-			return nil, err
-		}
-		if show == nil {
-			return nil, metadata.ErrNoMatch
-		}
+	kind := item.Kind
+	if kindOverride != "" {
+		kind = kindOverride
+	}
+	searchTV := false
+	switch kind {
+	case store.KindShow:
+		searchTV = true
+	case store.KindSeason:
 		searchTV = true
 		if query == "" {
-			query = show.Title
+			if show, err := s.showForSeason(ctx, item); err == nil && show != nil {
+				query = show.Title
+			}
 		}
-	} else if item.Kind == store.KindEpisode {
-		show, err := s.showForEpisode(ctx, item)
-		if err != nil {
-			return nil, err
-		}
-		if show == nil {
-			return nil, metadata.ErrNoMatch
-		}
+	case store.KindEpisode:
 		searchTV = true
 		if query == "" {
-			query = show.Title
+			if show, err := s.showForEpisode(ctx, item); err == nil && show != nil {
+				query = show.Title
+			}
 		}
-	} else if item.Kind != store.KindMovie && item.Kind != store.KindShow && item.Kind != store.KindHomeVideo {
-		// Home videos are standalone files: let the user search movies manually so a
-		// misclassified episode can still be identified without renaming it.
+	case store.KindMovie, store.KindHomeVideo:
+		// standalone files: movie search
+	default:
 		return nil, metadata.ErrUnsupportedKind
 	}
 	if query == "" {
@@ -261,7 +267,7 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 		return nil, err
 	}
 	for i := range candidates {
-		candidates[i].MediaType = mediaTypeFor(item.Kind)
+		candidates[i].MediaType = mediaTypeFor(kind)
 		if candidates[i].Provider == "" {
 			candidates[i].Provider = provider.Name()
 		}
@@ -701,7 +707,8 @@ func (s *Service) cacheImage(ctx context.Context, url string) (string, error) {
 }
 
 func mediaTypeFor(kind string) string {
-	if kind == store.KindShow {
+	switch kind {
+	case store.KindShow, store.KindSeason, store.KindEpisode:
 		return "tv"
 	}
 	return "movie"

@@ -87,6 +87,19 @@ func TestHomeVideoCanBeSearchedAndMatched(t *testing.T) {
 		t.Fatalf("search queries = %v", provider.searchQueries)
 	}
 
+	// Searching as an episode (the edit dialog's type override) uses TV search and
+	// falls back to the item title when there is no parent show yet.
+	tvCandidates, err := svc.SearchAs(ctx, item.ID, "episode", "", 0, "", "fake")
+	if err != nil {
+		t.Fatalf("search as episode: %v", err)
+	}
+	if len(tvCandidates) != 1 || tvCandidates[0].MediaType != "tv" {
+		t.Fatalf("tv candidates = %+v", tvCandidates)
+	}
+	if got := provider.searchQueries[len(provider.searchQueries)-1]; got != "some episode" {
+		t.Fatalf("episode search query = %q", got)
+	}
+
 	if err := svc.Match(ctx, item.ID, "42", "", 0, 0, "fake"); err != nil {
 		t.Fatalf("match home video: %v", err)
 	}
