@@ -235,7 +235,9 @@ func (s *Service) Search(ctx context.Context, itemID int64, query string, year i
 		if query == "" {
 			query = show.Title
 		}
-	} else if item.Kind != store.KindMovie && item.Kind != store.KindShow {
+	} else if item.Kind != store.KindMovie && item.Kind != store.KindShow && item.Kind != store.KindHomeVideo {
+		// Home videos are standalone files: let the user search movies manually so a
+		// misclassified episode can still be identified without renaming it.
 		return nil, metadata.ErrUnsupportedKind
 	}
 	if query == "" {
@@ -319,7 +321,7 @@ func (s *Service) Match(ctx context.Context, itemID int64, providerID string, la
 		}
 		return s.apply(ctx, item, provider, d, "manual", 1, nil)
 	}
-	if item.Kind != store.KindMovie && item.Kind != store.KindShow {
+	if item.Kind != store.KindMovie && item.Kind != store.KindShow && item.Kind != store.KindHomeVideo {
 		return metadata.ErrUnsupportedKind
 	}
 	details, err := s.detailsLang(ctx, provider, item, providerID, language)

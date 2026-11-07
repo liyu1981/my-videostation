@@ -303,7 +303,7 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                   <p className="mb-3 rounded-md border border-new/40 bg-new/10 px-3 py-2 text-[11.5px] text-new">{bestEffort}</p>
                 ) : null}
                 <div className="mb-4 flex flex-wrap items-center gap-2">
-                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' || item.kind === 'season' ? (
+                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' || item.kind === 'season' || item.kind === 'home_video' ? (
                     <button
                       type="button"
                       onClick={() => setSearchOpen(true)}
@@ -312,9 +312,9 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                       Search from Video Info Plugin
                     </button>
                   ) : (
-                    <span className="text-[11.5px] text-fg-dim">Metadata search is available for movies, TV shows, seasons and episodes.</span>
+                    <span className="text-[11.5px] text-fg-dim">Metadata search is available for movies, TV shows, seasons, episodes and home videos.</span>
                   )}
-                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' || item.kind === 'season' ? (
+                  {item.kind === 'movie' || item.kind === 'show' || item.kind === 'episode' || item.kind === 'season' || item.kind === 'home_video' ? (
                     <button
                       type="button"
                       onClick={() => setLocalOpen(true)}
@@ -326,9 +326,10 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                   <button
                     type="button"
                     onClick={reset}
+                    title="Discard unsaved edits and restore the saved values"
                     className="rounded-md border border-hairline-strong bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted hover:bg-surface-3 hover:text-fg"
                   >
-                    Reset
+                    Reset changes
                   </button>
                 </div>
 
