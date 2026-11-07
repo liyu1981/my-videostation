@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useAtom } from 'jotai';
@@ -126,6 +126,22 @@ export function DetailPage() {
       void qc.invalidateQueries({ queryKey: ['home'] });
     },
   });
+
+  // Folder-scoped rescan: a show re-walks its own folder, a season its folder.
+  const rescanFiles = useMutation({
+    mutationFn: () => api.rescanItem(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['jobs'] });
+      void qc.invalidateQueries({ queryKey: ['item', id] });
+      void qc.invalidateQueries({ queryKey: ['browse'] });
+      void qc.invalidateQueries({ queryKey: ['home'] });
+    },
+  });
+  // Navigating to another item should not keep the previous item's "queued" label.
+  useEffect(() => {
+    rescanFiles.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   if (item.isLoading) return <Loading />;
   if (item.isError) return <ErrorState error={item.error} />;
@@ -266,6 +282,14 @@ export function DetailPage() {
                   {isAdmin ? (
                     <MenuItem onClick={() => { setMenuOpen(false); setEditing(detail); }} icon={<Pencil className="size-3.5" aria-hidden />}>
                       Edit video info
+                    </MenuItem>
+                  ) : null}
+                  {isAdmin ? (
+                    <MenuItem
+                      onClick={() => { setMenuOpen(false); rescanFiles.mutate(); }}
+                      icon={<RefreshCw className="size-3.5" aria-hidden />}
+                    >
+                      {rescanFiles.isPending ? 'Queuing rescan…' : rescanFiles.isSuccess ? 'Rescan queued' : 'Rescan files'}
                     </MenuItem>
                   ) : null}
                   {isAdmin && detail.providerId ? (

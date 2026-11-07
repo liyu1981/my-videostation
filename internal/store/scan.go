@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -90,6 +91,25 @@ func (s *Store) FileStats(ctx context.Context, libraryID int64) (map[string]File
 func (s *Store) ResetMissing(ctx context.Context, libraryID int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE media_files SET missing = 1 WHERE library_id = ?`, libraryID)
 	return wrap("reset missing", err)
+}
+
+// ResetMissingUnder flags the files below one folder as missing, leaving the rest
+// of the library alone. Folder-scoped rescans use it so a show/season rescan can
+// notice deletions inside its own tree without touching sibling folders.
+func (s *Store) ResetMissingUnder(ctx context.Context, libraryID int64, prefix string) error {
+	prefix = filepath.Clean(prefix)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE media_files SET missing = 1
+		 WHERE library_id = ? AND (path = ? OR path LIKE ? ESCAPE '\')`,
+		libraryID, prefix, escapeLike(prefix)+"/%")
+	return wrap("reset missing under", err)
+}
+
+// escapeLike escapes LIKE wildcards so a path containing % or _ matches literally.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	return strings.ReplaceAll(s, `_`, `\_`)
 }
 
 // ApplyScanBatch persists a batch of scanned files in one transaction.

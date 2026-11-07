@@ -121,8 +121,9 @@ func run() error {
 	manager := jobs.New(st, log)
 	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		var payload struct {
-			LibraryID int64 `json:"libraryId"`
-			Force     bool  `json:"force"`
+			LibraryID int64  `json:"libraryId"`
+			Force     bool   `json:"force"`
+			Scope     string `json:"scope"`
 		}
 		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
 			return fmt.Errorf("bad job payload: %w", err)
@@ -130,12 +131,18 @@ func run() error {
 		if payload.LibraryID == 0 {
 			return errors.New("missing libraryId")
 		}
-		// Any scan (manual, watcher, create) resets the auto-scan clock so the
-		// scheduler does not immediately scan the same library again.
-		_ = st.MarkAutoScan(ctx, payload.LibraryID)
+		// Any full scan (manual, watcher, create) resets the auto-scan clock so the
+		// scheduler does not immediately scan the same library again. A folder-scoped
+		// rescan says nothing about the rest of the library, so it leaves the clock.
+		if payload.Scope == "" {
+			_ = st.MarkAutoScan(ctx, payload.LibraryID)
+		}
 		name := "library"
 		if lib, err := st.GetLibrary(ctx, payload.LibraryID); err == nil {
 			name = lib.Name
+		}
+		if payload.Scope != "" {
+			name = filepath.Base(payload.Scope)
 		}
 		lastMsg := ""
 		var logMu sync.Mutex
@@ -159,12 +166,20 @@ func run() error {
 
 		if payload.Force {
 			reportMsg(0, "rescanning "+name+" (force re-probe)")
+		} else if payload.Scope != "" {
+			reportMsg(0, "rescanning "+name)
 		} else {
 			reportMsg(0, "scanning "+name)
 		}
-		stats, err := sc.ScanLibraryForce(ctx, payload.LibraryID, payload.Force, reportMsg)
-		if err != nil {
-			return err
+		var stats scanner.Stats
+		var scanErr error
+		if payload.Scope != "" {
+			stats, scanErr = sc.ScanLibraryScoped(ctx, payload.LibraryID, payload.Scope, payload.Force, reportMsg)
+		} else {
+			stats, scanErr = sc.ScanLibraryForce(ctx, payload.LibraryID, payload.Force, reportMsg)
+		}
+		if scanErr != nil {
+			return scanErr
 		}
 		reportMsg(100, name+": "+stats.String())
 		// Chain the first metadata pass: a scan leaves unmatched items, so queue

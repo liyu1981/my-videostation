@@ -117,6 +117,52 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 // ScanLibraryForce indexes one library. With force=true every file is re-probed
 // (and sidecar metadata re-applied), regardless of size/mtime.
 func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force bool, report func(float64, string)) (Stats, error) {
+	return sc.scanLibrary(ctx, libraryID, "", force, report)
+}
+
+// ScanLibraryScoped rescans one folder inside a library — a show or a season
+// directory. scope must be a directory inside one of the library's roots.
+// Unlike a full scan it only touches rows under scope: files elsewhere are never
+// reset or re-walked, orphan cleanup and rule reconciliation are skipped, and the
+// library's last-scan clock is left alone (a partial scan does not prove the rest
+// of the library is fresh).
+func (sc *Scanner) ScanLibraryScoped(ctx context.Context, libraryID int64, scope string, force bool, report func(float64, string)) (Stats, error) {
+	return sc.scanLibrary(ctx, libraryID, scope, force, report)
+}
+
+// walkTarget pairs the directory to walk with the root its rel paths are relative
+// to. They differ only for a scoped scan, where the walk starts inside a library
+// root but rel paths must stay stable (rules and media_files.rel_path are
+// library-relative).
+type walkTarget struct {
+	dir     string
+	relRoot string
+}
+
+// scopedTarget resolves a requested folder to the library root containing it.
+func scopedTarget(lib *store.Library, scope string) (walkTarget, error) {
+	scope = filepath.Clean(scope)
+	for _, p := range lib.Paths {
+		root := filepath.Clean(p.Path)
+		rel, err := filepath.Rel(root, scope)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		st, err := os.Stat(scope)
+		if err != nil {
+			return walkTarget{}, fmt.Errorf("scope %q: %w", scope, err)
+		}
+		if !st.IsDir() {
+			return walkTarget{}, fmt.Errorf("scope %q is not a directory", scope)
+		}
+		return walkTarget{dir: scope, relRoot: root}, nil
+	}
+	return walkTarget{}, fmt.Errorf("scope %q is outside the library", scope)
+}
+
+// scanLibrary indexes a library. With scope == "" every library root is walked and
+// the library-wide bookkeeping runs; with a scope only that folder is walked.
+func (sc *Scanner) scanLibrary(ctx context.Context, libraryID int64, scope string, force bool, report func(float64, string)) (Stats, error) {
 	var stats Stats
 	lib, err := sc.store.GetLibrary(ctx, libraryID)
 	if err != nil {
@@ -129,12 +175,32 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 		sc.log.Warn("ffprobe not found: indexing without technical metadata (run `pnpm bootstrap`)")
 	}
 
+	targets := make([]walkTarget, 0, len(lib.Paths))
+	if scope == "" {
+		for _, p := range lib.Paths {
+			targets = append(targets, walkTarget{dir: p.Path, relRoot: p.Path})
+		}
+	} else {
+		t, err := scopedTarget(lib, scope)
+		if err != nil {
+			return stats, err
+		}
+		targets = append(targets, t)
+	}
+
 	known, err := sc.store.FileStats(ctx, libraryID)
 	if err != nil {
 		return stats, err
 	}
-	if err := sc.store.ResetMissing(ctx, libraryID); err != nil {
-		return stats, err
+	if scope == "" {
+		if err := sc.store.ResetMissing(ctx, libraryID); err != nil {
+			return stats, err
+		}
+	} else {
+		// Only files under the scope can disappear in a folder-scoped scan.
+		if err := sc.store.ResetMissingUnder(ctx, libraryID, targets[0].dir); err != nil {
+			return stats, err
+		}
 	}
 
 	rules := scanrules.New(scanrules.Options{
@@ -146,11 +212,11 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 
 	report(0, "walking folders")
 	var files []foundFile
-	for _, p := range lib.Paths {
-		sc.logf("info", "walking %s", p.Path)
-		got, err := sc.discover(ctx, p.Path, rules, &stats)
+	for _, t := range targets {
+		sc.logf("info", "walking %s", t.dir)
+		got, err := sc.discover(ctx, t.dir, t.relRoot, rules, &stats)
 		if err != nil {
-			sc.logf("warn", "walk failed: %s: %v", p.Path, err)
+			sc.logf("warn", "walk failed: %s: %v", t.dir, err)
 			stats.Errors++
 			continue
 		}
@@ -254,18 +320,22 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 	if err := flush(true); err != nil {
 		return stats, err
 	}
-	if err := sc.store.DeleteOrphanItems(ctx, libraryID); err != nil {
-		return stats, err
-	}
-	if merged, err := sc.store.MergePartDuplicates(ctx, libraryID); err != nil {
-		sc.logf("warn", "duplicate part merge failed: %v", err)
-	} else if merged > 0 {
-		sc.logf("info", "merged %d duplicate part item(s)", merged)
-	}
-	sc.reconcileRuleVisibility(ctx, lib, rules)
-	for _, p := range lib.Paths {
-		if err := sc.store.MarkScanned(ctx, p.ID); err != nil {
+	// Library-wide bookkeeping only makes sense when the whole library was walked;
+	// a scoped scan would delete/merge rows it never saw.
+	if scope == "" {
+		if err := sc.store.DeleteOrphanItems(ctx, libraryID); err != nil {
 			return stats, err
+		}
+		if merged, err := sc.store.MergePartDuplicates(ctx, libraryID); err != nil {
+			sc.logf("warn", "duplicate part merge failed: %v", err)
+		} else if merged > 0 {
+			sc.logf("info", "merged %d duplicate part item(s)", merged)
+		}
+		sc.reconcileRuleVisibility(ctx, lib, rules)
+		for _, p := range lib.Paths {
+			if err := sc.store.MarkScanned(ctx, p.ID); err != nil {
+				return stats, err
+			}
 		}
 	}
 	report(100, stats.String())
@@ -590,7 +660,12 @@ func relOf(root, child string) string {
 	return rel
 }
 
-func (sc *Scanner) discover(ctx context.Context, root string, rules scanrules.Rules, stats *Stats) ([]foundFile, error) {
+// discover walks walkRoot and reports each video file with its rel path computed
+// against relRoot (equal to walkRoot for a full scan; the library root for a
+// folder-scoped scan, so rel paths stay stable).
+func (sc *Scanner) discover(ctx context.Context, walkRoot, relRoot string, rules scanrules.Rules, stats *Stats) ([]foundFile, error) {
+	root := filepath.Clean(walkRoot)
+	relRoot = filepath.Clean(relRoot)
 	info, err := os.Stat(root)
 	if err != nil {
 		return nil, err
@@ -598,7 +673,6 @@ func (sc *Scanner) discover(ctx context.Context, root string, rules scanrules.Ru
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%s is not a directory", root)
 	}
-	root = filepath.Clean(root)
 
 	var out []foundFile
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -614,7 +688,7 @@ func (sc *Scanner) discover(ctx context.Context, root string, rules scanrules.Ru
 			if path != root && (skipDirs[strings.ToLower(name)] || strings.HasPrefix(name, ".")) {
 				return filepath.SkipDir
 			}
-			if path != root && rules.Excluded(relOf(root, path)) {
+			if path != root && rules.Excluded(relOf(relRoot, path)) {
 				stats.Skipped++
 				return filepath.SkipDir
 			}
@@ -627,13 +701,13 @@ func (sc *Scanner) discover(ctx context.Context, root string, rules scanrules.Ru
 		if err != nil {
 			return nil
 		}
-		rel := relOf(root, path)
+		rel := relOf(relRoot, path)
 		if skip, why := rules.SkipFile(rel, st.Size()); skip {
 			stats.Skipped++
 			sc.log.Debug("skip file", "path", path, "reason", why)
 			return nil
 		}
-		f := foundFile{path: path, rel: rel, root: root, size: st.Size(), mtime: st.ModTime().Unix()}
+		f := foundFile{path: path, rel: rel, root: relRoot, size: st.Size(), mtime: st.ModTime().Unix()}
 		f.inode = inodeOf(st)
 		out = append(out, f)
 		return nil

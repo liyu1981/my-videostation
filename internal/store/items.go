@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1034,6 +1035,39 @@ func ftsQuery(q string) string {
 		parts[i] = `"` + p + `"*`
 	}
 	return strings.Join(parts, " AND ")
+}
+
+// ItemScopeDirs returns the distinct directories holding files for the item and
+// every descendant — a show yields its season folders, a season its episode
+// folder. Used to scope a rescan to one part of a library.
+func (s *Store) ItemScopeDirs(ctx context.Context, itemID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		WITH RECURSIVE subtree(id) AS (
+			SELECT ?1
+			UNION ALL
+			SELECT m.id FROM media_items m JOIN subtree ON m.parent_id = subtree.id
+		)
+		SELECT DISTINCT mf.path FROM media_files mf
+		WHERE mf.item_id IN (SELECT id FROM subtree)
+		ORDER BY mf.path`, itemID)
+	if err != nil {
+		return nil, wrap("item scope dirs", err)
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	out := []string{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, wrap("item scope dirs", err)
+		}
+		dir := filepath.Dir(path)
+		if !seen[dir] {
+			seen[dir] = true
+			out = append(out, dir)
+		}
+	}
+	return out, wrap("item scope dirs", rows.Err())
 }
 
 // refreshFTS rebuilds the search row for one item.

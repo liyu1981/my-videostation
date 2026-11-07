@@ -486,6 +486,8 @@ export const api = {
     request<{ ok: boolean }>(`/playback/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => ({ ok: false })),
   capabilities: () => request<PlaybackCapabilities>('/playback/capabilities'),
   neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
+  rescanItem: (id: number, force = false) =>
+    request<Job>(`/items/${id}/rescan`, { method: 'POST', body: JSON.stringify({ force }) }),
   progress: (id: number, body: { positionMs: number; durationMs: number; played: boolean }) =>
     request<{ ok: boolean }>(`/items/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),
   castDLNADevices: () => request<{ devices: DLNADevice[] }>('/cast/dlna/discover', { method: 'POST' }),

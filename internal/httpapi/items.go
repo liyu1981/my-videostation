@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -392,4 +393,108 @@ func (s *Server) handleApplyLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+// handleRescanItem queues a folder-scoped rescan for one item: the directories
+// holding its files and its descendants' files (a show rescans its whole tree, a
+// season its episode folder). Only files under that folder are re-walked — the
+// rest of the library is untouched, so it is much cheaper than a library scan.
+func (s *Server) handleRescanItem(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	it, err := s.store.GetItem(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	var in struct {
+		Force bool `json:"force"`
+	}
+	if r.ContentLength > 0 {
+		if err := decodeJSON(r, &in); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body: "+err.Error())
+			return
+		}
+	}
+	dirs, err := s.store.ItemScopeDirs(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if len(dirs) == 0 {
+		writeError(w, http.StatusConflict, "no_files", "item has no files to rescan")
+		return
+	}
+	scope := commonDir(dirs)
+	// A show's files live in season folders; rescan the show folder so a brand-new
+	// season is picked up too, not just changes inside the existing one.
+	if it.Kind == store.KindShow {
+		if lib, err := s.store.GetLibrary(r.Context(), it.LibraryID); err == nil {
+			scope = showScopeDir(lib, scope)
+		}
+	}
+	job, err := s.jobs.Enqueue(r.Context(), "scan", map[string]any{
+		"libraryId": it.LibraryID,
+		"force":     in.Force,
+		"scope":     scope,
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.audit(r, "item.rescan", "item:"+strconv.FormatInt(id, 10), jobAction(in.Force))
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+// commonDir returns the deepest directory containing every path in dirs.
+func commonDir(dirs []string) string {
+	base := filepath.Clean(dirs[0])
+	for _, d := range dirs[1:] {
+		d = filepath.Clean(d)
+		for {
+			rel, err := filepath.Rel(base, d)
+			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				break // d sits under base, so base already contains both
+			}
+			parent := filepath.Dir(base)
+			if parent == base {
+				break // filesystem root
+			}
+			base = parent
+		}
+	}
+	return base
+}
+
+// seasonDirPattern matches the folder names scanners see between a show and its
+// episodes. Used to climb from an episode folder to the show folder.
+var seasonDirPattern = regexp.MustCompile(`(?i)^(season|series|specials?|s\d{1,3}|staffel|temporada|saison|seizoen)\b`)
+
+// showScopeDir turns the folder that holds a show's episodes into the show folder
+// itself, stopping at the library root. Flat shows (files directly in the show
+// folder) are returned unchanged.
+func showScopeDir(lib *store.Library, dir string) string {
+	dir = filepath.Clean(dir)
+	roots := make([]string, 0, len(lib.Paths))
+	for _, p := range lib.Paths {
+		roots = append(roots, filepath.Clean(p.Path))
+	}
+	for {
+		if !seasonDirPattern.MatchString(filepath.Base(dir)) {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dir
+		}
+		for _, root := range roots {
+			if parent == root || dir == root {
+				return dir // never climb out of the library root
+			}
+		}
+		dir = parent
+	}
 }

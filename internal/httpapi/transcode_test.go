@@ -52,10 +52,15 @@ func newTranscodeTestServer(t *testing.T) (*httptest.Server, *store.Store, strin
 	scan := scanner.New(st, prober, log)
 	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		var payload struct {
-			LibraryID int64 `json:"libraryId"`
-			Force     bool  `json:"force"`
+			LibraryID int64  `json:"libraryId"`
+			Force     bool   `json:"force"`
+			Scope     string `json:"scope"`
 		}
 		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			return err
+		}
+		if payload.Scope != "" {
+			_, err := scan.ScanLibraryScoped(ctx, payload.LibraryID, payload.Scope, payload.Force, func(float64, string) {})
 			return err
 		}
 		_, err := scan.ScanLibraryForce(ctx, payload.LibraryID, payload.Force, func(float64, string) {})
