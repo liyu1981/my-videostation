@@ -58,7 +58,7 @@ local trailer files are indexed as extras).
 | Online metadata scrape (posters, fanart, cast, plot) | Provider layer (TMDb primary; future plugins) | M2 |
 | TV hierarchy Season/Episode, next-up | `shows → seasons → episodes`, auto-advance | M2/M3 |
 | Home videos / personal videos | `kind=home_video`, minimal metadata, date-sorted | M3 |
-| Web playback (HTML5 + transcode for unsupported codecs) | Direct play + HLS transcode on demand | M4/M5 |
+| Web playback (HTML5 + transcode for unsupported codecs) | Direct play + **background transcode cache** (MP4 variants; on-demand HLS is legacy during migration, ADR 0006) | M4/M5 |
 | Subtitles (external + embedded), online subtitle search | Sidecar/embedded tracks (M4); **local subtitle full-text index** instead of provider download (GAP-012, `docs/SUBTITLE-INDEX.md`) | M4/M7 |
 | Resume playback / watched state | Central `playback_progress` per user | M4 |
 | Collections, genres, favorites, recently added | Collections + genre/favorite/recent browse | M2/M3 |
@@ -82,7 +82,7 @@ local trailer files are indexed as extras).
 │  net/http  ── /api/v1/*   JSON REST                           │
 │            ── /          embedded SPA (go:embed web/dist)     │
 │            ── /media/*   byte-range streaming                 │
-│            ── /hls/*     transcoded segments (later)          │
+│            ── /hls/*     legacy on-demand segments (ADR 0003) │
 │                                                               │
 │  services: library · scanner · metadata · playback · auth     │
 │  jobs:     in-process workers + durable `jobs` table          │
@@ -95,7 +95,8 @@ Principles:
 1. **Media directories are read-only by default.** We never rename/move/delete
    user files unless explicitly enabled. All derived data lives in `/data`.
 2. **All long work is a job.** Scan, identify, art download, transcode → rows in
-   `jobs`, progress over SSE, resumable after restart.
+   `jobs`, progress over SSE, resumable after restart. Transcoding writes a
+   cached variant file (ADR 0006), not a live per-viewer session.
 3. **Files are dumb, identity is ours.** A file row is identified by path;
    `media_items` are logical entities that survive file moves (re-link UI later).
 4. **Everything is incremental.** Stat-based change detection (size+mtime+inode),
@@ -143,7 +144,7 @@ my-video-station/
 | Migrations | `goose` embedded via `embed.FS` | simple up/down, single binary |
 | Search | SQLite **FTS5** (external-content tables) | zero extra infra |
 | Probing | `ffprobe -print_format json` | only reliable codec/stream source |
-| Transcoding | `ffmpeg` HLS fMP4, on demand | M5 |
+| Transcoding | `ffmpeg` background jobs → cached MP4 variants (ADR 0006); on-demand HLS is legacy | M5 |
 | Jobs | DB-backed queue + worker pool + SSE | durable, no redis |
 | Logging | `log/slog` JSON | stdlib |
 | Tests | stdlib + `httptest`, golden files for parser | |
@@ -392,20 +393,31 @@ Audit and implementation notes: [`MONITORING.md`](./MONITORING.md).
 - **Done when**: H.264/AAC/WebM direct-play flawlessly with resume + subtitles.
 
 ### M5 — Transcoding
-**Delivered:** on-demand ffmpeg HLS fMP4 sessions (`internal/playback`) with remux-first
-stream copying, per-session audio selection and subtitle burn-in (text via `subtitles`,
-PGS/VobSub via `overlay`), a single-rendition quality cap (`maxHeight` from the source
-ladder), input-seek at the requested offset, session reuse/eviction, idle reaping and
-cache cleanup, `-progress` parsing surfaced over `/playback/sessions/{id}`, and a browser
-player that falls back from direct play to HLS (`hls.js` loaded on demand) with
-seek-by-session-restart, audio/quality switching and image-subtitle burn-in.
+**Delivered (legacy, being replaced):** on-demand ffmpeg HLS fMP4 sessions
+(`internal/playback`) with remux-first stream copying, per-session audio selection and
+subtitle burn-in (text via `subtitles`, PGS/VobSub via `overlay`), a single-rendition
+quality cap (`maxHeight` from the source ladder), input-seek at the requested offset,
+session reuse/eviction, idle reaping and cache cleanup, `-progress` parsing surfaced over
+`/playback/sessions/{id}`, and a browser player that falls back from direct play to HLS
+(`hls.js` loaded on demand) with seek-by-session-restart, audio/quality switching and
+image-subtitle burn-in.
+
+**Accepted next (ADR 0006):** replace the live-session model with a durable
+`transcode` job that writes a cached MP4 variant (`<data>/cache/transcodes/…`),
+served as a static range-capable file. Per-stream copy/encode rules stay; the
+single-timeline output fixes seek/A-V sync, lets viewers share one conversion,
+survives restarts and removes hls.js. The web player prepares/polls, the Jellyfin
+adapter prefers ready variants and keeps HLS only as the transitional fallback.
 
 - HW encoders are selectable (`MVS_TRANSCODE_ENCODER=libx264|h264_nvenc|h264_qsv` plus
   optional `MVS_TRANSCODE_HWACCEL`); VA-API encode profiles and multi-rendition ABR
-  ladders are not implemented (see ADR 0003).
-- Concurrency is capped globally (`MVS_TRANSCODE_SESSIONS`, default 2);
-  per-user bandwidth limits remain M6 work (GAP-025).
-- **Done** (was: HEVC/AC3/DTS titles play in browser with seek).
+  ladders are not implemented (see ADR 0003/0006).
+- Concurrency becomes worker-based (`MVS_TRANSCODE_WORKERS`, default 1) with queue
+  visibility; per-user bandwidth limits remain M6 work (GAP-025).
+- **Done** (legacy): HEVC/AC3/DTS titles play in browser with seek.
+- **Done when (M5.x)**: a requested variant is queued, converted once, and served with
+  range requests; a second viewer starts no second ffmpeg; seek is accurate; the
+  cache survives a restart.
 
 ### M6 — Users, permissions, i18n
 - **Delivered:** first-run admin setup, login/logout, sessions, admin user management,
@@ -499,8 +511,9 @@ linux/amd64+arm64 binaries, GH Actions (lint, test, build, docker multi-arch).
     `mattn/go-sqlite3` (CGO). Default: **modernc** (matches single static binary + alpine).
 12. Search: SQLite **FTS5** enough, or do you want trigram/fuzzy matching too?
     (default: FTS5 now, fuzzy in M3)
-13. Transcoding target: **HLS fMP4** with remux-first, HW accel optional. Any
-    specific client (Safari/iOS) constraint we must design for now? (default: HLS)
+13. Transcoding target: **background MP4 variant cache** with remux-first, HW accel
+    optional (ADR 0006); on-demand HLS is legacy during migration. Any specific
+    client (Safari/iOS) constraint we must design for now? (default: static MP4)
 14. Hardware transcoding: needed in v1? Which GPU/NAS (Intel QSV, AMD VA-API, Nvidia)?
 15. Media locations: local paths only for v1; SMB/NFS assumed pre-mounted by host.
     In-app remote backends (SMB/NFS/S3/WebDAV) are a **non-goal** (GAP-001);

@@ -40,8 +40,12 @@ Jellyfin **web client** is out of scope for v1.
   keyed by the persisted server id. Stable across restarts, opaque to clients, and
   non-enumerable. This is what makes the Jellyfin-style anonymous artwork/stream
   endpoints safe.
-- **Playback:** HLS via our M5 session pipeline. `DeviceProfile` is ignored in v1;
-  we transcode unless our own direct-play matrix says the file is browser-native.
+- **Playback:** HLS via our M5 session pipeline today; ADR 0006 moves file playback
+  to cached MP4 variants served as static range requests. The adapter contract
+  (`PlaybackInfo`, `DirectStreamUrl`, progress) stays the same; HLS remains the
+  transitional fallback while a variant is being prepared. `DeviceProfile` is
+  ignored in v1; we transcode unless our own direct-play matrix says the file is
+  browser-native.
   This trades CPU for a much smaller capability matrix. `/Items/{id}/Images/*` and
   `/Videos/{id}/stream?static=true` are anonymous (Jellyfin clients fetch them
   without auth headers); opaque ids prevent enumeration.

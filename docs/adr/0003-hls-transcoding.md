@@ -1,6 +1,13 @@
 # ADR 0003 — M5 transcoding: on-demand HLS sessions
 
-Status: accepted · Date: 2026-11-04
+Status: **superseded by [ADR 0006](0006-background-transcode-cache.md)** (playback
+delivery), 2026-11-12 · Date: 2026-11-04
+
+> ADR 0006 replaces the delivery model: transcoding becomes a background job that
+> writes a cached MP4 variant, served as a static range-capable file. The
+> per-stream copy/encode rules (§2) and encoder profiles (§8) carry over; the
+> live session lifecycle and HLS delivery (§1, §3–§5, §7, §9) are legacy and will
+> be removed after the migration. This document is kept for history.
 
 Records how `internal/playback` and the browser player implement M5, and which
 options were deliberately rejected.

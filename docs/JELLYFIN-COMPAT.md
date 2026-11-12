@@ -360,7 +360,9 @@ Later slices: `PlaybackInfo`, `/Videos/*`, `/Sessions/Playing*`, `/Shows/*`,
 - **PlaybackInfo** returns `MediaSources` with `SupportsDirectPlay` (our
   direct-play matrix), `SupportsTranscoding` (ffmpeg present), a
   `DirectStreamUrl` and an HLS `TranscodingUrl`. `DeviceProfile` is still ignored
-  (ADR 0005).
+  (ADR 0005). **Delivery is changing under ADR 0006:** once a cached MP4 variant
+  is ready it becomes the `DirectStreamUrl`; HLS stays as the transitional
+  fallback while the variant is prepared, so the client contract does not change.
 - **TranscodingUrl** contains only `MediaSourceId`, `PlaySessionId` and
   `api_key`; Jellyfin clients append `StartTimeTicks`/`AudioStreamIndex`/
   `SubtitleStreamIndex` themselves, so the manifest handler defaults them and
