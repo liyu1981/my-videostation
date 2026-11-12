@@ -122,9 +122,12 @@ func run() error {
 	manager := jobs.New(st, log)
 	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		var payload struct {
-			LibraryID int64  `json:"libraryId"`
-			Force     bool   `json:"force"`
-			Scope     string `json:"scope"`
+			LibraryID      int64  `json:"libraryId"`
+			Force          bool   `json:"force"`
+			Scope          string `json:"scope"`
+			ScopeShowID    int64  `json:"scopeShowId"`
+			ScopeShowTitle string `json:"scopeShowTitle"`
+			ScopeSeason    int    `json:"scopeSeason"`
 		}
 		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
 			return fmt.Errorf("bad job payload: %w", err)
@@ -175,7 +178,9 @@ func run() error {
 		var stats scanner.Stats
 		var scanErr error
 		if payload.Scope != "" {
-			stats, scanErr = sc.ScanLibraryScoped(ctx, payload.LibraryID, payload.Scope, payload.Force, reportMsg)
+			stats, scanErr = sc.ScanLibraryScopedWithScope(ctx, payload.LibraryID, payload.Scope, scanner.Scope{
+				ShowID: payload.ScopeShowID, ShowTitle: payload.ScopeShowTitle, SeasonNumber: payload.ScopeSeason,
+			}, payload.Force, reportMsg)
 		} else {
 			stats, scanErr = sc.ScanLibraryForce(ctx, payload.LibraryID, payload.Force, reportMsg)
 		}
@@ -183,6 +188,15 @@ func run() error {
 			return scanErr
 		}
 		reportMsg(100, name+": "+stats.String())
+		// A show-scoped rescan uses the identified series as the base for new
+		// episodes: fetch their metadata from the show's provider match.
+		if payload.ScopeShowID > 0 {
+			if estats, err := enricher.EnrichShowEpisodes(ctx, payload.ScopeShowID, reportMsg); err != nil {
+				log.Warn("episode enrichment after scoped rescan failed", "show", payload.ScopeShowID, "err", err)
+			} else if estats.Matched > 0 || estats.Failed > 0 {
+				reportMsg(100, fmt.Sprintf("%s: %d episodes matched, %d failed", name, estats.Matched, estats.Failed))
+			}
+		}
 		// Chain the first metadata pass: a scan leaves unmatched items, so queue
 		// enrichment automatically (deduplicated against an active enrich job).
 		if n, err := st.CountUnmatched(ctx, payload.LibraryID); err == nil && n > 0 {

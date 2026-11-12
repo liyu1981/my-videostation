@@ -86,6 +86,8 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   // applied when a provider/local result is picked, so no show/season fields
   // are needed here.
   const [kind, setKind] = useState<Kind>(item.kind);
+  const [seasonNumber, setSeasonNumber] = useState(String(item.seasonNumber ?? 1));
+  const [episodeNumber, setEpisodeNumber] = useState(String(item.episodeNumber ?? 1));
 
   const [posterChoice, setPosterChoice] = useState<ArtChoice>('original');
   const [backdropChoice, setBackdropChoice] = useState<ArtChoice>('original');
@@ -111,6 +113,8 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
     setLocks(d.locks);
     setLocked(d.locked);
     setKind(d.kind);
+    setSeasonNumber(String(d.seasonNumber ?? 1));
+    setEpisodeNumber(String(d.episodeNumber ?? 1));
     if (posterPreview) URL.revokeObjectURL(posterPreview);
     if (backdropPreview) URL.revokeObjectURL(backdropPreview);
     setPosterChoice('original');
@@ -248,10 +252,16 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
       // A TV episode needs a show/season, which comes from the search result;
       // movie/home video can be applied directly here. The episode type is
       // applied by SearchPluginDialog/LocalSearchDialog when the user picks one.
-      if (kind === 'episode' && item.kind !== 'episode') {
-        throw new Error('To make this a TV episode, pick the show with “Search from Video Info Plugin” or “Select from existing videos”.');
-      }
-      if (kind !== item.kind && kind !== 'episode') {
+      if (kind === 'episode') {
+        if (item.kind !== 'episode') {
+          throw new Error('To make this a TV episode, pick the show with “Search from Video Info Plugin” or “Select from existing videos”. The season/episode numbers below are used for that match.');
+        }
+        const season = Number(seasonNumber) || 0;
+        const episode = Number(episodeNumber) || 0;
+        if (season !== (item.seasonNumber ?? 0) || episode !== (item.episodeNumber ?? 0)) {
+          await api.reclassifyItem(item.id, { kind: 'episode', seasonNumber: season, episodeNumber: episode });
+        }
+      } else if (kind !== item.kind) {
         await api.reclassifyItem(item.id, { kind: kind as 'movie' | 'home_video' });
       }
       await api.patchItem(item.id, patch);
@@ -332,11 +342,22 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                           <option value="home_video">Home video</option>
                         </select>
                       </Field>
+                      {kind === 'episode' ? (
+                        <>
+                          <Field label="Season">
+                            <input type="number" min={0} value={seasonNumber} onChange={(e) => setSeasonNumber(e.target.value)} className={inputClass} />
+                          </Field>
+                          <Field label="Episode">
+                            <input type="number" min={0} value={episodeNumber} onChange={(e) => setEpisodeNumber(e.target.value)} className={inputClass} />
+                          </Field>
+                        </>
+                      ) : null}
                     </div>
                     <p className="mt-2 text-[11px] text-fg-dim">
                       Pick a type, then use <strong className="text-fg-muted">Search from Video Info Plugin</strong> or{' '}
                       <strong className="text-fg-muted">Select from existing videos</strong> — the chosen type is applied when you pick a result.
-                      The choice survives rescans.
+                      Season/episode can be set by hand for specials or trailers the provider does not cover; they are used for the
+                      match. The choice survives rescans.
                     </p>
                   </div>
                 ) : null}
@@ -527,6 +548,8 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
           item={base}
           query={kind === 'episode' ? item.showTitle || item.title : item.title}
           kind={kind}
+          initialSeason={kind === 'episode' ? seasonNumber : undefined}
+          initialEpisode={kind === 'episode' ? episodeNumber : undefined}
           onClose={() => setSearchOpen(false)}
           onMatched={(d) => {
             applyDetail(d);
@@ -1019,6 +1042,8 @@ function SearchPluginDialog({
   item,
   query: initialQuery,
   kind,
+  initialSeason,
+  initialEpisode,
   onClose,
   onMatched,
   onBestEffort,
@@ -1026,6 +1051,8 @@ function SearchPluginDialog({
   item: ItemDetail;
   query: string;
   kind: Kind;
+  initialSeason?: string;
+  initialEpisode?: string;
   onClose: () => void;
   onMatched: (d: ItemDetail) => void;
   onBestEffort: (c: Candidate) => void;
@@ -1037,8 +1064,8 @@ function SearchPluginDialog({
     return saved && LANGUAGES.some(([v]) => v === saved) ? saved : 'en-US';
   });
   const [searchFor, setSearchFor] = useState({ q: initialQuery, language });
-  const [season, setSeason] = useState(item.seasonNumber ? String(item.seasonNumber) : '1');
-  const [episodeNo, setEpisodeNo] = useState(item.episodeNumber ? String(item.episodeNumber) : '1');
+  const [season, setSeason] = useState(initialSeason ?? (item.seasonNumber ? String(item.seasonNumber) : '1'));
+  const [episodeNo, setEpisodeNo] = useState(initialEpisode ?? (item.episodeNumber ? String(item.episodeNumber) : '1'));
   const [selected, setSelected] = useState<string | null>(null);
   const [provider, setProvider] = useState(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem('mvs.metadataProvider') : null;

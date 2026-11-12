@@ -36,6 +36,14 @@ func (f *fakeProvider) TV(ctx context.Context, id string) (*metadata.Details, er
 	return f.Movie(ctx, id)
 }
 
+func (f *fakeProvider) EpisodeLang(_ context.Context, showID string, season, episode int, _ string) (*metadata.EpisodeDetails, error) {
+	return &metadata.EpisodeDetails{
+		Title:    "Pilot",
+		Overview: "Episode metadata from the fake provider.",
+		AirDate:  "2020-01-02",
+	}, nil
+}
+
 // TestHomeVideoCanBeSearchedAndMatched: a home video (the placeholder kind for an
 // unparseable episode) can be searched and matched manually as a movie, so it can
 // be identified without renaming the file.
@@ -109,5 +117,60 @@ func TestHomeVideoCanBeSearchedAndMatched(t *testing.T) {
 	}
 	if got.Title != "Matched Title" {
 		t.Fatalf("title after match = %q", got.Title)
+	}
+}
+
+// TestEnrichShowEpisodes: a show-scoped rescan uses the identified series to
+// fill metadata for its unmatched episodes.
+func TestEnrichShowEpisodes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	d, err := db.Open(ctx, filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(d)
+	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ApplyScanBatch(ctx, []store.ScannedFile{{
+		LibraryID: lib.ID, Path: filepath.Join(dir, "Show", "Season 01", "Show S01E01.mkv"),
+		RelPath: "Show/Season 01/Show S01E01.mkv", Kind: store.KindEpisode,
+		ShowTitle: "Show", SeasonNumber: 1, EpisodeNumber: 1, EpisodeEnd: 1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	shows, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindShow, Page: 1, PerPage: 10})
+	if err != nil || len(shows) != 1 {
+		t.Fatalf("shows = %+v (%v)", shows, err)
+	}
+	show := shows[0]
+	if err := st.ApplyEnrichment(ctx, show.ID, store.Enrichment{
+		Provider: "fake", ProviderID: "99", Status: "matched", Confidence: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := metadata.NewRegistry()
+	reg.Register("fake", func(context.Context) (metadata.Provider, error) { return &fakeProvider{}, nil })
+	svc := NewWithRegistry(st, reg, filepath.Join(dir, "cache"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	stats, err := svc.EnrichShowEpisodes(ctx, show.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Matched != 1 || stats.Failed != 0 {
+		t.Fatalf("stats = %+v", stats)
+	}
+	eps, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindEpisode, Page: 1, PerPage: 10})
+	if err != nil || len(eps) != 1 {
+		t.Fatalf("episodes = %+v (%v)", eps, err)
+	}
+	if eps[0].Title != "Pilot" || eps[0].ProviderID != "99" {
+		t.Fatalf("episode after enrich = %+v", eps[0])
 	}
 }

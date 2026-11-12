@@ -744,16 +744,28 @@ func (s *Store) ReclassifyItem(ctx context.Context, id int64, in ReclassifyInput
 	case KindMovie, KindHomeVideo:
 		// leaf item: no parent, no episode numbers
 	case KindEpisode:
-		showTitle := strings.TrimSpace(in.ShowTitle)
-		if showTitle == "" {
-			return nil, errInvalid("show title is required for an episode")
-		}
 		if in.SeasonNumber < 0 || in.EpisodeNumber < 0 {
 			return nil, errInvalid("season and episode numbers cannot be negative")
 		}
-		showID, _, err := ensureShow(ctx, tx, libraryID, showTitle, in.Year, "", "")
-		if err != nil {
-			return nil, err
+		showTitle := strings.TrimSpace(in.ShowTitle)
+		var showID int64
+		if showTitle != "" {
+			id, _, err := ensureShow(ctx, tx, libraryID, showTitle, in.Year, "", "")
+			if err != nil {
+				return nil, err
+			}
+			showID = id
+		} else {
+			// Renumbering an existing episode: keep its current show so a trailer
+			// or special can be moved to another season without retyping the show.
+			id, err := showIDForParent(ctx, tx, oldParent)
+			if err != nil {
+				return nil, err
+			}
+			if id == 0 {
+				return nil, errInvalid("show title is required when the item is not already an episode")
+			}
+			showID = id
 		}
 		seasonID, err := ensureSeason(ctx, tx, libraryID, showID, in.SeasonNumber, "")
 		if err != nil {
@@ -788,6 +800,30 @@ func (s *Store) ReclassifyItem(ctx context.Context, id int64, in ReclassifyInput
 		return nil, wrap("commit", err)
 	}
 	return s.GetItem(ctx, id)
+}
+
+// showIDForParent walks a season/episode parent chain up to its show.
+func showIDForParent(ctx context.Context, tx *sql.Tx, parentID int64) (int64, error) {
+	for depth := 0; depth < 3 && parentID > 0; depth++ {
+		var kind string
+		var parent int64
+		if err := tx.QueryRowContext(ctx,
+			`SELECT kind, parent_id FROM media_items WHERE id = ?`, parentID).Scan(&kind, &parent); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return 0, nil
+			}
+			return 0, wrap("load parent chain", err)
+		}
+		switch kind {
+		case KindShow:
+			return parentID, nil
+		case KindSeason:
+			parentID = parent
+		default:
+			return 0, nil
+		}
+	}
+	return 0, nil
 }
 
 // pruneEmptyParents removes season/show rows that no longer have children after

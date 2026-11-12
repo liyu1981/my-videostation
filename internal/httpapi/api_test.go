@@ -86,15 +86,20 @@ func newRawTestServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 	scan := scanner.New(st, nil, log)
 	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		var payload struct {
-			LibraryID int64  `json:"libraryId"`
-			Force     bool   `json:"force"`
-			Scope     string `json:"scope"`
+			LibraryID      int64  `json:"libraryId"`
+			Force          bool   `json:"force"`
+			Scope          string `json:"scope"`
+			ScopeShowID    int64  `json:"scopeShowId"`
+			ScopeShowTitle string `json:"scopeShowTitle"`
+			ScopeSeason    int    `json:"scopeSeason"`
 		}
 		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
 			return err
 		}
 		if payload.Scope != "" {
-			_, err := scan.ScanLibraryScoped(ctx, payload.LibraryID, payload.Scope, payload.Force, func(p float64, msg string) {
+			_, err := scan.ScanLibraryScopedWithScope(ctx, payload.LibraryID, payload.Scope, scanner.Scope{
+				ShowID: payload.ScopeShowID, ShowTitle: payload.ScopeShowTitle, SeasonNumber: payload.ScopeSeason,
+			}, payload.Force, func(p float64, msg string) {
 				report(p, msg)
 			})
 			return err

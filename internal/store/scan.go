@@ -26,7 +26,9 @@ type ScannedFile struct {
 	Title string // movie / home-video title (ignored for episodes)
 	Year  int
 
-	// Episodes: the show and season are created on demand.
+	// Episodes: ShowID pins a folder-scoped rescan to an existing show; when 0
+	// the show is created/found by ShowTitle.
+	ShowID        int64
 	ShowTitle     string
 	SeasonNumber  int
 	EpisodeNumber int
@@ -180,6 +182,13 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 			if err := repairEpisodeTitle(ctx, tx, existingID, f); err != nil {
 				return 0, false, err
 			}
+			// A scoped rescan may discover that an existing episode now belongs to
+			// another season (or the show folder was fixed).
+			if f.ShowID > 0 && kindLocked == 0 {
+				if err := moveEpisodeToScope(ctx, tx, existingID, f); err != nil {
+					return 0, false, err
+				}
+			}
 		}
 		return existingID, false, nil
 	}
@@ -192,9 +201,13 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 		return ensureExtra(ctx, tx, f)
 
 	case KindEpisode:
-		showID, _, err := ensureShow(ctx, tx, f.LibraryID, f.ShowTitle, f.Year, f.PosterPath, f.BackdropPath)
-		if err != nil {
-			return 0, false, err
+		showID := f.ShowID
+		if showID == 0 {
+			id, _, err := ensureShow(ctx, tx, f.LibraryID, f.ShowTitle, f.Year, f.PosterPath, f.BackdropPath)
+			if err != nil {
+				return 0, false, err
+			}
+			showID = id
 		}
 		seasonID, err := ensureSeason(ctx, tx, f.LibraryID, showID, f.SeasonNumber, f.PosterPath)
 		if err != nil {
@@ -319,6 +332,31 @@ func ensureSeason(ctx context.Context, tx *sql.Tx, libraryID, showID int64, numb
 		return 0, wrap("insert season", err)
 	}
 	return res.LastInsertId()
+}
+
+// moveEpisodeToScope reparents an existing episode into the season of the show a
+// folder-scoped rescan was started from.
+func moveEpisodeToScope(ctx context.Context, tx *sql.Tx, itemID int64, f *ScannedFile) error {
+	var oldParent int64
+	if err := tx.QueryRowContext(ctx, `SELECT parent_id FROM media_items WHERE id = ?`, itemID).Scan(&oldParent); err != nil {
+		return wrap("load episode parent", err)
+	}
+	seasonID, err := ensureSeason(ctx, tx, f.LibraryID, f.ShowID, f.SeasonNumber, f.PosterPath)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE media_items SET parent_id = ?, season_number = ?, episode_number = ?,
+			episode_end = ?, updated_at = ?
+		WHERE id = ?`,
+		seasonID, f.SeasonNumber, f.EpisodeNumber, nullInt(f.EpisodeEnd), now(), itemID)
+	if err != nil {
+		return wrap("move episode to scope", err)
+	}
+	if oldParent != 0 && oldParent != seasonID {
+		return pruneEmptyParents(ctx, tx, oldParent)
+	}
+	return nil
 }
 
 func ensureEpisode(ctx context.Context, tx *sql.Tx, f *ScannedFile, showID, seasonID int64) (int64, bool, error) {

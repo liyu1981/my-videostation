@@ -433,17 +433,33 @@ func (s *Server) handleRescanItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := commonDir(dirs)
-	// A show's files live in season folders; rescan the show folder so a brand-new
-	// season is picked up too, not just changes inside the existing one.
-	if it.Kind == store.KindShow {
+	scopeShowID := int64(0)
+	scopeShowTitle := ""
+	scopeSeason := -1
+	switch it.Kind {
+	case store.KindShow:
+		// A show's files live in season folders; rescan the show folder so a
+		// brand-new season is picked up too, not just changes inside the existing one.
 		if lib, err := s.store.GetLibrary(r.Context(), it.LibraryID); err == nil {
 			scope = showScopeDir(lib, scope)
 		}
+		scopeShowID = it.ID
+		scopeShowTitle = it.Title
+	case store.KindSeason:
+		// Season rescans use the show's title as the base and pin the season.
+		if show, err := s.store.GetItem(r.Context(), it.ParentID); err == nil && show.Kind == store.KindShow {
+			scopeShowID = show.ID
+			scopeShowTitle = show.Title
+			scopeSeason = it.SeasonNumber
+		}
 	}
 	job, err := s.jobs.Enqueue(r.Context(), "scan", map[string]any{
-		"libraryId": it.LibraryID,
-		"force":     in.Force,
-		"scope":     scope,
+		"libraryId":      it.LibraryID,
+		"force":          in.Force,
+		"scope":          scope,
+		"scopeShowId":    scopeShowID,
+		"scopeShowTitle": scopeShowTitle,
+		"scopeSeason":    scopeSeason,
 	})
 	if err != nil {
 		s.fail(w, err)

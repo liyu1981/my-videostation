@@ -105,6 +105,88 @@ func (s *Service) EnrichLibrary(ctx context.Context, libraryID int64, report fun
 	return stats, nil
 }
 
+// EnrichShowEpisodes fills metadata for unmatched episodes under an identified
+// show. Folder-scoped rescans use it so new files inherit the series match
+// instead of waiting for a manual episode search.
+func (s *Service) EnrichShowEpisodes(ctx context.Context, showID int64, report func(float64, string)) (Stats, error) {
+	var stats Stats
+	if report == nil {
+		report = func(float64, string) {}
+	}
+	show, err := s.store.GetItem(ctx, showID)
+	if err != nil {
+		return stats, err
+	}
+	if show.Kind != store.KindShow {
+		return stats, nil
+	}
+	providerName := show.Provider
+	if providerName == "" {
+		providerName = s.providers.DefaultName()
+	}
+	provider, err := s.providers.Get(ctx, providerName)
+	if err != nil {
+		return stats, err
+	}
+	providerID := show.ProviderID
+	if providerID == "" {
+		providerID, _ = s.store.ItemProviderID(ctx, show.ID, provider.Name())
+	}
+	if providerID == "" {
+		return stats, nil // series not identified yet
+	}
+	seasons, _, err := s.store.ListItems(ctx, store.ItemFilter{
+		ParentID: showID, Kind: store.KindSeason, Page: 1, PerPage: 200,
+	})
+	if err != nil {
+		return stats, err
+	}
+	total := 0
+	for _, season := range seasons {
+		eps, _, err := s.store.ListItems(ctx, store.ItemFilter{
+			ParentID: season.ID, Kind: store.KindEpisode, Page: 1, PerPage: 500,
+		})
+		if err != nil {
+			return stats, err
+		}
+		for i := range eps {
+			ep := &eps[i]
+			if ep.MetadataStatus == "manual" || ep.MetadataStatus == "local" || ep.ProviderID != "" {
+				continue
+			}
+			if ep.EpisodeNumber <= 0 {
+				continue
+			}
+			total++
+			stats.Considered++
+			d, err := s.episodeDetails(ctx, provider, ep, providerID, "", ep.SeasonNumber, ep.EpisodeNumber)
+			if err != nil {
+				stats.Failed++
+				s.log.Warn("episode enrich failed", "item", ep.ID, "err", err)
+				continue
+			}
+			locks, err := s.lockSet(ctx, ep)
+			if err != nil {
+				stats.Failed++
+				continue
+			}
+			if err := s.apply(ctx, ep, provider, d, "matched", 1, locks); err != nil {
+				stats.Failed++
+				s.log.Warn("episode apply failed", "item", ep.ID, "err", err)
+				continue
+			}
+			stats.Matched++
+			report(float64(stats.Considered)/float64(total)*100, fmt.Sprintf("matching episodes %d", stats.Considered))
+		}
+	}
+	if total == 0 {
+		report(100, "no new episodes to match")
+	} else {
+		report(100, stats.String())
+	}
+	return stats, nil
+}
+
 // Refresh re-fetches one item from its stored provider id. providerName selects the
 // provider ("" = the item's applied provider, then the default).
 func (s *Service) Refresh(ctx context.Context, itemID int64, language, providerName string) error {

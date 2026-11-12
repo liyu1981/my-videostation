@@ -114,10 +114,19 @@ func (sc *Scanner) ScanLibrary(ctx context.Context, libraryID int64, report func
 	return sc.ScanLibraryForce(ctx, libraryID, false, report)
 }
 
+// Scope carries the show/season a folder-scoped rescan was started from. Files
+// that parse as episodes are attached to that show (and season) instead of
+// creating a new show from their filename.
+type Scope struct {
+	ShowID       int64
+	ShowTitle    string
+	SeasonNumber int // -1 = keep the parsed season
+}
+
 // ScanLibraryForce indexes one library. With force=true every file is re-probed
 // (and sidecar metadata re-applied), regardless of size/mtime.
 func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force bool, report func(float64, string)) (Stats, error) {
-	return sc.scanLibrary(ctx, libraryID, "", force, report)
+	return sc.scanLibrary(ctx, libraryID, "", Scope{SeasonNumber: -1}, force, report)
 }
 
 // ScanLibraryScoped rescans one folder inside a library — a show or a season
@@ -127,7 +136,13 @@ func (sc *Scanner) ScanLibraryForce(ctx context.Context, libraryID int64, force 
 // library's last-scan clock is left alone (a partial scan does not prove the rest
 // of the library is fresh).
 func (sc *Scanner) ScanLibraryScoped(ctx context.Context, libraryID int64, scope string, force bool, report func(float64, string)) (Stats, error) {
-	return sc.scanLibrary(ctx, libraryID, scope, force, report)
+	return sc.scanLibrary(ctx, libraryID, scope, Scope{SeasonNumber: -1}, force, report)
+}
+
+// ScanLibraryScopedWithScope is ScanLibraryScoped plus the show/season context
+// of the item the rescan was started from.
+func (sc *Scanner) ScanLibraryScopedWithScope(ctx context.Context, libraryID int64, scope string, info Scope, force bool, report func(float64, string)) (Stats, error) {
+	return sc.scanLibrary(ctx, libraryID, scope, info, force, report)
 }
 
 // walkTarget pairs the directory to walk with the root its rel paths are relative
@@ -162,7 +177,7 @@ func scopedTarget(lib *store.Library, scope string) (walkTarget, error) {
 
 // scanLibrary indexes a library. With scope == "" every library root is walked and
 // the library-wide bookkeeping runs; with a scope only that folder is walked.
-func (sc *Scanner) scanLibrary(ctx context.Context, libraryID int64, scope string, force bool, report func(float64, string)) (Stats, error) {
+func (sc *Scanner) scanLibrary(ctx context.Context, libraryID int64, scope string, info Scope, force bool, report func(float64, string)) (Stats, error) {
 	var stats Stats
 	lib, err := sc.store.GetLibrary(ctx, libraryID)
 	if err != nil {
@@ -225,7 +240,7 @@ func (sc *Scanner) scanLibrary(ctx context.Context, libraryID int64, scope strin
 	stats.Discovered = len(files)
 	report(3, fmt.Sprintf("%d video files found", len(files)))
 
-	plans := sc.classify(lib.Type, files, rules.SkipExtras(), &stats)
+	plans := sc.classify(lib.Type, files, rules.SkipExtras(), info, &stats)
 	sc.logf("info", "classified %d items (extras %d, samples %d, unidentified %d)",
 		len(plans), stats.Extras, stats.Samples, stats.Unidentified)
 	for i := range plans {
@@ -510,7 +525,7 @@ func applyTech(item *store.ScannedFile, tech *media.Technical) {
 }
 
 // classify turns discovered files into items, resolving extra parents in a second pass.
-func (sc *Scanner) classify(libraryType string, files []foundFile, skipExtras bool, stats *Stats) []planned {
+func (sc *Scanner) classify(libraryType string, files []foundFile, skipExtras bool, scope Scope, stats *Stats) []planned {
 	plans := make([]planned, 0, len(files))
 	dirHasMedia := map[string]int{}
 	type extraCandidate struct {
@@ -521,6 +536,28 @@ func (sc *Scanner) classify(libraryType string, files []foundFile, skipExtras bo
 
 	for _, f := range files {
 		res := naming.Parse(libraryType, f.path)
+		if scope.ShowID > 0 {
+			// A folder-scoped rescan knows which show the files belong to; recover
+			// episode numbers from names that omit the show title, and attach to the
+			// show/season the rescan was started from.
+			if res.Kind == naming.KindUnknown {
+				if season, episode, ok := naming.EpisodeNumbers(f.path); ok {
+					res = naming.Result{Kind: naming.KindEpisode, Season: season, Episode: episode, EpisodeEnd: episode}
+				}
+			}
+			if res.Kind == naming.KindEpisode {
+				res.Title = scope.ShowTitle
+				if scope.SeasonNumber >= 0 {
+					res.Season = scope.SeasonNumber
+				}
+				if res.Season == 0 && scope.SeasonNumber < 0 {
+					res.Season = 1
+				}
+				if res.EpisodeEnd < res.Episode {
+					res.EpisodeEnd = res.Episode
+				}
+			}
+		}
 		item := store.ScannedFile{
 			Path:    f.path,
 			RelPath: f.rel,
@@ -556,12 +593,13 @@ func (sc *Scanner) classify(libraryType string, files []foundFile, skipExtras bo
 		case naming.KindEpisode:
 			item.Kind = store.KindEpisode
 			item.ShowTitle = res.Title
+			item.ShowID = scope.ShowID
 			item.Year = res.Year
 			item.SeasonNumber = res.Season
 			item.EpisodeNumber = res.Episode
 			item.EpisodeEnd = res.EpisodeEnd
 			item.EpisodeTitle = res.EpisodeTitle
-			if item.SeasonNumber == 0 {
+			if item.SeasonNumber == 0 && scope.SeasonNumber < 0 {
 				item.SeasonNumber = 1
 			}
 			if item.EpisodeNumber == 0 {

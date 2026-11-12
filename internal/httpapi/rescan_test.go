@@ -233,3 +233,55 @@ func TestItemRescanReportsMissingFileInsideScope(t *testing.T) {
 		t.Fatalf("deleted file under scope not marked missing: %+v", files)
 	}
 }
+
+// TestShowRescanUsesSeriesAsBase: a show-scoped rescan reattaches episodes whose
+// filenames name a different show, using the show the rescan was started from.
+func TestShowRescanUsesSeriesAsBase(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	tvDir := filepath.Join(dir, "tv")
+	writeFile(t, filepath.Join(tvDir, "Breaking Bad", "Season 01", "Breaking Bad S01E01.mkv"))
+	writeFile(t, filepath.Join(tvDir, "Breaking Bad", "Season 01", "Wrong Show S01E02.mkv"))
+	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{tvDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanLibrary(t, srv, lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	breaking := itemIDByTitle(t, srv.URL, lib.ID, "Breaking Bad")
+	wrong := itemIDByTitle(t, srv.URL, lib.ID, "Wrong Show")
+	if breaking == 0 || wrong == 0 {
+		t.Fatalf("initial shows: breaking=%d wrong=%d", breaking, wrong)
+	}
+
+	res, err := http.Post(srv.URL+"/api/v1/items/"+itoa(breaking)+"/rescan", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("rescan: %d", res.StatusCode)
+	}
+	waitJobsIdle(t, srv.URL)
+
+	// Both episodes now belong to Breaking Bad; the wrongly named show is gone.
+	seasons := itemChildren(t, st, breaking, store.KindSeason)
+	episodes := 0
+	for _, s := range seasons {
+		episodes += len(itemChildren(t, st, s, store.KindEpisode))
+	}
+	if episodes != 2 {
+		t.Fatalf("Breaking Bad episodes after rescan = %d, want 2", episodes)
+	}
+	shows, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindShow, Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range shows {
+		if s.Title == "Wrong Show" {
+			t.Fatalf("wrong show still present: %+v", shows)
+		}
+	}
+}

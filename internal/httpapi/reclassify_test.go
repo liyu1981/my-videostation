@@ -105,6 +105,49 @@ func TestReclassifyEpisodeToMovie(t *testing.T) {
 	}
 }
 
+// TestReclassifyEpisodeRenumbersWithoutShowTitle: an existing episode can be
+// moved to another season/episode by hand (specials/trailers) without retyping
+// the show title.
+func TestReclassifyEpisodeRenumbersWithoutShowTitle(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	tvDir := filepath.Join(dir, "tv")
+	writeFile(t, filepath.Join(tvDir, "Renumber Show", "Season 01", "Renumber Show S01E01.mkv"))
+	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{tvDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanLibrary(t, srv, lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	eps, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindEpisode, Page: 1, PerPage: 10})
+	if err != nil || len(eps) != 1 {
+		t.Fatalf("episodes = %+v (%v)", eps, err)
+	}
+	id := eps[0].ID
+
+	res := postJSON(t, srv.URL+"/api/v1/items/"+itoa(id)+"/reclassify", map[string]any{
+		"kind": "episode", "seasonNumber": 2, "episodeNumber": 5,
+	})
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("reclassify: %d", res.StatusCode)
+	}
+	got := getItemDetail(t, srv.URL, id)
+	if got.Kind != "episode" || got.ShowTitle != "Renumber Show" || got.SeasonNumber != 2 || got.EpisodeNumber != 5 {
+		t.Fatalf("after renumber: %+v", got)
+	}
+	// The old season had no other episodes and is pruned; the show remains.
+	seasons, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindSeason, Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seasons) != 1 || seasons[0].SeasonNumber != 2 {
+		t.Fatalf("seasons = %+v", seasons)
+	}
+}
+
 // TestReclassifyHomeVideoToEpisode: a home video can be attached to a show/season
 // and stays an episode across rescans.
 func TestReclassifyHomeVideoToEpisode(t *testing.T) {

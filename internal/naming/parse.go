@@ -139,6 +139,40 @@ var leadingArticles = []string{"the ", "a ", "an "}
 
 // Parse classifies one file path for a given library type
 // (movie, tv, home_video, tv_recording).
+// EpisodeNumbers extracts season/episode numbers from a filename without
+// requiring the show title. Used by folder-scoped rescans to recover files whose
+// names do not repeat the show name.
+func EpisodeNumbers(path string) (season, episode int, ok bool) {
+	base := filepath.Base(path)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	res, ok := parseEpisode(normalize(stem))
+	if !ok || res.Episode == 0 {
+		return 0, 0, false
+	}
+	return res.Season, res.Episode, true
+}
+
+// SeasonFromPath returns the season number encoded in a parent folder name
+// ("Season 2", "S02", "Specials"), or -1 when the path has no season folder.
+func SeasonFromPath(path string) int {
+	dir := filepath.Dir(path)
+	for depth := 0; depth < 3 && dir != "." && dir != string(filepath.Separator); depth++ {
+		base := filepath.Base(dir)
+		if reSeasonDir.MatchString(base) {
+			if strings.EqualFold(strings.TrimSpace(base), "specials") || strings.EqualFold(strings.TrimSpace(base), "special") {
+				return 0
+			}
+			if m := regexp.MustCompile(`(\d{1,2})`).FindStringSubmatch(base); len(m) == 2 {
+				if n, err := strconv.Atoi(m[1]); err == nil {
+					return n
+				}
+			}
+		}
+		dir = filepath.Dir(dir)
+	}
+	return -1
+}
+
 func Parse(libraryType, path string) Result {
 	base := filepath.Base(path)
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
