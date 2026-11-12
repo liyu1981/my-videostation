@@ -158,7 +158,7 @@ Only what is **still open** — everything already shipped is in
 
 | Area | Still planned |
 |---|---|
-| Playback | Background transcode cache replacing live HLS sessions (ADR 0006) · SMI subtitles (GAP-017, M6) · per-user bandwidth / stream limits (GAP-025, M6) · scrub-preview sprite sheets (GAP-007, M7) · offline conversion (GAP-020, M7) · in-player screenshots (GAP-065, M7) · hardware-acceleration detection & config UI (GAP-054, M7) |
+| Playback | Finish the ADR 0006 migration (Jellyfin adapter prefers ready variants, cache eviction, remove live HLS) · SMI subtitles (GAP-017, M6) · per-user bandwidth / stream limits (GAP-025, M6) · scrub-preview sprite sheets (GAP-007, M7) · offline conversion (GAP-020, M7) · in-player screenshots (GAP-065, M7) · hardware-acceleration detection & config UI (GAP-054, M7) |
 | Clients & casting | Broader Chromecast/AirPlay coverage with HLS output (GAP-022, M7) · Jellyfin adapter: SSDP discovery, box sets/playlists, device-profile-aware playback decisions |
 | Users & security | OIDC/LDAP identity (GAP-040, M6) · 2FA and session management (GAP-041, M6) · parental PIN (GAP-042, M6) · public share links (GAP-045, M6) |
 | Metadata & library | Provider plugin interface (GAP-010) · local subtitle full-text search (GAP-012, M7) · metadata language/region per library (GAP-013, M1) |
@@ -228,7 +228,7 @@ services. Anything not listed is tracked in [Planned features](#planned-features
 | Edit dialog | Video Info / Poster / Backdrop tabs, chip editors, per-field locks, nested TMDb search, best-effort fills, merge/keep prompts and “Select from existing”. Admins can also reassign the item type with a **Type** dropdown (movie / TV episode / home video); picking a provider or library result applies that type, so choosing “TV episode” and then searching attaches the file to the picked show/season. The choice survives rescans. |
 | Subtitles | Sidecar and embedded WebVTT with charset detection (UTF-8/GB18030/Big5), ±60 s delay, cue size/colour and default-language preference; PGS/VobSub burned in by the transcoder. |
 | Player | Direct play with resume/watched state, speed, fullscreen, keyboard shortcuts and browser-Back close. |
-| Transcoding | On-demand HLS fMP4 sessions: remux-first, HEVC/VC-1/MPEG-2/AC3/DTS/TrueHD → H.264/AAC, audio-track switching, image-subtitle burn-in, quality cap, seek-by-restart, idle session cleanup and a global session cap. Software x264 by default with opt-in NVENC/QSV. **Being replaced by a background variant cache (ADR 0006).** |
+| Transcoding | **Background variant cache (ADR 0006):** a non-direct-play title queues a durable `transcode` job that writes one MP4 (`faststart`) with per-stream copy/encode (HEVC/VC-1/MPEG-2/AC3/DTS/TrueHD → H.264/AAC), then serves it with range requests; the web player polls preparation progress. The legacy on-demand HLS session path remains for the Jellyfin adapter until it prefers ready variants. Software x264 by default with opt-in NVENC/QSV. |
 | Continuous play | Next-up autoplay with countdown, same-season and cross-season rollover, and Play all/Shuffle episode queues with queue-aware previous/next. |
 | Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
 | Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich; in-app export/import bundles in `data/export` / `data/import` with maintenance restart; backup/restore docs and cache-path repair. |

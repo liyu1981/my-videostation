@@ -26,6 +26,7 @@ import (
 	"github.com/liyu1981/myvideostation/internal/jobs"
 	"github.com/liyu1981/myvideostation/internal/media"
 	"github.com/liyu1981/myvideostation/internal/metadata"
+	"github.com/liyu1981/myvideostation/internal/playback"
 	"github.com/liyu1981/myvideostation/internal/redact"
 	"github.com/liyu1981/myvideostation/internal/scanner"
 	"github.com/liyu1981/myvideostation/internal/store"
@@ -217,6 +218,13 @@ func run() error {
 		}
 		reportMsg(100, stats.String())
 		return nil
+	})
+	manager.Handle("transcode", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
+		var payload playback.VariantJob
+		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			return fmt.Errorf("bad job payload: %w", err)
+		}
+		return playback.RunVariantJob(ctx, st, ffmpegPath, cfg.TranscodeEncoder, cfg.TranscodeHWAccel, job, payload, report)
 	})
 	manager.Handle("thumbnails", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		lastMsg := ""

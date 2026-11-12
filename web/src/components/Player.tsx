@@ -27,6 +27,7 @@ import {
   api,
   type DLNADevice,
   type PlaybackSubtitle,
+  type PrepareResult,
   type QualityOption,
   type TranscodeSession,
 } from '../lib/api';
@@ -89,6 +90,8 @@ export function PlayerModal() {
 
   // M5: HLS transcode session (only when direct play cannot handle the file).
   const [session, setSession] = useState<TranscodeSession | null>(null);
+  const [variant, setVariant] = useState<{ url: string } | null>(null);
+  const [preparing, setPreparing] = useState<PrepareResult | null>(null);
   const [sessionError, setSessionError] = useState('');
   const [startingSession, setStartingSession] = useState(false);
   const [audioIndex, setAudioIndex] = useState<number | null>(null);
@@ -123,6 +126,7 @@ export function PlayerModal() {
   });
 
   const data = playback.data;
+  const useVariant = Boolean(data?.prepare);
   const tracks = data?.subtitles ?? [];
   const track = tracks.find((t) => t.id === subtitleID);
   const subtitleURL = track && !track.burnIn
@@ -136,7 +140,7 @@ export function PlayerModal() {
   const burnInIndex = track?.burnIn ? Number(track.id.replace('emb-', '')) : -1;
   const needsSession = Boolean(
     data &&
-      data.hls &&
+      (data.hls || data.prepare) &&
       (!data.directPlay ||
         burnInIndex >= 0 ||
         maxHeight > 0 ||
@@ -212,7 +216,56 @@ export function PlayerModal() {
     [data, stopSession],
   );
 
+  // ADR 0006: ask the server for a cached MP4 variant, polling while it is
+  // converted in the background.
+  const startVariant = useCallback(
+    async (startMs: number, burn: number) => {
+      if (!data) return;
+      const seq = ++startSeq.current;
+      setStartingSession(true);
+      setSessionError('');
+      setPreparing(null);
+      const body = {
+        fileId: data.fileId,
+        maxHeight: selectionRef.current.maxHeight || undefined,
+        audioIndex: selectionRef.current.audioIndex >= 0 ? selectionRef.current.audioIndex : undefined,
+        subtitleIndex: burn >= 0 ? burn : undefined,
+      };
+      try {
+        let res = await api.prepare(data.itemId, body);
+        while (seq === startSeq.current && (res.state === 'queued' || res.state === 'running')) {
+          setPreparing(res);
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
+          res = await api.prepare(data.itemId, body);
+        }
+        if (seq !== startSeq.current) return;
+        if ((res.state === 'ready' || res.state === 'direct') && res.url) {
+          pendingSeekRef.current = startMs > 3000 ? startMs / 1000 : null;
+          wasPlayingRef.current = true;
+          setVariant({ url: res.url });
+          setPreparing(null);
+        } else {
+          setSessionError(res.error || 'Could not prepare this file for playback.');
+        }
+      } catch (err) {
+        if (seq === startSeq.current) setSessionError((err as Error).message);
+      } finally {
+        if (seq === startSeq.current) setStartingSession(false);
+      }
+    },
+    [data],
+  );
+
+  const restartPlayback = useCallback(
+    (burn: number) => {
+      if (useVariant) void startVariant(absMsRef.current, burn);
+      else void startSession(absMsRef.current, burn);
+    },
+    [useVariant, startVariant, startSession],
+  );
+
   const close = useCallback(() => {
+    startSeq.current += 1; // cancel any in-flight prepare/poll
     if (historyPushed.current) {
       // popstate handler closes the player (and saves progress).
       window.history.back();
@@ -261,6 +314,8 @@ export function PlayerModal() {
     sessionRef.current = null;
     if (previous) void api.stopTranscode(previous.sessionId);
     setSession(null);
+    setVariant(null);
+    setPreparing(null);
     setSessionError('');
     setAudioIndex(null);
     setAudioChosen(false);
@@ -306,21 +361,24 @@ export function PlayerModal() {
     if (!data) return;
     if (!needsSession) {
       const previous = sessionRef.current;
-      if (previous) {
-        // Returning to direct play: keep the position and drop the job.
+      if (previous || variant) {
+        // Returning to direct play: keep the position and drop the job/variant.
         pendingSeekRef.current = absMsRef.current / 1000;
         sessionRef.current = null;
         setSession(null);
-        stopSession(previous.sessionId);
+        setVariant(null);
+        setPreparing(null);
+        if (previous) stopSession(previous.sessionId);
       }
       return;
     }
-    if (!data.hls) return; // the <video> error path explains that ffmpeg is missing
+    if (!data.hls && !data.prepare) return; // the <video> error path explains that ffmpeg is missing
     const resumeMs = absMsRef.current > 3000 ? absMsRef.current : data.resumeMs > 5000 ? data.resumeMs : 0;
     if (sessionRef.current) wasPlayingRef.current = !videoRef.current?.paused;
-    void startSession(resumeMs, burnInIndex);
+    if (useVariant) void startVariant(resumeMs, burnInIndex);
+    else void startSession(resumeMs, burnInIndex);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.itemId, data?.fileId, data?.hls, needsSession, burnInIndex, chosenAudioIndex, maxHeight]);
+  }, [data?.itemId, data?.fileId, data?.hls, data?.prepare, needsSession, burnInIndex, chosenAudioIndex, maxHeight]);
 
   // Attach the session playlist to the <video> element (hls.js or native HLS).
   useEffect(() => {
@@ -498,9 +556,9 @@ export function PlayerModal() {
       setMenu('none');
       if (!next) {
         setSubtitleID('off');
-            if (sessionRef.current && burnInIndex >= 0) {
+            if ((sessionRef.current || variant) && burnInIndex >= 0) {
           wasPlayingRef.current = !videoRef.current?.paused;
-          void startSession(absMsRef.current, -1);
+          restartPlayback(-1);
         }
         return;
       }
@@ -508,13 +566,13 @@ export function PlayerModal() {
       if (next.burnIn) {
         const index = Number(next.id.replace('emb-', ''));
         wasPlayingRef.current = !videoRef.current?.paused;
-        void startSession(absMsRef.current, index);
+        restartPlayback(index);
       } else if (burnInIndex >= 0) {
             wasPlayingRef.current = !videoRef.current?.paused;
-        void startSession(absMsRef.current, -1);
+        restartPlayback(-1);
       }
     },
-    [burnInIndex, startSession],
+    [burnInIndex, restartPlayback, variant],
   );
 
   const changeVolume = useCallback((value: number) => {
@@ -707,7 +765,11 @@ export function PlayerModal() {
       {data ? (
         <video
           ref={videoRef}
-          {...(session || needsSession ? {} : { src: data.cast?.url || data.streamUrl })}
+          {...(variant
+            ? { src: variant.url }
+            : session || needsSession
+              ? {}
+              : { src: data.cast?.url || data.streamUrl })}
           autoPlay
           playsInline
           crossOrigin="anonymous"
@@ -796,12 +858,16 @@ export function PlayerModal() {
         </p>
       ) : null}
 
-      {startingSession && !session ? (
+      {startingSession && !session && !variant ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center text-fg-muted">
           <Loader2 className="size-5 animate-spin" aria-hidden />
-          <p className="text-[13px]">Preparing transcode…</p>
+          <p className="text-[13px]">Preparing playback…</p>
           <p className="max-w-md text-[11.5px] text-fg-dim">
-            {data?.reasons?.length ? `This file needs ${data.reasons.join(', ')} conversion.` : 'Encoding the first segments.'}
+            {preparing?.progress
+              ? `Converting this file once for all viewers — ${Math.round(preparing.progress)}%.`
+              : data?.reasons?.length
+                ? `This file needs ${data.reasons.join(', ')} conversion.`
+                : 'Queuing the conversion job.'}
           </p>
         </div>
       ) : null}
@@ -812,7 +878,7 @@ export function PlayerModal() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => void startSession(absMsRef.current, burnInIndex)}
+              onClick={() => restartPlayback(burnInIndex)}
               className="rounded-lg bg-progress/90 px-3.5 py-1.5 text-[12.5px] font-medium text-[#062027] hover:bg-progress"
             >
               Retry

@@ -160,99 +160,129 @@ func segmentArgs(outDir string) []string {
 	}
 }
 
-// BuildPlan resolves remux-vs-transcode, stream selection, scaling and the
-// ffmpeg argument list for a session.
-func BuildPlan(req Request, o options) (*Plan, error) {
+// resolvedStreams is the shared per-stream decision used by the HLS session
+// planner and the background variant builder.
+type resolvedStreams struct {
+	videoCopy    bool
+	audioCopy    bool
+	audioAbs     int
+	videoCodec   string
+	audioCodec   string
+	height       int
+	width        int
+	filters      []string
+	enc          EncoderProfile
+	reasons      []string
+	burnSubtitle int
+}
+
+func resolveStreams(req Request, o options) (*resolvedStreams, error) {
 	if req.Path == "" {
 		return nil, fmt.Errorf("no media path")
 	}
-	p := &Plan{
-		StartMS:      req.StartMS,
-		DurationMS:   maxInt64(0, req.DurationMS-absInt64(req.StartMS)),
-		VideoCodec:   strings.ToLower(req.VideoCodec),
-		AudioIndex:   0,
-		BurnSubtitle: -1,
-		Container:    strings.ToLower(req.Container),
+	rs := &resolvedStreams{
+		audioAbs:     -1,
+		videoCodec:   strings.ToLower(req.VideoCodec),
+		burnSubtitle: -1,
 	}
-
-	// Audio selection: -1 means "first stream", which ffmpeg addresses as 0:a:0.
-	audioAbs := -1
 	if len(req.Audio) > 0 {
-		audioAbs = req.Audio[0].Index
-		p.AudioCodec = strings.ToLower(req.Audio[0].Codec)
+		rs.audioAbs = req.Audio[0].Index
+		rs.audioCodec = strings.ToLower(req.Audio[0].Codec)
 		for _, a := range req.Audio {
 			if a.Index == req.AudioIndex {
-				audioAbs = a.Index
-				p.AudioCodec = strings.ToLower(a.Codec)
+				rs.audioAbs = a.Index
+				rs.audioCodec = strings.ToLower(a.Codec)
 				break
 			}
 		}
 	}
-	p.AudioIndex = audioAbs
 
-	videoCopy := copyableVideo(req.VideoCodec) && req.BurnSubtitle < 0 && req.BurnSubtitlePath == ""
-	audioCopy := audioAbs >= 0 && copyableAudio(p.AudioCodec)
+	rs.videoCopy = copyableVideo(req.VideoCodec) && req.BurnSubtitle < 0 && req.BurnSubtitlePath == ""
+	rs.audioCopy = rs.audioAbs >= 0 && copyableAudio(rs.audioCodec)
 	if req.BurnSubtitle >= 0 || req.BurnSubtitlePath != "" {
-		p.Reasons = append(p.Reasons, "subtitle burn-in")
+		rs.reasons = append(rs.reasons, "subtitle burn-in")
 	}
-	if !videoCopy && req.VideoCodec != "" {
-		p.Reasons = append(p.Reasons, fmt.Sprintf("%s video", strings.ToUpper(req.VideoCodec)))
+	if !rs.videoCopy && req.VideoCodec != "" {
+		rs.reasons = append(rs.reasons, fmt.Sprintf("%s video", strings.ToUpper(req.VideoCodec)))
 	}
-	if audioAbs >= 0 && !audioCopy {
-		p.Reasons = append(p.Reasons, fmt.Sprintf("%s audio", strings.ToUpper(p.AudioCodec)))
+	if rs.audioAbs >= 0 && !rs.audioCopy {
+		rs.reasons = append(rs.reasons, fmt.Sprintf("%s audio", strings.ToUpper(rs.audioCodec)))
 	}
 	if strings.EqualFold(req.Force, string(ModeTranscode)) {
-		videoCopy, audioCopy = false, false
-		p.Reasons = append(p.Reasons, "transcode requested")
+		rs.videoCopy, rs.audioCopy = false, false
+		rs.reasons = append(rs.reasons, "transcode requested")
 	}
 	if strings.EqualFold(req.Force, string(ModeRemux)) {
-		videoCopy = copyableVideo(req.VideoCodec) && req.BurnSubtitle < 0 && req.BurnSubtitlePath == ""
-		audioCopy = audioAbs >= 0 && copyableAudio(p.AudioCodec)
+		rs.videoCopy = copyableVideo(req.VideoCodec) && req.BurnSubtitle < 0 && req.BurnSubtitlePath == ""
+		rs.audioCopy = rs.audioAbs >= 0 && copyableAudio(rs.audioCodec)
 	}
 
 	height := noUpscale(req.Height, req.MaxHeight)
 	// A stream copy cannot be scaled, so asking for a smaller rendition means
 	// re-encoding even when the codec itself would have been copyable.
-	if videoCopy && req.MaxHeight > 0 && req.Height > 0 && req.MaxHeight < req.Height {
-		videoCopy = false
-		p.Reasons = append(p.Reasons, fmt.Sprintf("downscale to %dp", height))
+	if rs.videoCopy && req.MaxHeight > 0 && req.Height > 0 && req.MaxHeight < req.Height {
+		rs.videoCopy = false
+		rs.reasons = append(rs.reasons, fmt.Sprintf("downscale to %dp", height))
 	}
-	if videoCopy && audioCopy {
-		p.Mode = ModeRemux
-	} else {
-		p.Mode = ModeTranscode
-	}
-	if videoCopy && req.Height > 0 {
+	if rs.videoCopy && req.Height > 0 {
 		height = req.Height
 	}
-	p.Width = req.Width
-	p.Height = height
+	rs.width = req.Width
+	rs.height = height
 	if req.Height > 0 && height != req.Height && req.Width > 0 {
-		p.Width = int(float64(req.Width) * float64(height) / float64(req.Height))
-		if p.Width%2 == 1 {
-			p.Width++
+		rs.width = int(float64(req.Width) * float64(height) / float64(req.Height))
+		if rs.width%2 == 1 {
+			rs.width++
 		}
 	}
 
-	var enc EncoderProfile
-	if !videoCopy {
-		enc = encoderByName(o.Encoder)
+	if !rs.videoCopy {
+		rs.enc = encoderByName(o.Encoder)
 	}
-	var filters []string
-	if !videoCopy && req.Height > 0 && height > 0 && height != req.Height {
-		filters = append(filters, fmt.Sprintf("scale=-2:%d", height))
+	if !rs.videoCopy && req.Height > 0 && height > 0 && height != req.Height {
+		rs.filters = append(rs.filters, fmt.Sprintf("scale=-2:%d", height))
 	}
-	if req.HDR != "" && !videoCopy {
-		p.Reasons = append(p.Reasons, "HDR downconverted to 8-bit SDR")
+	if req.HDR != "" && !rs.videoCopy {
+		rs.reasons = append(rs.reasons, "HDR downconverted to 8-bit SDR")
 	}
 	if req.BurnSubtitlePath != "" {
-		filters = append(filters, "subtitles="+escapeFilterValue(req.BurnSubtitlePath))
+		rs.filters = append(rs.filters, "subtitles="+escapeFilterValue(req.BurnSubtitlePath))
 	}
-	if !videoCopy {
-		filters = append(filters, "setsar=1")
-		if enc.Filter != "" {
-			filters = append(filters, enc.Filter)
+	if !rs.videoCopy {
+		rs.filters = append(rs.filters, "setsar=1")
+		if rs.enc.Filter != "" {
+			rs.filters = append(rs.filters, rs.enc.Filter)
 		}
+	}
+	if req.BurnSubtitle >= 0 {
+		rs.burnSubtitle = req.BurnSubtitle
+	}
+	return rs, nil
+}
+
+// BuildPlan resolves remux-vs-transcode, stream selection, scaling and the
+// ffmpeg argument list for an HLS session.
+func BuildPlan(req Request, o options) (*Plan, error) {
+	rs, err := resolveStreams(req, o)
+	if err != nil {
+		return nil, err
+	}
+	p := &Plan{
+		StartMS:      req.StartMS,
+		DurationMS:   maxInt64(0, req.DurationMS-absInt64(req.StartMS)),
+		VideoCodec:   rs.videoCodec,
+		AudioCodec:   rs.audioCodec,
+		AudioIndex:   rs.audioAbs,
+		BurnSubtitle: rs.burnSubtitle,
+		Container:    strings.ToLower(req.Container),
+		Width:        rs.width,
+		Height:       rs.height,
+		Reasons:      rs.reasons,
+	}
+	if rs.videoCopy && rs.audioCopy {
+		p.Mode = ModeRemux
+	} else {
+		p.Mode = ModeTranscode
 	}
 
 	args := []string{
@@ -279,38 +309,37 @@ func BuildPlan(req Request, o options) (*Plan, error) {
 		// Bitmap subtitles (PGS/VobSub) are composited with overlay. The whole
 		// filter chain (scale/SAR/encoder format + overlay) lives in one graph,
 		// because -vf and -filter_complex cannot be mixed for the same stream.
-		p.BurnSubtitle = req.BurnSubtitle
 		graph := "[0:v:0]"
-		if len(filters) > 0 {
-			graph += strings.Join(filters, ",") + "[pre];[pre]"
+		if len(rs.filters) > 0 {
+			graph += strings.Join(rs.filters, ",") + "[pre];[pre]"
 		}
 		graph += fmt.Sprintf("[0:%d]overlay[vout]", req.BurnSubtitle)
 		args = append(args, "-filter_complex", graph, "-map", "[vout]")
 	} else {
 		args = append(args, "-map", "0:v:0")
 	}
-	if audioAbs >= 0 {
-		args = append(args, "-map", "0:"+strconv.Itoa(audioAbs))
+	if rs.audioAbs >= 0 {
+		args = append(args, "-map", "0:"+strconv.Itoa(rs.audioAbs))
 	}
 	switch {
-	case videoCopy:
+	case rs.videoCopy:
 		args = append(args, "-c:v", "copy")
 	case req.BurnSubtitle >= 0:
-		args = append(args, enc.Args...)
+		args = append(args, rs.enc.Args...)
 		args = append(args, forceKeyframes...)
 	default:
-		args = append(args, enc.Args...)
+		args = append(args, rs.enc.Args...)
 		args = append(args, forceKeyframes...)
-		if len(filters) > 0 {
-			args = append(args, "-vf", strings.Join(filters, ","))
+		if len(rs.filters) > 0 {
+			args = append(args, "-vf", strings.Join(rs.filters, ","))
 		}
 	}
-	if audioAbs >= 0 {
-		if audioCopy {
+	if rs.audioAbs >= 0 {
+		if rs.audioCopy {
 			args = append(args, "-c:a", "copy")
 		} else {
 			args = append(args, "-c:a", "aac", "-b:a", "160k")
-			if channels(req.Audio, audioAbs) > 2 {
+			if channels(req.Audio, rs.audioAbs) > 2 {
 				args = append(args, "-ac", "2")
 			}
 		}

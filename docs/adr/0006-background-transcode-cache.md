@@ -1,8 +1,10 @@
 # ADR 0006 — Background transcode cache (replaces on-demand HLS)
 
 Status: accepted · Date: 2026-11-12 · Supersedes the delivery model in ADR 0003
-Implementation status: not started — this ADR defines the target; the current
-on-demand HLS path stays until the migration steps in §8 are complete.
+Implementation status: **partially implemented** — migration steps 1–3 of §8
+(schema, `transcode` job, variant builder, prepare API, web player prepare/poll)
+are in place. The Jellyfin adapter still uses HLS until a variant is ready,
+eviction/budget wiring and removal of the live session path remain.
 
 ## 1. Context
 

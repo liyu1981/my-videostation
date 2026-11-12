@@ -31,6 +31,7 @@ type Server struct {
 	version    string
 	enricher   *enrich.Service
 	ffmpeg     string
+	encoder    string
 	cacheDir   string
 	transcoder *playback.Manager
 	dataDir    string
@@ -94,7 +95,7 @@ func New(o Options) *Server {
 		Logger:      o.Logger,
 	})
 	srv := &Server{store: o.Store, jobs: o.Jobs, log: o.Logger, cors: o.CORSOrigin, version: o.Version,
-		enricher: o.Enricher, ffmpeg: o.FFmpeg, cacheDir: cacheDir, dataDir: o.DataDir, restart: o.Restart,
+		enricher: o.Enricher, ffmpeg: o.FFmpeg, encoder: o.TranscodeEncoder, cacheDir: cacheDir, dataDir: o.DataDir, restart: o.Restart,
 		transcoder: t}
 	srv.initJellyfin()
 	return srv
@@ -169,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/items/{id}", s.admin(s.handlePatchItem))
 	mux.HandleFunc("GET /api/v1/items/{id}/children", s.auth(s.handleItemChildren))
 	mux.HandleFunc("POST /api/v1/items/{id}/rescan", s.admin(s.handleRescanItem))
+	mux.HandleFunc("POST /api/v1/items/{id}/prepare", s.auth(s.handlePreparePlayback))
 	mux.HandleFunc("POST /api/v1/items/{id}/reclassify", s.admin(s.handleReclassifyItem))
 	mux.HandleFunc("POST /api/v1/items/{id}/backdrop/capture", s.admin(s.handleCaptureBackdrop))
 	mux.HandleFunc("GET /api/v1/items/{id}/neighbors", s.auth(s.handleItemNeighbors))

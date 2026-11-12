@@ -40,6 +40,26 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	// ADR 0006: serve a completed background variant instead of the source file.
+	if raw := r.URL.Query().Get("variant"); raw != "" {
+		variantID, ok := parseInt64(raw)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid variant id")
+			return
+		}
+		v, err := s.store.VariantByID(r.Context(), variantID)
+		if err != nil || v.FileID != file.ID || v.State != "ready" {
+			writeError(w, http.StatusNotFound, "not_found", "transcoded variant not found")
+			return
+		}
+		if st, err := os.Stat(v.Path); err != nil || st.IsDir() {
+			writeError(w, http.StatusGone, "variant_missing", "transcoded variant is no longer available")
+			return
+		}
+		_ = s.store.TouchVariant(r.Context(), v.ID)
+		file.Path = v.Path
+		file.Container = "mp4"
+	}
 	s.serveMediaFile(w, r, file)
 }
 

@@ -357,6 +357,16 @@ export interface DLNADevice {
   controlUrl: string;
 }
 
+export interface PrepareResult {
+  state: 'direct' | 'queued' | 'running' | 'ready' | 'failed';
+  url?: string;
+  jobId?: number;
+  variantId?: number;
+  progress?: number;
+  error?: string;
+  reasons?: string[];
+}
+
 export interface PlaybackInfo {
   itemId: number;
   fileId: number;
@@ -371,6 +381,7 @@ export interface PlaybackInfo {
   height?: number;
   directPlay: boolean;
   hls: boolean;
+  prepare: boolean;
   reasons?: string[];
   qualities: QualityOption[];
   next?: { itemId: number; title: string; seasonNumber?: number; episodeNumber?: number };
@@ -479,6 +490,8 @@ export const api = {
   patchItem: (id: number, patch: ItemPatch) =>
     request<ItemDetail>(`/items/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   playback: (id: number) => request<PlaybackInfo>(`/items/${id}/playback`),
+  prepare: (id: number, body: { fileId?: number; maxHeight?: number; audioIndex?: number; subtitleIndex?: number }) =>
+    request<PrepareResult>(`/items/${id}/prepare`, { method: 'POST', body: JSON.stringify(body) }),
   transcode: (id: number, body: TranscodeRequest) =>
     request<TranscodeSession>(`/playback/${id}/transcode`, { method: 'POST', body: JSON.stringify(body) }),
   transcodeStatus: (sessionId: string) => request<TranscodeStatus>(`/playback/sessions/${sessionId}`),

@@ -62,6 +62,7 @@ type playbackDTO struct {
 	Width      int                      `json:"width,omitempty"`
 	DirectPlay bool                     `json:"directPlay"`
 	HLS        bool                     `json:"hls"`
+	Prepare    bool                     `json:"prepare"`
 	Reasons    []string                 `json:"reasons,omitempty"`
 	Qualities  []playback.QualityOption `json:"qualities"`
 }
@@ -132,6 +133,7 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	out.DirectPlay = direct.OK
 	out.Reasons = direct.Reasons
 	out.HLS = s.transcoder.Available()
+	out.Prepare = s.ffmpeg != ""
 	out.Qualities = playback.QualityLadder(file.Height)
 
 	exts, err := s.store.ExternalSubtitles(r.Context(), file.ID)

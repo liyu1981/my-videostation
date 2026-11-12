@@ -412,9 +412,17 @@ adapter prefers ready variants and keeps HLS only as the transitional fallback.
 - HW encoders are selectable (`MVS_TRANSCODE_ENCODER=libx264|h264_nvenc|h264_qsv` plus
   optional `MVS_TRANSCODE_HWACCEL`); VA-API encode profiles and multi-rendition ABR
   ladders are not implemented (see ADR 0003/0006).
-- Concurrency becomes worker-based (`MVS_TRANSCODE_WORKERS`, default 1) with queue
-  visibility; per-user bandwidth limits remain M6 work (GAP-025).
+- Concurrency: jobs currently run on the existing single durable worker; a
+  per-type worker count (`MVS_TRANSCODE_WORKERS`) is part of the remaining
+  migration. Per-user bandwidth limits remain M6 work (GAP-025).
 - **Done** (legacy): HEVC/AC3/DTS titles play in browser with seek.
+- **Delivered (M5.x slice)**: `transcode_variants` schema, `transcode` job using
+  `RunVariantJob`, `BuildVariantPlan` (per-stream copy/encode, MP4 faststart),
+  `POST /items/{id}/prepare` and `GET /media/{fileId}?variant=`, and the web
+  player's prepare/poll flow.
+- **Remaining**: Jellyfin adapter prefers ready variants (HLS stays while a job
+  runs), cache budget/LRU eviction wiring, and removing the live HLS session
+  manager + hls.js.
 - **Done when (M5.x)**: a requested variant is queued, converted once, and served with
   range requests; a second viewer starts no second ffmpeg; seek is accurate; the
   cache survives a restart.

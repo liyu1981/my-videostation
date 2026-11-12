@@ -20,6 +20,7 @@ import (
 	"github.com/liyu1981/myvideostation/internal/httpapi"
 	"github.com/liyu1981/myvideostation/internal/jobs"
 	"github.com/liyu1981/myvideostation/internal/media"
+	"github.com/liyu1981/myvideostation/internal/playback"
 	"github.com/liyu1981/myvideostation/internal/scanner"
 	"github.com/liyu1981/myvideostation/internal/store"
 )
@@ -50,6 +51,13 @@ func newTranscodeTestServer(t *testing.T) (*httptest.Server, *store.Store, strin
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	manager := jobs.New(st, log)
 	scan := scanner.New(st, prober, log)
+	manager.Handle("transcode", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
+		var payload playback.VariantJob
+		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			return err
+		}
+		return playback.RunVariantJob(ctx, st, ffmpeg, "libx264", "", job, payload, report)
+	})
 	manager.Handle("scan", func(ctx context.Context, job *store.Job, report jobs.Progress) error {
 		var payload struct {
 			LibraryID int64  `json:"libraryId"`

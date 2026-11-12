@@ -69,6 +69,7 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | GET | `/items/{id}` | Detail: item + genres + people + files + locks + children (seasons/episodes), including the current user’s watch state |
 | GET | `/items/{id}/children?kind=` | Seasons for a show, episodes for a season |
 | GET | `/items/{id}/neighbors` | Previous/next item in browse order (`prev`, `next`) |
+| POST | `/items/{id}/prepare` | `{fileId?, maxHeight?, audioIndex?, subtitleIndex?}` — playback preparation (ADR 0006). Returns `{state: direct\|queued\|running\|ready\|failed, url?, jobId?, variantId?, progress?, error?}`; `ready`/`direct` URLs are range-capable. A new profile queues a `transcode` job and later requests reuse it |
 | POST | `/items/{id}/backdrop/capture` | **admin** — `{positionMs?}` — grab one frame from the item's video (default 120 s, clamped to the file duration) and store it as the backdrop under `<data>/cache/images`. `503 ffmpeg_missing` when ffmpeg is unavailable, `409 no_files` when the item has no playable file |
 | POST | `/items/{id}/reclassify` | **admin** — `{kind: movie\|episode\|home_video, showTitle?, seasonNumber?, episodeNumber?}` — manually assign the item's type. `episode` attaches it to (or creates) a show/season in the same library; the choice is remembered (`kind_locked`) so rescans do not undo it. Clears the stale provider match. Returns the updated detail |
 | POST | `/items/{id}/rescan` | **admin** — Queue a folder-scoped rescan (`{force?}`): a show re-walks its own folder (new seasons included), a season/episode/movie its folder. Only files under that folder are re-read; the rest of the library is untouched. `409 no_files` when the item has no files |
@@ -87,7 +88,7 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
 | GET | `/items/{id}/playback` | Player payload: stream URL, signed `cast` URL/compatibility, resume position, subtitle tracks (image tracks flagged `burnIn`), audio tracks (`direct` per track), next episode, and `directPlay`/`hls`/`reasons`/`qualities` for choosing direct play vs HLS |
-| GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206`; signed `?cast=` tokens allow cast devices without a session cookie |
+| GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206`; signed `?cast=` tokens allow cast devices without a session cookie. `?variant={id}` serves a completed transcode variant instead of the source file |
 | POST | `/playback/{itemId}/transcode` | Start or reuse an HLS session: `{fileId?,startMs?,audioIndex?,subtitleIndex?,externalSubtitleId?,maxHeight?,mode?}` → `{sessionId,playlistUrl,startMs,durationMs,mode,height,reasons[]}`. Reuses an identical live session; a different `startMs`/audio/burn-in/height starts a new job |
 | GET | `/playback/sessions/{sessionId}` | Session status: `{mode,startMs,durationMs,encodedMs,speed,height,running,error?}` |
 | DELETE | `/playback/sessions/{sessionId}` | Stop the job and delete its segments (`204`); idle sessions are reaped automatically |
