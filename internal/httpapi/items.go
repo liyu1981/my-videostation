@@ -1,11 +1,15 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/liyu1981/myvideostation/internal/store"
 )
@@ -519,6 +523,109 @@ func (s *Server) handleReclassifyItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "item.reclassify", "item:"+strconv.FormatInt(id, 10), in.Kind)
+	detail, err := s.itemDetail(r.Context(), it)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+// handleCaptureBackdrop grabs one frame from the item's video and stores it as
+// the backdrop. Media folders stay read-only: the JPEG goes to <data>/cache.
+func (s *Server) handleCaptureBackdrop(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	var in struct {
+		PositionMs *int64 `json:"positionMs"`
+	}
+	if r.ContentLength > 0 {
+		if err := decodeJSON(r, &in); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body: "+err.Error())
+			return
+		}
+	}
+	if s.ffmpeg == "" {
+		writeError(w, http.StatusServiceUnavailable, "ffmpeg_missing", "ffmpeg is not available on this server")
+		return
+	}
+	it, err := s.store.GetItem(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	files, err := s.store.ItemFiles(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	var file *store.File
+	for i := range files {
+		if !files[i].Missing {
+			file = &files[i]
+			break
+		}
+	}
+	if file == nil {
+		writeError(w, http.StatusConflict, "no_files", "item has no playable file to capture from")
+		return
+	}
+
+	// Default to 2 minutes in, then keep the frame inside the file.
+	positionMs := int64(120_000)
+	if in.PositionMs != nil {
+		positionMs = *in.PositionMs
+	}
+	duration := it.DurationMS
+	if duration == 0 {
+		duration = file.DurationMS
+	}
+	if duration > 0 {
+		if max := duration - 1000; positionMs > max {
+			positionMs = max
+		}
+	}
+	if positionMs < 0 {
+		positionMs = 0
+	}
+
+	dir := filepath.Join(s.cacheDir, "images")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		s.fail(w, err)
+		return
+	}
+	out := filepath.Join(dir, "backdrop-"+strconv.FormatInt(id, 10)+"-"+strconv.FormatInt(time.Now().UnixNano(), 10)+".jpg")
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-ss", strconv.FormatFloat(float64(positionMs)/1000, 'f', 3, 64),
+		"-i", file.Path,
+		"-frames:v", "1",
+		"-vf", `scale=min(1920\,iw):-2`,
+		"-q:v", "3",
+		out,
+	}
+	cmd := exec.CommandContext(ctx, s.ffmpeg, args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(out)
+		s.log.Warn("backdrop capture failed", "item", id, "err", err, "ffmpeg", string(output))
+		writeError(w, http.StatusUnprocessableEntity, "capture_failed", "could not capture a frame from this file")
+		return
+	}
+	if err := s.store.SetArt(r.Context(), id, "backdrop", out); err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.audit(r, "item.capture_backdrop", "item:"+strconv.FormatInt(id, 10), "")
+	it, err = s.store.GetItem(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	detail, err := s.itemDetail(r.Context(), it)
 	if err != nil {
 		s.fail(w, err)

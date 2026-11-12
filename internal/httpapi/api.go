@@ -170,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/items/{id}/children", s.auth(s.handleItemChildren))
 	mux.HandleFunc("POST /api/v1/items/{id}/rescan", s.admin(s.handleRescanItem))
 	mux.HandleFunc("POST /api/v1/items/{id}/reclassify", s.admin(s.handleReclassifyItem))
+	mux.HandleFunc("POST /api/v1/items/{id}/backdrop/capture", s.admin(s.handleCaptureBackdrop))
 	mux.HandleFunc("GET /api/v1/items/{id}/neighbors", s.auth(s.handleItemNeighbors))
 	mux.HandleFunc("GET /api/v1/items/{id}/matches", s.admin(s.handleMatches))
 	mux.HandleFunc("GET /api/v1/items/{id}/duplicate", s.admin(s.handleItemDuplicate))

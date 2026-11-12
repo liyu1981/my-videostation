@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarDays,
+  Camera,
   Check,
   ChevronDown,
   ExternalLink,
@@ -14,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, type Candidate, type Item, type ItemDetail, type ItemPatch, type Kind } from '../lib/api';
+import { formatClock } from '../lib/format';
 import { Dialog, DialogButton, DialogTab } from './Dialog';
 
 type Tab = 'info' | 'poster' | 'backdrop';
@@ -487,6 +489,17 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                 file={tab === 'poster' ? posterFile : backdropFile}
                 previewUrl={tab === 'poster' ? posterPreview : backdropPreview}
                 onFile={(f) => setArtFile(tab, f)}
+                itemId={base.fileCount > 0 ? base.id : undefined}
+                durationMs={base.durationMs ?? base.runtimeMs}
+                onCaptured={(d) => {
+                  // Keep unsaved edits in the other fields; only refresh the art.
+                  setBase(d);
+                  setBackdropChoice('original');
+                  setBackdropUrl('');
+                  setBackdropFile(null);
+                  setBackdropPreview('');
+                  void qc.invalidateQueries({ queryKey: ['item'] });
+                }}
               />
             )}
         </Dialog>
@@ -692,6 +705,9 @@ function ArtPanel({
   file,
   previewUrl,
   onFile,
+  itemId,
+  durationMs,
+  onCaptured,
 }: {
   kind: 'poster' | 'backdrop';
   currentUrl?: string;
@@ -702,7 +718,18 @@ function ArtPanel({
   file: File | null;
   previewUrl: string;
   onFile: (f: File | null) => void;
+  itemId?: number;
+  durationMs?: number;
+  onCaptured?: (d: ItemDetail) => void;
 }) {
+  const [captureAt, setCaptureAt] = useState('120');
+  const capture = useMutation({
+    mutationFn: () => {
+      const seconds = Math.max(0, Number(captureAt) || 0);
+      return api.captureBackdrop(itemId!, Math.round(seconds * 1000));
+    },
+    onSuccess: (d) => onCaptured?.(d),
+  });
   const preview =
     choice === 'none'
       ? undefined
@@ -772,6 +799,45 @@ function ArtPanel({
             ? 'JPEG, PNG, WebP or GIF up to 20 MB. The poster is shown on cards, rows and the detail page.'
             : 'JPEG, PNG, WebP or GIF up to 20 MB. The backdrop is shown behind the detail page and in the home hero.'}
         </p>
+
+        {kind === 'backdrop' && itemId ? (
+          <div className="rounded-md border border-hairline bg-surface-2/40 p-3">
+            <p className="text-[12.5px] text-fg">Capture from video</p>
+            <p className="mt-0.5 text-[11px] text-fg-dim">
+              Grab one frame as the backdrop when the provider has none.
+              {durationMs ? ` This video is ${formatClock(durationMs)} long.` : ''}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
+                At
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={captureAt}
+                  onChange={(e) => setCaptureAt(e.target.value)}
+                  aria-label="Capture position in seconds"
+                  className="h-8 w-20 rounded-md border border-hairline-strong bg-surface-2 px-2 text-[12.5px] text-fg outline-none"
+                />
+                seconds
+              </label>
+              <button
+                type="button"
+                disabled={capture.isPending}
+                onClick={() => capture.mutate()}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-hairline-strong bg-surface-2 px-3 text-[12px] text-fg hover:bg-surface-3 disabled:opacity-60"
+              >
+                {capture.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Camera className="size-3.5" aria-hidden />}
+                Capture frame
+              </button>
+            </div>
+            {capture.isError ? (
+              <p className="mt-1.5 text-[11.5px] text-active">{(capture.error as Error).message}</p>
+            ) : capture.isSuccess ? (
+              <p className="mt-1.5 text-[11.5px] text-progress">Frame captured and set as the backdrop.</p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

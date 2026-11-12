@@ -488,6 +488,8 @@ export const api = {
   neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
   rescanItem: (id: number, force = false) =>
     request<Job>(`/items/${id}/rescan`, { method: 'POST', body: JSON.stringify({ force }) }),
+  captureBackdrop: (id: number, positionMs: number) =>
+    request<ItemDetail>(`/items/${id}/backdrop/capture`, { method: 'POST', body: JSON.stringify({ positionMs }) }),
   reclassifyItem: (
     id: number,
     body: { kind: 'movie' | 'episode' | 'home_video'; showTitle?: string; seasonNumber?: number; episodeNumber?: number },
