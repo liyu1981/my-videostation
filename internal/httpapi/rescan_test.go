@@ -285,3 +285,55 @@ func TestShowRescanUsesSeriesAsBase(t *testing.T) {
 		}
 	}
 }
+
+// TestShowRescanInfersBareEpisodeNumbers: files named "02.mkv" or
+// "18-4K.高码率.mkv" inside an identified show folder are promoted from
+// home-video placeholders to episodes of that show.
+func TestShowRescanInfersBareEpisodeNumbers(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	tvDir := filepath.Join(dir, "tv")
+	showDir := filepath.Join(tvDir, "低智商犯罪")
+	writeFile(t, filepath.Join(showDir, "低智商犯罪 S01E01.mkv"))
+	writeFile(t, filepath.Join(showDir, "02.mkv"))
+	writeFile(t, filepath.Join(showDir, "18-4K.高码率.mkv"))
+	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{tvDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanLibrary(t, srv, lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	show := itemIDByTitle(t, srv.URL, lib.ID, "低智商犯罪")
+	if show == 0 {
+		t.Fatal("show not indexed")
+	}
+	placeholders, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindHomeVideo, Page: 1, PerPage: 20})
+	if err != nil || len(placeholders) != 2 {
+		t.Fatalf("placeholders before = %+v (%v)", placeholders, err)
+	}
+
+	res, err := http.Post(srv.URL+"/api/v1/items/"+itoa(show)+"/rescan", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("rescan: %d", res.StatusCode)
+	}
+	waitJobsIdle(t, srv.URL)
+
+	seasons := itemChildren(t, st, show, store.KindSeason)
+	episodes := 0
+	for _, s := range seasons {
+		episodes += len(itemChildren(t, st, s, store.KindEpisode))
+	}
+	if episodes != 3 {
+		t.Fatalf("episodes after rescan = %d, want 3", episodes)
+	}
+	left, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindHomeVideo, Page: 1, PerPage: 20})
+	if err != nil || len(left) != 0 {
+		t.Fatalf("placeholders after = %+v (%v)", left, err)
+	}
+}

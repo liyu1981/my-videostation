@@ -170,9 +170,13 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 	var existingID int64
 	var existingKind string
 	var kindLocked int
+	found := false
 	if err := tx.QueryRowContext(ctx, `
 		SELECT m.id, m.kind, m.kind_locked FROM media_files mf JOIN media_items m ON m.id = mf.item_id
-		WHERE mf.path = ? AND m.library_id = ?`, f.Path, f.LibraryID).Scan(&existingID, &existingKind, &kindLocked); err == nil && (existingKind == f.Kind || kindLocked != 0) {
+		WHERE mf.path = ? AND m.library_id = ?`, f.Path, f.LibraryID).Scan(&existingID, &existingKind, &kindLocked); err == nil {
+		found = true
+	}
+	if found && (existingKind == f.Kind || kindLocked != 0) {
 		if err := touchItem(ctx, tx, existingID, f); err != nil {
 			return 0, false, err
 		}
@@ -189,6 +193,18 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 					return 0, false, err
 				}
 			}
+		}
+		return existingID, false, nil
+	}
+	// A scoped show/season rescan may promote a placeholder home video into an
+	// episode in place, keeping its id/files instead of creating a duplicate and
+	// leaving an orphan placeholder behind.
+	if found && kindLocked == 0 && existingKind == KindHomeVideo && f.Kind == KindEpisode {
+		if err := convertHomeVideoToEpisode(ctx, tx, existingID, f); err != nil {
+			return 0, false, err
+		}
+		if err := touchItem(ctx, tx, existingID, f); err != nil {
+			return 0, false, err
 		}
 		return existingID, false, nil
 	}
@@ -334,6 +350,37 @@ func ensureSeason(ctx context.Context, tx *sql.Tx, libraryID, showID int64, numb
 	return res.LastInsertId()
 }
 
+// convertHomeVideoToEpisode turns an unidentified placeholder into an episode in
+// place. Provider fields from the old kind are cleared so the scoped show's
+// metadata pass can fill them.
+func convertHomeVideoToEpisode(ctx context.Context, tx *sql.Tx, itemID int64, f *ScannedFile) error {
+	showID := f.ShowID
+	if showID == 0 {
+		id, _, err := ensureShow(ctx, tx, f.LibraryID, f.ShowTitle, f.Year, f.PosterPath, f.BackdropPath)
+		if err != nil {
+			return err
+		}
+		showID = id
+	}
+	seasonID, err := ensureSeason(ctx, tx, f.LibraryID, showID, f.SeasonNumber, f.PosterPath)
+	if err != nil {
+		return err
+	}
+	title := f.EpisodeTitle
+	if title == "" || looksLikeJunkTitle(title) {
+		title = fmt.Sprintf("Episode %d", f.EpisodeNumber)
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE media_items SET kind = 'episode', parent_id = ?, season_number = ?,
+			episode_number = ?, episode_end = ?, title = ?, sort_title = ?,
+			provider = NULL, provider_id = NULL, metadata_status = 'unmatched',
+			match_confidence = 0, kind_locked = 0, updated_at = ?
+		WHERE id = ?`,
+		seasonID, f.SeasonNumber, f.EpisodeNumber, nullInt(f.EpisodeEnd),
+		title, sortTitle(title), now(), itemID)
+	return wrap("convert placeholder to episode", err)
+}
+
 // moveEpisodeToScope reparents an existing episode into the season of the show a
 // folder-scoped rescan was started from.
 func moveEpisodeToScope(ctx context.Context, tx *sql.Tx, itemID int64, f *ScannedFile) error {
@@ -341,6 +388,7 @@ func moveEpisodeToScope(ctx context.Context, tx *sql.Tx, itemID int64, f *Scanne
 	if err := tx.QueryRowContext(ctx, `SELECT parent_id FROM media_items WHERE id = ?`, itemID).Scan(&oldParent); err != nil {
 		return wrap("load episode parent", err)
 	}
+	oldShowID, _ := showIDForParent(ctx, tx, oldParent)
 	seasonID, err := ensureSeason(ctx, tx, f.LibraryID, f.ShowID, f.SeasonNumber, f.PosterPath)
 	if err != nil {
 		return err
@@ -352,6 +400,16 @@ func moveEpisodeToScope(ctx context.Context, tx *sql.Tx, itemID int64, f *Scanne
 		seasonID, f.SeasonNumber, f.EpisodeNumber, nullInt(f.EpisodeEnd), now(), itemID)
 	if err != nil {
 		return wrap("move episode to scope", err)
+	}
+	if oldShowID != 0 && f.ShowID != 0 && oldShowID != f.ShowID {
+		// The provider id belonged to the old show; let the scoped show's
+		// enrichment fill this episode.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE media_items SET provider = NULL, provider_id = NULL,
+				metadata_status = 'unmatched', match_confidence = 0, updated_at = ?
+			WHERE id = ?`, now(), itemID); err != nil {
+			return wrap("clear moved episode match", err)
+		}
 	}
 	if oldParent != 0 && oldParent != seasonID {
 		return pruneEmptyParents(ctx, tx, oldParent)

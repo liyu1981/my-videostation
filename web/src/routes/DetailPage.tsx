@@ -129,7 +129,9 @@ export function DetailPage() {
 
   // Folder-scoped rescan: a show re-walks its own folder, a season its folder.
   const rescanFiles = useMutation({
-    mutationFn: () => api.rescanItem(id),
+    // Show/season rescans are hard rescans: re-probe files and let the series
+    // context correct their types/numbers.
+    mutationFn: () => api.rescanItem(id, item.data?.kind === 'show' || item.data?.kind === 'season'),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['jobs'] });
       void qc.invalidateQueries({ queryKey: ['item', id] });

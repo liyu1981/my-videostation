@@ -541,8 +541,8 @@ func (sc *Scanner) classify(libraryType string, files []foundFile, skipExtras bo
 			// episode numbers from names that omit the show title, and attach to the
 			// show/season the rescan was started from.
 			if res.Kind == naming.KindUnknown {
-				if season, episode, ok := naming.EpisodeNumbers(f.path); ok {
-					res = naming.Result{Kind: naming.KindEpisode, Season: season, Episode: episode, EpisodeEnd: episode}
+				if season, episode, end, ok := naming.InferEpisode(scope.ShowTitle, f.path); ok {
+					res = naming.Result{Kind: naming.KindEpisode, Season: season, Episode: episode, EpisodeEnd: end}
 				}
 			}
 			if res.Kind == naming.KindEpisode {

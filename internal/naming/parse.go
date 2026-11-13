@@ -152,6 +152,62 @@ func EpisodeNumbers(path string) (season, episode int, ok bool) {
 	return res.Season, res.Episode, true
 }
 
+var (
+	reLeadingEpisode = regexp.MustCompile(`^0*(\d{1,3})(?:\s*[-~]\s*0*(\d{1,3}))?(?:\D|$)`)
+	reCJKEpisode     = regexp.MustCompile(`第\s*0*(\d{1,3})\s*[集话話]`)
+	reKResolution    = regexp.MustCompile(`(?i)(?:^|[-\s])[48]K\b`)
+)
+
+// InferEpisode recovers an episode from a scoped folder where the filename only
+// carries the episode number ("01.mkv", "18-4K.高码率.mkv", "Show 01.mkv").
+// It never treats a four-digit year/resolution as an episode number.
+func InferEpisode(showTitle, path string) (season, episode, end int, ok bool) {
+	if s, e, ok := EpisodeNumbers(path); ok {
+		season = SeasonFromPath(path)
+		if season < 0 {
+			season = s
+		}
+		return season, e, e, true
+	}
+	base := filepath.Base(path)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	clean := normalize(stem)
+	if showTitle != "" {
+		t := normalize(showTitle)
+		if strings.HasPrefix(strings.ToLower(clean), strings.ToLower(t)) {
+			clean = strings.TrimSpace(clean[len(t):])
+		}
+	}
+	clean = reKResolution.ReplaceAllString(clean, " ")
+	clean = strings.Trim(clean, " ._-–—:|")
+	if m := reCJKEpisode.FindStringSubmatch(clean); len(m) == 2 {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			return defaultSeason(path), n, n, true
+		}
+	}
+	if m := reLeadingEpisode.FindStringSubmatch(clean); len(m) >= 2 {
+		n, err := strconv.Atoi(m[1])
+		if err != nil || n <= 0 {
+			return 0, 0, 0, false
+		}
+		endNo := n
+		if len(m) >= 3 && m[2] != "" {
+			if e, err := strconv.Atoi(m[2]); err == nil && e >= n {
+				endNo = e
+			}
+		}
+		return defaultSeason(path), n, endNo, true
+	}
+	return 0, 0, 0, false
+}
+
+func defaultSeason(path string) int {
+	if s := SeasonFromPath(path); s >= 0 {
+		return s
+	}
+	return 1
+}
+
 // SeasonFromPath returns the season number encoded in a parent folder name
 // ("Season 2", "S02", "Specials"), or -1 when the path has no season folder.
 func SeasonFromPath(path string) int {
