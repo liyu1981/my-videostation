@@ -526,6 +526,20 @@ func applyTech(item *store.ScannedFile, tech *media.Technical) {
 
 // classify turns discovered files into items, resolving extra parents in a second pass.
 func (sc *Scanner) classify(libraryType string, files []foundFile, skipExtras bool, scope Scope, stats *Stats) []planned {
+	// A scoped TV rescan can derive episode numbers from the folder itself:
+	// remove the common prefix/suffix of the unknown file stems and read the
+	// varying part. This handles "... CH01", "01.mkv" and reversed show titles
+	// before falling back to the per-name heuristics.
+	var consensus map[string]int
+	if scope.ShowID > 0 && libraryType == "tv" {
+		var unknown []string
+		for _, f := range files {
+			if naming.Parse(libraryType, f.path).Kind == naming.KindUnknown {
+				unknown = append(unknown, f.path)
+			}
+		}
+		consensus = naming.ConsensusEpisodeNumbers(unknown)
+	}
 	plans := make([]planned, 0, len(files))
 	dirHasMedia := map[string]int{}
 	type extraCandidate struct {
@@ -541,7 +555,16 @@ func (sc *Scanner) classify(libraryType string, files []foundFile, skipExtras bo
 			// episode numbers from names that omit the show title, and attach to the
 			// show/season the rescan was started from.
 			if res.Kind == naming.KindUnknown {
-				if season, episode, end, ok := naming.InferEpisode(scope.ShowTitle, f.path); ok {
+				if episode, ok := consensus[f.path]; ok {
+					season := naming.SeasonFromPath(f.path)
+					if scope.SeasonNumber >= 0 {
+						season = scope.SeasonNumber
+					}
+					if season < 0 {
+						season = 1
+					}
+					res = naming.Result{Kind: naming.KindEpisode, Season: season, Episode: episode, EpisodeEnd: episode}
+				} else if season, episode, end, ok := naming.InferEpisode(scope.ShowTitle, f.path); ok {
 					res = naming.Result{Kind: naming.KindEpisode, Season: season, Episode: episode, EpisodeEnd: end}
 				}
 			}

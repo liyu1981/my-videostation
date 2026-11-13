@@ -153,9 +153,11 @@ func EpisodeNumbers(path string) (season, episode int, ok bool) {
 }
 
 var (
-	reLeadingEpisode = regexp.MustCompile(`^0*(\d{1,3})(?:\s*[-~]\s*0*(\d{1,3}))?(?:\D|$)`)
-	reCJKEpisode     = regexp.MustCompile(`第\s*0*(\d{1,3})\s*[集话話]`)
-	reKResolution    = regexp.MustCompile(`(?i)(?:^|[-\s])[48]K\b`)
+	reLeadingEpisode  = regexp.MustCompile(`^0*(\d{1,3})(?:\s*[-~]\s*0*(\d{1,3}))?(?:\D|$)`)
+	reCJKEpisode      = regexp.MustCompile(`第\s*0*(\d{1,3})\s*[集话話]`)
+	reChapterEpisode  = regexp.MustCompile(`(?i)\b(?:ch|chapter|chap)\s*[-_. ]*0*(\d{1,3})\b`)
+	reTrailingEpisode = regexp.MustCompile(`(?i)(?:^|[^0-9])0*(\d{1,3})(?:v\d+)?(?:\s*(?:end|final|完))?\s*$`)
+	reKResolution     = regexp.MustCompile(`(?i)(?:^|[-\s])[48]K\b`)
 )
 
 // InferEpisode recovers an episode from a scoped folder where the filename only
@@ -178,9 +180,15 @@ func InferEpisode(showTitle, path string) (season, episode, end int, ok bool) {
 			clean = strings.TrimSpace(clean[len(t):])
 		}
 	}
+	clean = stripReleaseTags(clean)
 	clean = reKResolution.ReplaceAllString(clean, " ")
 	clean = strings.Trim(clean, " ._-–—:|")
 	if m := reCJKEpisode.FindStringSubmatch(clean); len(m) == 2 {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			return defaultSeason(path), n, n, true
+		}
+	}
+	if m := reChapterEpisode.FindStringSubmatch(clean); len(m) == 2 {
 		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
 			return defaultSeason(path), n, n, true
 		}
@@ -198,6 +206,13 @@ func InferEpisode(showTitle, path string) (season, episode, end int, ok bool) {
 		}
 		return defaultSeason(path), n, endNo, true
 	}
+	// Last resort: a trailing episode number after an arbitrary title order
+	// ("The Greed of Man - 大时代 01").
+	if m := reTrailingEpisode.FindStringSubmatch(clean); len(m) == 2 {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			return defaultSeason(path), n, n, true
+		}
+	}
 	return 0, 0, 0, false
 }
 
@@ -206,6 +221,116 @@ func defaultSeason(path string) int {
 		return s
 	}
 	return 1
+}
+
+// ConsensusEpisodeNumbers derives episode numbers from a folder by removing the
+// common prefix/suffix of the file stems. It is used for scoped rescans where the
+// show is known but filenames only differ in the episode number ("... CH01",
+// "... CH02", "01.mkv", ...). Files whose varying part is not a plausible
+// episode number are omitted, so callers can fall back to InferEpisode.
+func ConsensusEpisodeNumbers(paths []string) map[string]int {
+	if len(paths) < 2 {
+		return nil
+	}
+	stems := make([]string, len(paths))
+	for i, p := range paths {
+		base := filepath.Base(p)
+		stems[i] = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	prefix := commonPrefix(stems)
+	// Never let the common prefix consume the leading digit of the number:
+	// "Show 1"/"Show 10" shares "Show 1", but the variable part starts at "1".
+	for len(prefix) > 0 {
+		c := prefix[len(prefix)-1]
+		if c < '0' || c > '9' {
+			break
+		}
+		prefix = prefix[:len(prefix)-1]
+	}
+	suffix := commonSuffix(stems, len(prefix))
+	out := map[string]int{}
+	for i, stem := range stems {
+		if len(stem) < len(prefix)+len(suffix) {
+			continue
+		}
+		mid := stem[len(prefix) : len(stem)-len(suffix)]
+		if n, ok := leadingEpisodeNumber(mid); ok {
+			out[paths[i]] = n
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func commonPrefix(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	prefix := values[0]
+	for _, v := range values[1:] {
+		n := len(prefix)
+		if len(v) < n {
+			n = len(v)
+		}
+		i := 0
+		for i < n && prefix[i] == v[i] {
+			i++
+		}
+		prefix = prefix[:i]
+		if prefix == "" {
+			return ""
+		}
+	}
+	return prefix
+}
+
+func commonSuffix(values []string, prefixLen int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	first := values[0]
+	max := len(first) - prefixLen
+	for _, v := range values[1:] {
+		n := len(v) - prefixLen
+		if n < max {
+			max = n
+		}
+		i := 0
+		for i < max && first[len(first)-1-i] == v[len(v)-1-i] {
+			i++
+		}
+		max = i
+	}
+	return first[len(first)-max:]
+}
+
+func leadingEpisodeNumber(s string) (int, bool) {
+	s = strings.Trim(s, " ._-–—:|[](){}")
+	m := reLeadingEpisode.FindStringSubmatch(s)
+	if len(m) < 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 || n > 999 {
+		return 0, false
+	}
+	// Reject resolution-like values ("720p", "1080i").
+	if i := strings.Index(s, m[1]); i >= 0 {
+		rest := s[i+len(m[1]):]
+		if rest != "" {
+			c := rest[0]
+			if c == 'p' || c == 'P' || c == 'i' || c == 'I' {
+				return 0, false
+			}
+		}
+	}
+	switch n {
+	case 480, 576, 720, 1080, 2160, 4320:
+		return 0, false
+	}
+	return n, true
 }
 
 // SeasonFromPath returns the season number encoded in a parent folder name

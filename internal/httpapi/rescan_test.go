@@ -297,6 +297,7 @@ func TestShowRescanInfersBareEpisodeNumbers(t *testing.T) {
 	showDir := filepath.Join(tvDir, "低智商犯罪")
 	writeFile(t, filepath.Join(showDir, "低智商犯罪 S01E01.mkv"))
 	writeFile(t, filepath.Join(showDir, "02.mkv"))
+	writeFile(t, filepath.Join(showDir, "CH03.mkv"))
 	writeFile(t, filepath.Join(showDir, "18-4K.高码率.mkv"))
 	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{tvDir})
 	if err != nil {
@@ -310,7 +311,7 @@ func TestShowRescanInfersBareEpisodeNumbers(t *testing.T) {
 		t.Fatal("show not indexed")
 	}
 	placeholders, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindHomeVideo, Page: 1, PerPage: 20})
-	if err != nil || len(placeholders) != 2 {
+	if err != nil || len(placeholders) != 3 {
 		t.Fatalf("placeholders before = %+v (%v)", placeholders, err)
 	}
 
@@ -329,8 +330,8 @@ func TestShowRescanInfersBareEpisodeNumbers(t *testing.T) {
 	for _, s := range seasons {
 		episodes += len(itemChildren(t, st, s, store.KindEpisode))
 	}
-	if episodes != 3 {
-		t.Fatalf("episodes after rescan = %d, want 3", episodes)
+	if episodes != 4 {
+		t.Fatalf("episodes after rescan = %d, want 4", episodes)
 	}
 	left, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindHomeVideo, Page: 1, PerPage: 20})
 	if err != nil || len(left) != 0 {
