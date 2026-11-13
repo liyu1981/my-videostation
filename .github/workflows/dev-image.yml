@@ -1,0 +1,62 @@
+name: Dev image
+
+# Manual only: Actions -> Dev image -> Run workflow.
+# Builds linux/amd64 and moves the single `dev` tag:
+#   ghcr.io/liyu1981/my-videostation:dev
+#
+# Old pushes become untagged versions. Set the package retention policy in
+# GitHub (Package settings -> retention) to delete untagged versions older than
+# 1 day. Release tags (v0.1.x, latest) are never touched by this workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: dev-image
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Build and push dev image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        run: |
+          base="$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
+          sha="${GITHUB_SHA:0:6}"
+          echo "value=${base}-${sha}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/liyu1981/my-videostation:dev
+          labels: |
+            org.opencontainers.image.title=MyVideoStation (dev)
+            org.opencontainers.image.description=Development build of MyVideoStation
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.version.outputs.date }}
+          cache-from: type=gha,scope=dev
+          cache-to: type=gha,mode=max,scope=dev

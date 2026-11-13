@@ -608,3 +608,19 @@ Pushing a `v*` tag runs the release workflow:
 docker run --rm -p 6500:6500 -v /path/to/data:/data \
   ghcr.io/liyu1981/my-videostation:latest
 ```
+
+### Development image
+
+A manual workflow builds the current branch as a **linux/amd64** dev image and moves the
+single `dev` tag (never `latest` or a version tag):
+
+```bash
+gh workflow run dev-image.yml
+# or: Actions → Dev image → Run workflow
+docker pull ghcr.io/liyu1981/my-videostation:dev
+```
+
+The image version is `<package.json version>-<first 6 chars of the commit>`, e.g.
+`0.1.11-a1b2c3`. The previous `dev` push becomes an untagged GHCR version; set the
+package retention policy to **delete untagged versions older than 1 day**. Release
+tags are not affected by the dev workflow.
