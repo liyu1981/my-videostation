@@ -1,19 +1,23 @@
 import { HardDrive, Pencil, Subtitles, Volume2 } from 'lucide-react';
-import type { MediaFile } from '../lib/api';
+import type { MediaFile, TranscodeVariant } from '../lib/api';
 import { audioSummary, formatBytes, formatClock, resolutionLabel } from '../lib/format';
 
 export function MediaInfoPanel({
   files,
+  variants = [],
   onEditFile,
   editPending = false,
 }: {
   files: MediaFile[];
+  variants?: TranscodeVariant[];
   onEditFile?: (fileId: number) => void;
   editPending?: boolean;
 }) {
   return (
     <div className="space-y-3">
-      {files.map((file) => (
+      {files.map((file) => {
+        const fileVariants = variants.filter((v) => v.fileId === file.id);
+        return (
         <div key={file.id} className="rounded-[var(--radius-panel)] border border-hairline bg-surface">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-4 py-3">
             <HardDrive className="size-4 text-fg-dim" aria-hidden />
@@ -89,8 +93,24 @@ export function MediaInfoPanel({
               </div>
             </div>
           ) : null}
+
+          {fileVariants.length > 0 ? (
+            <div className="border-t border-hairline px-4 py-3">
+              <p className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-dim">Transcoded versions</p>
+              <ul className="space-y-1 text-[11.5px] text-fg-muted">
+                {fileVariants.map((v) => (
+                  <li key={v.id} className="flex flex-wrap items-center gap-2">
+                    <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-fg-muted">{v.state}</span>
+                    <span>{formatBytes(v.bytes)}</span>
+                    <span className="min-w-0 flex-1 truncate" title={v.path}>{v.path}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
-      ))}
+      );
+      })}
     </div>
   );
 }

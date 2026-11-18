@@ -337,6 +337,27 @@ export interface PrepareResult {
   reasons?: string[];
 }
 
+export interface TranscodeVariant {
+  id: number;
+  fileId: number;
+  itemId: number;
+  mtime: number;
+  size: number;
+  variantKey: string;
+  path: string;
+  bytes: number;
+  durationMs: number;
+  state: 'queued' | 'running' | 'ready' | 'failed' | string;
+  jobId?: number;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string;
+  originalPath: string;
+  title: string;
+  kind: string;
+}
+
 export interface PlaybackInfo {
   itemId: number;
   fileId: number;
@@ -463,6 +484,9 @@ export const api = {
   playback: (id: number) => request<PlaybackInfo>(`/items/${id}/playback`),
   prepare: (id: number, body: { fileId?: number; maxHeight?: number; audioIndex?: number; subtitleIndex?: number }) =>
     request<PrepareResult>(`/items/${id}/prepare`, { method: 'POST', body: JSON.stringify(body) }),
+  itemVariants: (id: number) => request<{ variants: TranscodeVariant[] }>(`/items/${id}/variants`),
+  transcodes: () => request<{ variants: TranscodeVariant[]; totalBytes: number }>('/transcodes'),
+  deleteTranscode: (id: number) => request<void>(`/transcodes/${id}`, { method: 'DELETE' }),
   capabilities: () => request<PlaybackCapabilities>('/playback/capabilities'),
   neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
   rescanItem: (id: number, force = false) =>

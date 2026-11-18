@@ -193,6 +193,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/playback/sessions/{session}", s.auth(s.handleTranscodeStatus))
 	mux.HandleFunc("DELETE /api/v1/playback/sessions/{session}", s.auth(s.handleStopTranscode))
 	mux.HandleFunc("GET /api/v1/playback/capabilities", s.auth(s.handlePlaybackCapabilities))
+
+	mux.HandleFunc("GET /api/v1/transcodes", s.admin(s.handleListTranscodes))
+	mux.HandleFunc("DELETE /api/v1/transcodes/{id}", s.admin(s.handleDeleteTranscode))
+	mux.HandleFunc("GET /api/v1/items/{id}/variants", s.admin(s.handleItemVariants))
 	mux.HandleFunc("GET /hls/{session}/{file...}", s.anyAuth(s.handleHLS))
 	mux.HandleFunc("GET /api/v1/media/{fileId}/subtitle", s.auth(s.handleSubtitle))
 	mux.HandleFunc("GET /api/v1/items/{id}/playback", s.auth(s.handlePlayback))

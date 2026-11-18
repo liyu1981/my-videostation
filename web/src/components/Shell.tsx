@@ -8,6 +8,7 @@ import {
   Clapperboard,
   DatabaseBackup,
   Film,
+  HardDrive,
   Home,
   LibraryBig,
   ListVideo,
@@ -37,7 +38,7 @@ const navItems: NavItem[] = [
   { key: 'nav.playlists', to: '/playlists', icon: ListVideo },
 ];
 
-const adminPaths = ['/libraries', '/settings', '/tasks', '/users', '/activity', '/backup'];
+const adminPaths = ['/libraries', '/settings', '/tasks', '/users', '/activity', '/backup', '/transcodes'];
 
 export function Shell() {
   const navigate = useNavigate();
@@ -348,6 +349,20 @@ export function Shell() {
                     aria-hidden
                   />
                   {t('nav.activity')}
+                </Link>
+                <Link
+                  to="/transcodes"
+                  className={[
+                    'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
+                    location.pathname === '/transcodes' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+                  ].join(' ')}
+                  aria-current={location.pathname === '/transcodes' ? 'page' : undefined}
+                >
+                  <HardDrive
+                    className={['size-[18px]', location.pathname === '/transcodes' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
+                    aria-hidden
+                  />
+                  {t('nav.transcodes')}
                 </Link>
                 <Link
                   to="/backup"
