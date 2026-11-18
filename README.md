@@ -173,7 +173,7 @@ individually in [`docs/GAPS.md`](./docs/GAPS.md).
 |---|---|
 | Backend | Go 1.27 · `net/http` · `modernc.org/sqlite` (CGO-free) · `sqlc` · `goose` · FTS5 |
 | Media | `ffprobe` for metadata · `ffmpeg` for remux/transcode (HLS fMP4) |
-| Frontend | React 19 · TypeScript 7 (`tsgo`) · Vite 8 · TanStack Router/Query/Table · Jotai · Tailwind CSS 4 |
+| Frontend | React 19 · TypeScript 7 (`tsgo`) · Vite 8 · TanStack Router/Query/Table · Jotai · Tailwind CSS 4 · Movi Player (WebCodecs/FFmpeg WASM) |
 | Packaging | Single static binary with embedded SPA · Alpine image (`amd64` + `arm64`) · Docker Compose |
 
 ## Architecture
@@ -227,8 +227,8 @@ services. Anything not listed is tracked in [Planned features](#planned-features
 | Item detail | VS poster/action layout, badges, metadata rows, paragraph-preserving summary, season bar and episode cards, prev/next arrows, extras and a media-info dialog. The media-info dialog lists each file with an **Edit this file** action: on a multi-file item it splits that file into its own editable video first. |
 | Edit dialog | Video Info / Poster / Backdrop tabs, chip editors, per-field locks, nested TMDb search, best-effort fills, merge/keep prompts and “Select from existing”. Admins can also reassign the item type with a **Type** dropdown (movie / TV episode / home video); picking a provider or library result applies that type, so choosing “TV episode” and then searching attaches the file to the picked show/season. For episodes, **Season** and **Episode** can be edited by hand (specials, trailers, provider gaps) — an existing episode keeps its show when renumbered. The choice survives rescans. |
 | Subtitles | Sidecar and embedded WebVTT with charset detection (UTF-8/GB18030/Big5), ±60 s delay, cue size/colour and default-language preference; PGS/VobSub burned in by the transcoder. |
-| Player | Direct play with resume/watched state, speed, fullscreen, keyboard shortcuts and browser-Back close. |
-| Transcoding | **Background variant cache (ADR 0006):** a non-direct-play title queues a durable `transcode` job that writes one MP4 (`faststart`) with per-stream copy/encode (HEVC/VC-1/MPEG-2/AC3/DTS/TrueHD → H.264/AAC), then serves it with range requests; the web player polls preparation progress. The legacy on-demand HLS session path remains for the Jellyfin adapter until it prefers ready variants. Software x264 by default with opt-in NVENC/QSV. |
+| Player | Movi Player (WebCodecs + FFmpeg WASM) plays MKV, HEVC, VP9 and AV1 directly in the browser; resume/watched state, queue and next-up stay in the app shell, with a cached MP4 fallback when Movi cannot decode a source. |
+| Transcoding | **Background variant cache (ADR 0006):** a non-direct-play title queues a durable `transcode` job that writes one MP4 (`faststart`) with per-stream copy/encode (HEVC/VC-1/MPEG-2/AC3/DTS/TrueHD → H.264/AAC), then serves it with range requests; the web player polls preparation progress. Media info lists cached variants per file; **Manage → Transcode cache** lists every variant with its original file, size, state and a delete button. The legacy on-demand HLS session path remains for the Jellyfin adapter until it prefers ready variants. Software x264 by default with opt-in NVENC/QSV. |
 | Continuous play | Next-up autoplay with countdown, same-season and cross-season rollover, and Play all/Shuffle episode queues with queue-aware previous/next. |
 | Organisation | Favorites, watchlist and custom collections; selection mode with bulk watched/add-to-collection; genre/year/watched/folder facets. |
 | Operations | Durable job queue with persisted per-file logs, per-library task cards, scan/rescan/enrich; in-app export/import bundles in `data/export` / `data/import` with maintenance restart; backup/restore docs and cache-path repair. |
@@ -523,9 +523,9 @@ Configuration precedence: CLI flags → `MVS_*` env → defaults (a config file 
 | — | `MVS_TRANSCODE_PACED` | `true` (throttle ffmpeg to ~1x; `false` encodes ahead) |
 
 Transcoding needs an ffmpeg build with `libx264` (`ffmpeg -encoders | grep libx264`); the
-Docker image includes one. The bundled browser player falls back to HLS automatically when
-the file is Matroska/HEVC/AC3/DTS/etc., using `hls.js` for MSE browsers and native HLS on
-Safari.
+Docker image includes one. The web player uses **Movi Player** (WebCodecs + FFmpeg WASM)
+and plays Matroska/HEVC/VP9/AV1 directly; if Movi cannot decode a source, the player falls
+back to a cached MP4 variant prepared by the server. HLS remains for the Jellyfin adapter.
 
 The metadata and artwork HTTP clients honor the standard `HTTPS_PROXY`, `HTTP_PROXY` and
 `NO_PROXY` environment variables. API keys are redacted from logs, job errors and API

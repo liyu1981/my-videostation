@@ -199,3 +199,62 @@ func (s *Server) handlePreparePlayback(w http.ResponseWriter, r *http.Request) {
 func variantURL(fileID, variantID int64) string {
 	return fmt.Sprintf("/api/v1/media/%d?variant=%d", fileID, variantID)
 }
+
+// handleListTranscodes lists every cached variant for the admin cache view.
+func (s *Server) handleListTranscodes(w http.ResponseWriter, r *http.Request) {
+	variants, err := s.store.ListVariants(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	var total int64
+	for _, v := range variants {
+		total += v.Bytes
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"variants": variants, "totalBytes": total})
+}
+
+// handleItemVariants lists the cached variants of one item (admin media info).
+func (s *Server) handleItemVariants(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	variants, err := s.store.ListVariantsForItem(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"variants": variants})
+}
+
+// handleDeleteTranscode removes a cached variant row and its file.
+func (s *Server) handleDeleteTranscode(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid variant id")
+		return
+	}
+	v, err := s.store.VariantByID(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if v.State == "queued" || v.State == "running" {
+		writeError(w, http.StatusConflict, "variant_running", "wait for the transcode job to finish before deleting")
+		return
+	}
+	if v.Path != "" {
+		if err := os.Remove(v.Path); err != nil && !os.IsNotExist(err) {
+			s.fail(w, err)
+			return
+		}
+	}
+	if err := s.store.DeleteVariant(r.Context(), id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.audit(r, "transcode.delete", "variant:"+strconv.FormatInt(id, 10), v.Path)
+	w.WriteHeader(http.StatusNoContent)
+}

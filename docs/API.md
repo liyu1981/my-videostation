@@ -69,6 +69,9 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | GET | `/items/{id}` | Detail: item + genres + people + files + locks + children (seasons/episodes), including the current user’s watch state |
 | GET | `/items/{id}/children?kind=` | Seasons for a show, episodes for a season |
 | GET | `/items/{id}/neighbors` | Previous/next item in browse order (`prev`, `next`) |
+| GET | `/items/{id}/variants` | **admin** — cached transcode variants for this item: state, variant path, original path, bytes, timestamps |
+| GET | `/transcodes` | **admin** — every cached transcode variant with its original file path/title and total cache bytes |
+| DELETE | `/transcodes/{id}` | **admin** — delete a cached variant row and its file; `409 variant_running` while the job is queued/running |
 | POST | `/items/{id}/prepare` | `{fileId?, maxHeight?, audioIndex?, subtitleIndex?}` — playback preparation (ADR 0006). Returns `{state: direct\|queued\|running\|ready\|failed, url?, jobId?, variantId?, progress?, error?}`; `ready`/`direct` URLs are range-capable. A new profile queues a `transcode` job and later requests reuse it |
 | POST | `/items/{id}/backdrop/capture` | **admin** — `{positionMs?}` — grab one frame from the item's video (default 120 s, clamped to the file duration) and store it as the backdrop under `<data>/cache/images`. `503 ffmpeg_missing` when ffmpeg is unavailable, `409 no_files` when the item has no playable file |
 | POST | `/items/{id}/reclassify` | **admin** — `{kind: movie\|episode\|home_video, showTitle?, seasonNumber?, episodeNumber?}` — manually assign the item's type. `episode` attaches it to (or creates) a show/season in the same library; `showTitle` is optional when the item is already an episode (renumber a special/trailer within its current show). The choice is remembered (`kind_locked`) so rescans do not undo it. Clears the stale provider match. Returns the updated detail |
@@ -88,7 +91,7 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | POST | `/items/{id}/art/upload` | **admin** — multipart `kind=poster|backdrop` + `file` (JPEG/PNG/WebP/GIF, ≤20 MB) — store a user upload in the art cache |
 | GET | `/items/{id}/poster` | Cached/sidecar artwork, guarded to library roots |
 | GET | `/items/{id}/backdrop` | Sidecar backdrop |
-| GET | `/items/{id}/playback` | Player payload: stream URL, signed `cast` URL/compatibility, resume position, subtitle tracks (image tracks flagged `burnIn`), audio tracks (`direct` per track), next episode, and `directPlay`/`hls`/`reasons`/`qualities` for choosing direct play vs HLS |
+| GET | `/items/{id}/playback` | Player payload: stream URL, poster URL, signed `cast` URL/compatibility, resume position, subtitle tracks (image tracks flagged `burnIn`), audio tracks (`direct` per track), next episode, and `directPlay`/`hls`/`prepare`/`reasons`/`qualities`. The web player feeds the stream URL to Movi Player; `prepare`/HLS remain the server fallback (ADR 0007) |
 | GET | `/media/{fileId}` | Direct play, byte ranges (`Range: bytes=`), `206`; signed `?cast=` tokens allow cast devices without a session cookie. `?variant={id}` serves a completed transcode variant instead of the source file |
 | POST | `/playback/{itemId}/transcode` | Start or reuse an HLS session: `{fileId?,startMs?,audioIndex?,subtitleIndex?,externalSubtitleId?,maxHeight?,mode?}` → `{sessionId,playlistUrl,startMs,durationMs,mode,height,reasons[]}`. Reuses an identical live session; a different `startMs`/audio/burn-in/height starts a new job |
 | GET | `/playback/sessions/{sessionId}` | Session status: `{mode,startMs,durationMs,encodedMs,speed,height,running,error?}` |

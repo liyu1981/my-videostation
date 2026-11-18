@@ -48,6 +48,7 @@ type playbackDTO struct {
 	ItemID     int64              `json:"itemId"`
 	FileID     int64              `json:"fileId"`
 	StreamURL  string             `json:"streamUrl"`
+	PosterURL  string             `json:"posterUrl,omitempty"`
 	ResumeMS   int64              `json:"resumeMs"`
 	DurationMS int64              `json:"durationMs"`
 	Subtitles  []subtitleTrackDTO `json:"subtitles"`
@@ -106,6 +107,9 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	}
 	if item.PositionMS > 0 && !item.Played {
 		out.ResumeMS = item.PositionMS
+	}
+	if item.PosterPath != "" {
+		out.PosterURL = "/api/v1/items/" + strconv.FormatInt(item.ID, 10) + "/poster?v=" + strconv.FormatInt(item.UpdatedAt.Unix(), 10)
 	}
 	out.Cast = s.castInfo(r, file)
 	out.Container = playback.ContainerFromPath(file.Path, file.Container)

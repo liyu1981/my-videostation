@@ -128,6 +128,13 @@ export function DetailPage() {
   });
 
   // Folder-scoped rescan: a show re-walks its own folder, a season its folder.
+  const itemVariants = useQuery({
+    queryKey: ['item-variants', id],
+    queryFn: () => api.itemVariants(id),
+    enabled: mediaInfoOpen && Boolean(isAdmin),
+    staleTime: 5_000,
+  });
+
   const splitFile = useMutation({
     mutationFn: (fileId: number) => api.splitFile(id, fileId),
     onSuccess: (d) => {
@@ -635,6 +642,7 @@ export function DetailPage() {
         <MediaInfoDialog
           title={detail.title}
           files={detail.files}
+          variants={itemVariants.data?.variants ?? []}
           onClose={() => setMediaInfoOpen(false)}
           onEditFile={isAdmin ? (fileId) => splitFile.mutate(fileId) : undefined}
           editPending={splitFile.isPending}
@@ -649,6 +657,7 @@ export function DetailPage() {
 function MediaInfoDialog({
   title,
   files,
+  variants,
   onClose,
   onEditFile,
   editPending,
@@ -656,6 +665,7 @@ function MediaInfoDialog({
 }: {
   title: string;
   files: import('../lib/api').MediaFile[];
+  variants?: import('../lib/api').TranscodeVariant[];
   onClose: () => void;
   onEditFile?: (fileId: number) => void;
   editPending?: boolean;
@@ -670,7 +680,7 @@ function MediaInfoDialog({
       <div className="p-4">
         <p className="mb-2 truncate text-[11.5px] text-fg-dim">{title}</p>
         {editError ? <p className="mb-2 text-[11.5px] text-active">{editError}</p> : null}
-        <MediaInfoPanel files={files} onEditFile={onEditFile} editPending={editPending} />
+        <MediaInfoPanel files={files} variants={variants} onEditFile={onEditFile} editPending={editPending} />
       </div>
     </Dialog>
   );

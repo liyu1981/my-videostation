@@ -58,7 +58,7 @@ local trailer files are indexed as extras).
 | Online metadata scrape (posters, fanart, cast, plot) | Provider layer (TMDb primary; future plugins) | M2 |
 | TV hierarchy Season/Episode, next-up | `shows → seasons → episodes`, auto-advance | M2/M3 |
 | Home videos / personal videos | `kind=home_video`, minimal metadata, date-sorted | M3 |
-| Web playback (HTML5 + transcode for unsupported codecs) | Direct play + **background transcode cache** (MP4 variants; on-demand HLS is legacy during migration, ADR 0006) | M4/M5 |
+| Web playback (HTML5 + transcode for unsupported codecs) | **Movi Player** (WebCodecs/FFmpeg WASM) plays MKV/HEVC/VP9/AV1; cached MP4 fallback + HLS for the Jellyfin adapter (ADR 0006/0007) | M4/M5 |
 | Subtitles (external + embedded), online subtitle search | Sidecar/embedded tracks (M4); **local subtitle full-text index** instead of provider download (GAP-012, `docs/SUBTITLE-INDEX.md`) | M4/M7 |
 | Resume playback / watched state | Central `playback_progress` per user | M4 |
 | Collections, genres, favorites, recently added | Collections + genre/favorite/recent browse | M2/M3 |
@@ -400,7 +400,8 @@ quality cap (`maxHeight` from the source ladder), input-seek at the requested of
 session reuse/eviction, idle reaping and cache cleanup, `-progress` parsing surfaced over
 `/playback/sessions/{id}`, and a browser player that falls back from direct play to HLS
 (`hls.js` loaded on demand) with seek-by-session-restart, audio/quality switching and
-image-subtitle burn-in.
+image-subtitle burn-in. The web player now uses **Movi Player** (ADR 0007) instead;
+HLS remains for the Jellyfin adapter and fallback variants.
 
 **Accepted next (ADR 0006):** replace the live-session model with a durable
 `transcode` job that writes a cached MP4 variant (`<data>/cache/transcodes/…`),
@@ -723,7 +724,7 @@ each job is pruned to its newest 50,000 lines when it finishes; the API/UI fetch
 | Header | ✅ Video Station layout: logo block exactly as wide as the rail (240 px), home button immediately after it (x=248), then the search field; settings + current user menu on the right; the header sits above page content (z-index) so its dropdowns are never covered by the hero; navigation rail below the header |
 | Detail layout | ✅ Video-Station structure: **backdrop covers the whole page** (not a top band), 270×388 poster with 76 px play button and 3 px progress line, yellow Unwatched chip, icon actions, 36 px title, tagline, info bar (year/stars/clock duration/certification + resolution/audio badges), bold-label definition rows, summary with View all, bottom-corner prev/next arrows, overflow menu (edit/identify/refresh/watched) |
 | Shows & episodes | ✅ season bar with red active tab, 180×120 landscape episode cards; episode pages reuse the layout with `SxxEyy`; episode titles that look like filenames/release tags are repaired to "Episode N" (including when a Jellyfin `.nfo` contains a filename as its title) |
-| Player | ✅ browser Back closes the player (opening pushes one history entry; X/Esc use the same entry); custom control bar: prev/next item, ±10 s, play/pause, volume slider, clock, subtitle menu, audio-track list (informational until M5), speed menu, fullscreen, buffered bar, auto-hide (cursor hidden), big pause overlay, next-up prompt, keyboard shortcuts |
+| Player | ✅ **Movi Player** (WebCodecs/FFmpeg WASM) with built-in controls/subtitles/audio; app shell keeps browser-Back close, prev/next, next-up countdown, resume/progress, queue, poster/title; cached MP4 fallback on Movi errors (ADR 0007) |
 | Unsupported codecs | ✅ explicit error panel + download link instead of a silent black screen (Chromium cannot demux MKV/XviD; H.264 needs proprietary codecs) |
 | Loading polish | ✅ blurred poster placeholder behind hero/detail backdrops so images never "pop in" onto an empty page; backdrop fades in on load |
 | API | ✅ `/items/{id}/neighbors`, audio tracks in `/items/{id}/playback` |

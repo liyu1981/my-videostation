@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -8,6 +8,7 @@ import {
   Clapperboard,
   DatabaseBackup,
   Film,
+  HardDrive,
   Home,
   LibraryBig,
   ListVideo,
@@ -19,10 +20,12 @@ import {
   Users,
   Video,
 } from 'lucide-react';
+import { useAtom } from 'jotai';
 import { api } from '../lib/api';
+import { playerAtom } from '../atoms/ui';
 import { useI18n, type I18nKey, type Locale } from '../lib/i18n';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
-import { PlayerModal } from './Player';
+const PlayerModal = lazy(() => import('./Player').then((m) => ({ default: m.PlayerModal })));
 import { Loading } from './State';
 
 type NavItem = { key: I18nKey; to: string; search?: Record<string, string>; icon: typeof Home };
@@ -35,7 +38,7 @@ const navItems: NavItem[] = [
   { key: 'nav.playlists', to: '/playlists', icon: ListVideo },
 ];
 
-const adminPaths = ['/libraries', '/settings', '/tasks', '/users', '/activity', '/backup'];
+const adminPaths = ['/libraries', '/settings', '/tasks', '/users', '/activity', '/backup', '/transcodes'];
 
 export function Shell() {
   const navigate = useNavigate();
@@ -43,6 +46,7 @@ export function Shell() {
   const location = useRouterState({ select: (s) => s.location });
   const [query, setQuery] = useState('');
   const [userMenu, setUserMenu] = useState(false);
+  const [player] = useAtom(playerAtom);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const { locale, setLocale, t } = useI18n();
 
@@ -347,6 +351,20 @@ export function Shell() {
                   {t('nav.activity')}
                 </Link>
                 <Link
+                  to="/transcodes"
+                  className={[
+                    'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
+                    location.pathname === '/transcodes' ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+                  ].join(' ')}
+                  aria-current={location.pathname === '/transcodes' ? 'page' : undefined}
+                >
+                  <HardDrive
+                    className={['size-[18px]', location.pathname === '/transcodes' ? 'text-active' : 'text-fg-dim group-hover:text-fg-muted'].join(' ')}
+                    aria-hidden
+                  />
+                  {t('nav.transcodes')}
+                </Link>
+                <Link
                   to="/backup"
                   className={[
                     'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
@@ -387,7 +405,11 @@ export function Shell() {
           <Outlet />
         </main>
       </div>
-      <PlayerModal />
+      {player ? (
+        <Suspense fallback={<div className="fixed inset-0 z-50 grid place-items-center bg-black text-[13px] text-fg-dim">Loading player…</div>}>
+          <PlayerModal />
+        </Suspense>
+      ) : null}
       {passwordOpen ? <ChangePasswordDialog onClose={() => setPasswordOpen(false)} /> : null}
     </div>
   );

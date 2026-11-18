@@ -15,6 +15,7 @@ import { UsersPage } from './routes/UsersPage';
 import { ActivityPage } from './routes/ActivityPage';
 import { BackupPage } from './routes/BackupPage';
 import { MaintenancePage } from './routes/MaintenancePage';
+import { TranscodesPage } from './routes/TranscodesPage';
 
 const toNum = (v: unknown): number | undefined => {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -137,6 +138,12 @@ const maintenanceRoute = createRoute({
   component: MaintenancePage,
 });
 
+const transcodesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/transcodes',
+  component: TranscodesPage,
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   browseRoute,
@@ -153,6 +160,7 @@ const routeTree = rootRoute.addChildren([
   activityRoute,
   backupRoute,
   maintenanceRoute,
+  transcodesRoute,
 ]);
 
 export const router = createRouter({

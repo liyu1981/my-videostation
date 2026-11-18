@@ -15,7 +15,7 @@ type TranscodeVariant struct {
 	Mtime      int64      `json:"mtime"`
 	Size       int64      `json:"size"`
 	Key        string     `json:"variantKey"`
-	Path       string     `json:"-"`
+	Path       string     `json:"path"`
 	Bytes      int64      `json:"bytes"`
 	DurationMS int64      `json:"durationMs"`
 	State      string     `json:"state"` // queued|running|ready|failed
@@ -45,6 +45,58 @@ func scanVariant(row rowScanner) (*TranscodeVariant, error) {
 		}
 	}
 	return &v, nil
+}
+
+// TranscodeVariantInfo is a variant plus the original file/item it was made from.
+type TranscodeVariantInfo struct {
+	TranscodeVariant
+	OriginalPath string `json:"originalPath"`
+	Title        string `json:"title"`
+	Kind         string `json:"kind"`
+}
+
+// ListVariants returns every cached variant with its source file, newest first.
+func (s *Store) ListVariants(ctx context.Context) ([]TranscodeVariantInfo, error) {
+	return s.listVariants(ctx, "")
+}
+
+// ListVariantsForItem returns the variants belonging to one item.
+func (s *Store) ListVariantsForItem(ctx context.Context, itemID int64) ([]TranscodeVariantInfo, error) {
+	return s.listVariants(ctx, "WHERE v.item_id = ?", itemID)
+}
+
+func (s *Store) listVariants(ctx context.Context, where string, args ...any) ([]TranscodeVariantInfo, error) {
+	q := `SELECT v.id, v.file_id, v.item_id, v.mtime, v.size, v.variant_key, v.path, v.bytes,
+		v.duration_ms, v.state, v.job_id, v.error, v.created_at, v.updated_at, v.last_used_at,
+		f.path, m.title, m.kind
+		FROM transcode_variants v
+		JOIN media_files f ON f.id = v.file_id
+		JOIN media_items m ON m.id = v.item_id ` + where + ` ORDER BY v.created_at DESC, v.id DESC`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, wrap("list variants", err)
+	}
+	defer rows.Close()
+	out := []TranscodeVariantInfo{}
+	for rows.Next() {
+		var v TranscodeVariantInfo
+		var created, updated string
+		var lastUsed sql.NullString
+		if err := rows.Scan(&v.ID, &v.FileID, &v.ItemID, &v.Mtime, &v.Size, &v.Key, &v.Path, &v.Bytes,
+			&v.DurationMS, &v.State, &v.JobID, &v.Error, &created, &updated, &lastUsed,
+			&v.OriginalPath, &v.Title, &v.Kind); err != nil {
+			return nil, wrap("scan variant list", err)
+		}
+		v.CreatedAt, _ = time.Parse(time.RFC3339, created)
+		v.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+		if lastUsed.Valid {
+			if t, err := time.Parse(time.RFC3339, lastUsed.String); err == nil {
+				v.LastUsedAt = &t
+			}
+		}
+		out = append(out, v)
+	}
+	return out, wrap("iterate variants", rows.Err())
 }
 
 // VariantByKey returns the cached row for (file, profile), if any.

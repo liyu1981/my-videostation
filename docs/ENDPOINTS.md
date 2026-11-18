@@ -15,7 +15,7 @@ Auth legend:
   `X-MediaBrowser-Token`, `?api_key=`) **or** the SPA cookie
 - **token|session|cast** — additionally a signed `?cast=` token (cast receivers)
 
-Totals: **178** registered routes (plus the SPA fallback at `/`).
+Totals: **181** registered routes (plus the SPA fallback at `/`).
 
 ## Canonical API — health, config, auth (8)
 
@@ -50,7 +50,7 @@ Totals: **178** registered routes (plus the SPA fallback at `/`).
 | DELETE | `/api/v1/jobs` | admin |
 | GET | `/api/v1/fs` | admin |
 
-## Canonical API — browse, items, metadata, artwork (32)
+## Canonical API — browse, items, metadata, artwork (33)
 
 | Method | Path | Auth |
 |---|---|---|
@@ -85,6 +85,7 @@ Totals: **178** registered routes (plus the SPA fallback at `/`).
 | POST | `/api/v1/items/{id}/progress` | session |
 | GET | `/api/v1/items/{id}/poster` | session |
 | GET | `/api/v1/items/{id}/backdrop` | session |
+| GET | `/api/v1/items/{id}/variants` | admin |
 | GET | `/api/v1/items/{id}/playback` | session |
 
 ## Canonical API — collections, users, audit, backup, cast (21)
@@ -244,10 +245,12 @@ Totals: **178** registered routes (plus the SPA fallback at `/`).
 | DELETE | `/Items/{itemId}` | token\|session |
 | POST | `/Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}` | token\|session |
 
-## Other (6)
+## Other (8)
 
 | Method | Path | Auth |
 |---|---|---|
+| GET | `/api/v1/transcodes` | admin |
+| DELETE | `/api/v1/transcodes/{id}` | admin |
 | POST | `/Users/AuthenticateWithQuickConnect` | public |
 | POST | `/UserItems/{itemId}/Rating` | token\|session |
 | DELETE | `/UserItems/{itemId}/Rating` | token\|session |
