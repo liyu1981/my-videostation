@@ -196,6 +196,21 @@ func ensureItem(ctx context.Context, tx *sql.Tx, f *ScannedFile) (int64, bool, e
 		}
 		return existingID, false, nil
 	}
+	// Never downgrade an identified item to the unknown-file fallback. A full
+	// scan has no show context, so a previously matched movie/episode can parse as
+	// an unidentified home video; replacing the row would move the file and delete
+	// the old item (and its manual/provider metadata). Keep the existing kind and
+	// only refresh probe-derived fields.
+	if found && kindLocked == 0 && f.Kind == KindHomeVideo {
+		switch existingKind {
+		case KindMovie, KindEpisode, KindShow, KindSeason:
+			if err := touchItem(ctx, tx, existingID, f); err != nil {
+				return 0, false, err
+			}
+			return existingID, false, nil
+		}
+	}
+
 	// A scoped show/season rescan may promote a placeholder home video into an
 	// episode in place, keeping its id/files instead of creating a duplicate and
 	// leaving an orphan placeholder behind.

@@ -338,3 +338,72 @@ func TestShowRescanInfersBareEpisodeNumbers(t *testing.T) {
 		t.Fatalf("placeholders after = %+v (%v)", left, err)
 	}
 }
+
+// TestFullScanDoesNotDowngradeIdentifiedItem: a file that became an episode via
+// a scoped rescan must not be replaced by a home-video placeholder when the
+// periodic full scan cannot parse its name. Its manual metadata must survive.
+func TestFullScanDoesNotDowngradeIdentifiedItem(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+
+	tvDir := filepath.Join(dir, "tv")
+	showDir := filepath.Join(tvDir, "Keep Show")
+	writeFile(t, filepath.Join(showDir, "Keep Show S01E01.mkv"))
+	writeFile(t, filepath.Join(showDir, "CH02.mkv"))
+	lib, err := st.CreateLibrary(ctx, "TV", "tv", "", []string{tvDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanLibrary(t, srv, lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	show := itemIDByTitle(t, srv.URL, lib.ID, "Keep Show")
+	if show == 0 {
+		t.Fatal("show not indexed")
+	}
+
+	// Promote CH02 to an episode through the show-scoped rescan.
+	res, err := http.Post(srv.URL+"/api/v1/items/"+itoa(show)+"/rescan", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	waitJobsIdle(t, srv.URL)
+
+	seasons := itemChildren(t, st, show, store.KindSeason)
+	var ep2 int64
+	for _, s := range seasons {
+		for _, e := range itemChildren(t, st, s, store.KindEpisode) {
+			item, err := st.GetItem(ctx, e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if item.EpisodeNumber == 2 {
+				ep2 = e
+			}
+		}
+	}
+	if ep2 == 0 {
+		t.Fatal("CH02 was not promoted to an episode")
+	}
+	title := "Manual Episode Title"
+	if _, err := st.UpdateItem(ctx, ep2, store.ItemPatch{Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A periodic full scan sees CH02 as unknown; it must keep the episode row.
+	if _, err := scanLibrary(t, srv, lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetItem(ctx, ep2)
+	if err != nil {
+		t.Fatalf("episode row disappeared: %v", err)
+	}
+	if got.Kind != store.KindEpisode || got.Title != title {
+		t.Fatalf("episode after full scan = %+v", got)
+	}
+	left, _, err := st.ListItems(ctx, store.ItemFilter{LibraryID: lib.ID, Kind: store.KindHomeVideo, Page: 1, PerPage: 20})
+	if err != nil || len(left) != 0 {
+		t.Fatalf("home-video placeholders after full scan = %+v (%v)", left, err)
+	}
+}
