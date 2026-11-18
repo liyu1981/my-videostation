@@ -178,6 +178,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/items/{id}/duplicate", s.admin(s.handleItemDuplicate))
 	mux.HandleFunc("POST /api/v1/items/{id}/merge", s.admin(s.handleItemMerge))
 	mux.HandleFunc("POST /api/v1/items/{id}/keep-separate", s.admin(s.handleKeepSeparate))
+	mux.HandleFunc("POST /api/v1/items/{id}/files/{fileId}/split", s.admin(s.handleSplitFile))
 	mux.HandleFunc("POST /api/v1/items/{id}/apply-local", s.admin(s.handleApplyLocal))
 	mux.HandleFunc("POST /api/v1/items/{id}/match", s.admin(s.handleMatch))
 	mux.HandleFunc("POST /api/v1/items/{id}/refresh", s.admin(s.handleRefreshMetadata))

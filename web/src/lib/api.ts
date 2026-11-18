@@ -503,6 +503,8 @@ export const api = {
     request<Job>(`/items/${id}/rescan`, { method: 'POST', body: JSON.stringify({ force }) }),
   captureBackdrop: (id: number, positionMs: number) =>
     request<ItemDetail>(`/items/${id}/backdrop/capture`, { method: 'POST', body: JSON.stringify({ positionMs }) }),
+  splitFile: (itemId: number, fileId: number) =>
+    request<ItemDetail>(`/items/${itemId}/files/${fileId}/split`, { method: 'POST' }),
   reclassifyItem: (
     id: number,
     body: { kind: 'movie' | 'episode' | 'home_video'; showTitle?: string; seasonNumber?: number; episodeNumber?: number },

@@ -128,6 +128,17 @@ export function DetailPage() {
   });
 
   // Folder-scoped rescan: a show re-walks its own folder, a season its folder.
+  const splitFile = useMutation({
+    mutationFn: (fileId: number) => api.splitFile(id, fileId),
+    onSuccess: (d) => {
+      setMediaInfoOpen(false);
+      setEditing(d);
+      void qc.invalidateQueries({ queryKey: ['item', id] });
+      void qc.invalidateQueries({ queryKey: ['browse'] });
+      void qc.invalidateQueries({ queryKey: ['home'] });
+    },
+  });
+
   const rescanFiles = useMutation({
     // Show/season rescans are hard rescans: re-probe files and let the series
     // context correct their types/numbers.
@@ -620,13 +631,36 @@ export function DetailPage() {
         <ChevronRight className="size-5" aria-hidden />
       </button>
 
-      {mediaInfoOpen ? <MediaInfoDialog title={detail.title} files={detail.files} onClose={() => setMediaInfoOpen(false)} /> : null}
+      {mediaInfoOpen ? (
+        <MediaInfoDialog
+          title={detail.title}
+          files={detail.files}
+          onClose={() => setMediaInfoOpen(false)}
+          onEditFile={isAdmin ? (fileId) => splitFile.mutate(fileId) : undefined}
+          editPending={splitFile.isPending}
+          editError={splitFile.isError ? (splitFile.error as Error).message : ''}
+        />
+      ) : null}
       {editing ? <EditVideoInfoDialog item={editing} onClose={() => setEditing(null)} /> : null}
     </div>
   );
 }
 
-function MediaInfoDialog({ title, files, onClose }: { title: string; files: import('../lib/api').MediaFile[]; onClose: () => void }) {
+function MediaInfoDialog({
+  title,
+  files,
+  onClose,
+  onEditFile,
+  editPending,
+  editError,
+}: {
+  title: string;
+  files: import('../lib/api').MediaFile[];
+  onClose: () => void;
+  onEditFile?: (fileId: number) => void;
+  editPending?: boolean;
+  editError?: string;
+}) {
   return (
     <Dialog title="Media info" onClose={onClose} footer={
         <div className="ml-auto">
@@ -635,7 +669,8 @@ function MediaInfoDialog({ title, files, onClose }: { title: string; files: impo
       }>
       <div className="p-4">
         <p className="mb-2 truncate text-[11.5px] text-fg-dim">{title}</p>
-        <MediaInfoPanel files={files} />
+        {editError ? <p className="mb-2 text-[11.5px] text-active">{editError}</p> : null}
+        <MediaInfoPanel files={files} onEditFile={onEditFile} editPending={editPending} />
       </div>
     </Dialog>
   );

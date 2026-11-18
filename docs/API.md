@@ -81,6 +81,7 @@ During a backup import, API requests except `/health`, `/config` and `/backup/st
 | POST | `/items/{id}/refresh?language=` | **admin** — Re-fetch from the stored provider id (respects locks); optional language override. Episodes use their stored show id + season/episode |
 | GET | `/items/{id}/duplicate` | **admin** — Another same-title item in the library (`{item}`), or `{}` (movies, home videos and shows) |
 | POST | `/items/{id}/merge` | **admin** — `{fromId}` — move the other item's files/credits/locks/progress into this item, then delete it; for shows, seasons/episodes are merged by season/episode number |
+| POST | `/items/{id}/files/{fileId}/split` | **admin** — move one file out of a multi-file item into its own editable home-video item (both items are marked keep-separate so a scan does not re-merge them). Returns the new item detail; a single-file item is returned unchanged |
 | POST | `/items/{id}/keep-separate` | **admin** — `{otherId}` — mark both items so scans never auto-merge them |
 | POST | `/items/{id}/apply-local` | **admin** — `{sourceId}` — copy another same-kind item's metadata (title/overview/tagline/date/rating/artwork/genres/cast) onto this item; used by "Select from existing videos" |
 | POST | `/items/{id}/art` | **admin** — `{kind:"poster"|"backdrop", url}` — download + cache artwork; an empty `url` clears it |

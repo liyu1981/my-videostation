@@ -649,3 +649,30 @@ func (s *Server) handleCaptureBackdrop(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, detail)
 }
+
+// handleSplitFile moves one file out of a multi-file item into its own editable
+// home-video item. Returns the new item's detail.
+func (s *Server) handleSplitFile(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid item id")
+		return
+	}
+	fileID, err := strconv.ParseInt(r.PathValue("fileId"), 10, 64)
+	if err != nil || fileID <= 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid file id")
+		return
+	}
+	it, err := s.store.SplitFile(r.Context(), id, fileID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.audit(r, "item.split_file", "item:"+strconv.FormatInt(id, 10), "file:"+strconv.FormatInt(fileID, 10))
+	detail, err := s.itemDetail(r.Context(), it)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}

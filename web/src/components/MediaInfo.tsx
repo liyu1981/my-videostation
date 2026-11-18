@@ -1,8 +1,16 @@
-import { HardDrive, Subtitles, Volume2 } from 'lucide-react';
+import { HardDrive, Pencil, Subtitles, Volume2 } from 'lucide-react';
 import type { MediaFile } from '../lib/api';
 import { audioSummary, formatBytes, formatClock, resolutionLabel } from '../lib/format';
 
-export function MediaInfoPanel({ files }: { files: MediaFile[] }) {
+export function MediaInfoPanel({
+  files,
+  onEditFile,
+  editPending = false,
+}: {
+  files: MediaFile[];
+  onEditFile?: (fileId: number) => void;
+  editPending?: boolean;
+}) {
   return (
     <div className="space-y-3">
       {files.map((file) => (
@@ -15,6 +23,18 @@ export function MediaInfoPanel({ files }: { files: MediaFile[] }) {
             <span className="text-[11.5px] text-fg-dim">{formatBytes(file.size)}</span>
             {file.missing ? (
               <span className="rounded-full bg-active/15 px-2 py-0.5 text-[10.5px] text-active">Missing</span>
+            ) : null}
+            {onEditFile ? (
+              <button
+                type="button"
+                disabled={editPending}
+                onClick={() => onEditFile(file.id)}
+                title={files.length > 1 ? 'Split this file into its own video and edit its info' : 'Edit video info'}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-hairline px-2 text-[11px] text-fg-muted hover:border-hairline-strong hover:text-fg disabled:opacity-40"
+              >
+                <Pencil className="size-3" aria-hidden />
+                Edit this file
+              </button>
             ) : null}
           </div>
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -328,4 +329,82 @@ func (s *Store) CopyMetadata(ctx context.Context, targetID, sourceID int64) erro
 		return err
 	}
 	return wrap("commit copy metadata", tx.Commit())
+}
+
+// SplitFile moves one physical file out of a multi-file item into a new
+// home-video item, so it can be edited/classified independently. Both items are
+// marked keep_separate so the periodic part-merge does not join them again.
+// Returns the existing item unchanged when it has only one file.
+func (s *Store) SplitFile(ctx context.Context, itemID, fileID int64) (*Item, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, wrap("begin split", err)
+	}
+	defer tx.Rollback()
+
+	var libraryID int64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT library_id FROM media_items WHERE id = ?`, itemID).Scan(&libraryID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, wrap("load split item", err)
+	}
+	var path string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT path FROM media_files WHERE id = ? AND item_id = ?`, fileID, itemID).Scan(&path); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, wrap("load split file", err)
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM media_files WHERE item_id = ?`, itemID).Scan(&count); err != nil {
+		return nil, wrap("count split files", err)
+	}
+	if count <= 1 {
+		if err := tx.Commit(); err != nil {
+			return nil, wrap("commit split", err)
+		}
+		return s.GetItem(ctx, itemID)
+	}
+
+	title := strings.TrimSpace(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
+	if title == "" {
+		title = "Video"
+	}
+	// media_items has a unique (library, kind, title, year) key for home videos.
+	var exists int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM media_items
+		WHERE library_id = ? AND kind = 'home_video' AND lower(title) = lower(?) AND COALESCE(year,0) = 0`,
+		libraryID, title).Scan(&exists); err != nil {
+		return nil, wrap("check split title", err)
+	}
+	if exists > 0 {
+		title = fmt.Sprintf("%s (%d)", title, fileID)
+	}
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO media_items
+			(library_id, parent_id, kind, title, sort_title, metadata_status,
+			 keep_separate, added_at, updated_at)
+		VALUES (?, 0, 'home_video', ?, ?, 'unmatched', 1, ?, ?)`,
+		libraryID, title, sortTitle(title), now(), now())
+	if err != nil {
+		return nil, wrap("insert split item", err)
+	}
+	newID, _ := res.LastInsertId()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE media_files SET item_id = ? WHERE id = ?`, newID, fileID); err != nil {
+		return nil, wrap("move split file", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE media_items SET keep_separate = 1 WHERE id = ?`, itemID); err != nil {
+		return nil, wrap("mark split source", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, wrap("commit split", err)
+	}
+	return s.GetItem(ctx, newID)
 }
