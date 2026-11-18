@@ -288,36 +288,6 @@ export interface QualityOption {
   height: number;
 }
 
-export interface TranscodeRequest {
-  fileId?: number;
-  startMs?: number;
-  audioIndex?: number;
-  subtitleIndex?: number;
-  externalSubtitleId?: number;
-  maxHeight?: number;
-  mode?: 'remux' | 'transcode';
-}
-
-export interface TranscodeSession {
-  sessionId: string;
-  playlistUrl: string;
-  startMs: number;
-  durationMs: number;
-  mode: 'remux' | 'transcode';
-  height: number;
-  videoCodec?: string;
-  audioCodec?: string;
-  audioIndex: number;
-  reasons?: string[];
-}
-
-export interface TranscodeStatus extends TranscodeSession {
-  encodedMs: number;
-  speed: number;
-  running: boolean;
-  error?: string;
-}
-
 export interface PlaybackCapabilities {
   directPlay: {
     containers: string[];
@@ -371,6 +341,7 @@ export interface PlaybackInfo {
   itemId: number;
   fileId: number;
   streamUrl: string;
+  posterUrl?: string;
   resumeMs: number;
   durationMs: number;
   subtitles: PlaybackSubtitle[];
@@ -492,11 +463,6 @@ export const api = {
   playback: (id: number) => request<PlaybackInfo>(`/items/${id}/playback`),
   prepare: (id: number, body: { fileId?: number; maxHeight?: number; audioIndex?: number; subtitleIndex?: number }) =>
     request<PrepareResult>(`/items/${id}/prepare`, { method: 'POST', body: JSON.stringify(body) }),
-  transcode: (id: number, body: TranscodeRequest) =>
-    request<TranscodeSession>(`/playback/${id}/transcode`, { method: 'POST', body: JSON.stringify(body) }),
-  transcodeStatus: (sessionId: string) => request<TranscodeStatus>(`/playback/sessions/${sessionId}`),
-  stopTranscode: (sessionId: string) =>
-    request<{ ok: boolean }>(`/playback/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => ({ ok: false })),
   capabilities: () => request<PlaybackCapabilities>('/playback/capabilities'),
   neighbors: (id: number) => request<{ prev?: Item; next?: Item }>(`/items/${id}/neighbors`),
   rescanItem: (id: number, force = false) =>
