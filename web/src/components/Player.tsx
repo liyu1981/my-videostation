@@ -220,6 +220,23 @@ export function PlayerModal() {
     }
   }, [data, player?.itemId]);
 
+  const handleReady = useCallback((el: MoviElement) => {
+    setReady(true);
+    if (el.duration) setDuration(el.duration);
+  }, []);
+
+  const handlePlay = useCallback(() => setEnded(false), []);
+
+  const handleError = useCallback((err: unknown) => {
+    setError(err instanceof Error ? err.message : String(err));
+    void tryFallback();
+  }, [tryFallback]);
+
+  const handleErrorDisplay = useCallback((info: { title: string | null; message: string | null }) => {
+    setError(info.message || info.title || 'Playback failed');
+    void tryFallback();
+  }, [tryFallback]);
+
   const tracks = (data?.subtitles ?? []).filter((t) => !t.burnIn);
 
   return (
@@ -241,22 +258,13 @@ export function PlayerModal() {
           theme="dark"
           className="h-full w-full"
           style={{ width: '100%', height: '100%' }}
-          onReady={(el) => {
-            setReady(true);
-            if (el.duration) setDuration(el.duration);
-          }}
+          onReady={handleReady}
           onTimeUpdate={onTimeUpdate}
-          onPlay={() => setEnded(false)}
+          onPlay={handlePlay}
           onPause={saveNow}
           onEnded={onEnded}
-          onError={(err) => {
-            setError(err instanceof Error ? err.message : String(err));
-            void tryFallback();
-          }}
-          onErrorDisplay={(info) => {
-            setError(info.message || info.title || 'Playback failed');
-            void tryFallback();
-          }}
+          onError={handleError}
+          onErrorDisplay={handleErrorDisplay}
         >
           {tracks.map((track) => (
             <MoviTrack

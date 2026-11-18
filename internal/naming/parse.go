@@ -158,6 +158,7 @@ var (
 	reChapterEpisode  = regexp.MustCompile(`(?i)\b(?:ch|chapter|chap)\s*[-_. ]*0*(\d{1,3})\b`)
 	reTrailingEpisode = regexp.MustCompile(`(?i)(?:^|[^0-9])0*(\d{1,3})(?:v\d+)?(?:\s*(?:end|final|完))?\s*$`)
 	reKResolution     = regexp.MustCompile(`(?i)(?:^|[-\s])[48]K\b`)
+	reSeasonDigits    = regexp.MustCompile(`(\d{1,2})`)
 )
 
 // InferEpisode recovers an episode from a scoped folder where the filename only
@@ -343,7 +344,7 @@ func SeasonFromPath(path string) int {
 			if strings.EqualFold(strings.TrimSpace(base), "specials") || strings.EqualFold(strings.TrimSpace(base), "special") {
 				return 0
 			}
-			if m := regexp.MustCompile(`(\d{1,2})`).FindStringSubmatch(base); len(m) == 2 {
+			if m := reSeasonDigits.FindStringSubmatch(base); len(m) == 2 {
 				if n, err := strconv.Atoi(m[1]); err == nil {
 					return n
 				}

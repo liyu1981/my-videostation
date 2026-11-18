@@ -135,7 +135,7 @@ func TestThumbnailGenerationAndControls(t *testing.T) {
 
 	// Turning generation off serves the original again.
 	putArtworkSettings(t, srv.URL, map[string]any{"thumbnails": false})
-	w, h, _ = imageSize(t, mustGet(t, posterURL))
+	w, _, _ = imageSize(t, mustGet(t, posterURL))
 	if w != 800 {
 		t.Fatalf("thumbnails off = %dpx wide, want original 800", w)
 	}

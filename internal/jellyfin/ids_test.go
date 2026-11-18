@@ -52,14 +52,16 @@ func TestEncodedIDsAreOpaque(t *testing.T) {
 
 func TestEncodedIDsAreStableAndDistinct(t *testing.T) {
 	c := NewCodec("test-secret")
-	if c.Encode(KindItem, 1) != c.Encode(KindItem, 1) {
+	first := c.Encode(KindItem, 1)
+	if c.Encode(KindItem, 1) != first {
 		t.Fatal("ids must be deterministic for one key")
 	}
 	if c.Encode(KindItem, 1) == c.Encode(KindFile, 1) {
 		t.Fatal("different kinds must not collide")
 	}
 	// The process-wide helpers use one active codec.
-	if ItemID(1) != ItemID(1) {
+	firstItem := ItemID(1)
+	if ItemID(1) != firstItem {
 		t.Fatal("package helpers must be deterministic")
 	}
 	if ItemID(0) != "" {

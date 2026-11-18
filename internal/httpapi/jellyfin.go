@@ -130,7 +130,7 @@ func (s *Server) handleJFSystemInfo(w http.ResponseWriter, r *http.Request) {
 			SupportsLibraryPlaylists: false,
 		},
 		SupportsLibraryMonitor:        true,
-		OperatingSystemDisplayName:    strings.Title(runtime.GOOS), //nolint:staticcheck
+		OperatingSystemDisplayName:    titleFirst(runtime.GOOS),
 		CanSelfRestart:                true,
 		CanLaunchWebBrowser:           false,
 		WebSocketPortNumber:           -1, // no websocket API is exposed
@@ -502,4 +502,13 @@ func jellyfinClientInfo(r *http.Request) (client, deviceName, deviceID, version 
 		}
 	}
 	return client, deviceName, deviceID, version
+}
+
+// titleFirst capitalises an OS name ("linux" -> "Linux") without the deprecated
+// strings.Title, whose Unicode word-boundary rules are not needed here.
+func titleFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
