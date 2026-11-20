@@ -65,9 +65,6 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   const [base, setBase] = useState<ItemDetail>(item);
   const [searchOpen, setSearchOpen] = useState(false);
   const [localOpen, setLocalOpen] = useState(false);
-  const [duplicate, setDuplicate] = useState<Item | null>(null);
-  const [mergeBusy, setMergeBusy] = useState(false);
-  const [mergeError, setMergeError] = useState('');
 
   const [title, setTitle] = useState(item.title);
   const [tagline, setTagline] = useState(item.tagline ?? '');
@@ -86,6 +83,7 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
   // applied when a provider/local result is picked, so no show/season fields
   // are needed here.
   const [kind, setKind] = useState<Kind>(item.kind);
+  const [showTitle, setShowTitle] = useState(item.showTitle ?? '');
   const [seasonNumber, setSeasonNumber] = useState(String(item.seasonNumber ?? 1));
   const [episodeNumber, setEpisodeNumber] = useState(String(item.episodeNumber ?? 1));
 
@@ -113,6 +111,7 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
     setLocks(d.locks);
     setLocked(d.locked);
     setKind(d.kind);
+    setShowTitle(d.showTitle ?? '');
     setSeasonNumber(String(d.seasonNumber ?? 1));
     setEpisodeNumber(String(d.episodeNumber ?? 1));
     if (posterPreview) URL.revokeObjectURL(posterPreview);
@@ -191,41 +190,16 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
     try {
       const res = await api.duplicate(item.id);
       if (res.item) {
-        setDuplicate(res.item);
-        return;
+        // A manual edit that lands on an existing title should not be rejected:
+        // append the duplicate's files to this item instead of asking the user
+        // to merge or keep two entries. Best-effort: a kind/library mismatch
+        // leaves the items separate but never blocks the save.
+        await api.mergeItems(item.id, res.item.id).catch(() => undefined);
       }
     } catch {
       /* duplicate check is best-effort */
     }
     finish();
-  };
-
-  const mergeDuplicate = async () => {
-    if (!duplicate) return;
-    setMergeBusy(true);
-    setMergeError('');
-    try {
-      await api.mergeItems(item.id, duplicate.id);
-      setDuplicate(null);
-      finish();
-    } catch (err) {
-      setMergeError((err as Error).message);
-      setMergeBusy(false);
-    }
-  };
-
-  const keepSeparate = async () => {
-    if (!duplicate) return;
-    setMergeBusy(true);
-    setMergeError('');
-    try {
-      await api.keepSeparate(item.id, duplicate.id);
-      setDuplicate(null);
-      finish();
-    } catch (err) {
-      setMergeError((err as Error).message);
-      setMergeBusy(false);
-    }
   };
 
   const save = useMutation({
@@ -253,12 +227,23 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
       // movie/home video can be applied directly here. The episode type is
       // applied by SearchPluginDialog/LocalSearchDialog when the user picks one.
       if (kind === 'episode') {
-        if (item.kind !== 'episode') {
-          throw new Error('To make this a TV episode, pick the show with “Search from Video Info Plugin” or “Select from existing videos”. The season/episode numbers below are used for that match.');
-        }
         const season = Number(seasonNumber) || 0;
         const episode = Number(episodeNumber) || 0;
-        if (season !== (item.seasonNumber ?? 0) || episode !== (item.episodeNumber ?? 0)) {
+        if (item.kind !== 'episode') {
+          // Manual fallback: a provider match is not required. The Show title
+          // field defaults to the Title, so a fully hand-filled episode can be
+          // saved without a successful search.
+          const targetShow = showTitle.trim() || title.trim();
+          if (!targetShow) {
+            throw new Error('Enter a Show title (or a Title) to save this TV episode.');
+          }
+          await api.reclassifyItem(item.id, {
+            kind: 'episode',
+            showTitle: targetShow,
+            seasonNumber: season,
+            episodeNumber: episode,
+          });
+        } else if (season !== (item.seasonNumber ?? 0) || episode !== (item.episodeNumber ?? 0)) {
           await api.reclassifyItem(item.id, { kind: 'episode', seasonNumber: season, episodeNumber: episode });
         }
       } else if (kind !== item.kind) {
@@ -342,6 +327,16 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                           <option value="home_video">Home video</option>
                         </select>
                       </Field>
+                      {kind === 'episode' && item.kind !== 'episode' ? (
+                        <Field label="Show title">
+                          <input
+                            value={showTitle}
+                            onChange={(e) => setShowTitle(e.target.value)}
+                            placeholder={title || 'e.g. Breaking Bad'}
+                            className={inputClass}
+                          />
+                        </Field>
+                      ) : null}
                       {kind === 'episode' ? (
                         <>
                           <Field label="Season">
@@ -356,8 +351,9 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
                     <p className="mt-2 text-[11px] text-fg-dim">
                       Pick a type, then use <strong className="text-fg-muted">Search from Video Info Plugin</strong> or{' '}
                       <strong className="text-fg-muted">Select from existing videos</strong> — the chosen type is applied when you pick a result.
-                      Season/episode can be set by hand for specials or trailers the provider does not cover; they are used for the
-                      match. The choice survives rescans.
+                      No provider match? Fill in the fields and save — Show title defaults to Title, so a manual episode/movie does
+                      not need a successful search. Season/episode can be set by hand for specials or trailers. The choice survives
+                      rescans.
                     </p>
                   </div>
                 ) : null}
@@ -571,54 +567,6 @@ export function EditVideoInfoDialog({ item, onClose }: { item: ItemDetail; onClo
         />
       ) : null}
 
-      {duplicate ? (
-        <Dialog
-          title="Possible duplicate"
-          onClose={() => setDuplicate(null)}
-          z={60}
-          size="max-w-xl"
-          footer={
-            <>
-              <p className="min-w-0 truncate text-[11.5px] text-active">{mergeError}</p>
-              <div className="flex shrink-0 items-center gap-2">
-                <DialogButton onClick={() => setDuplicate(null)}>Cancel</DialogButton>
-                <DialogButton disabled={mergeBusy} onClick={() => void keepSeparate()}>
-                  Keep separate
-                </DialogButton>
-                <DialogButton variant="primary" disabled={mergeBusy} onClick={() => void mergeDuplicate()}>
-                  {mergeBusy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-                  Merge
-                </DialogButton>
-              </div>
-            </>
-          }
-        >
-          <div className="flex gap-4 p-5">
-            <div className="h-[108px] w-[72px] shrink-0 overflow-hidden rounded bg-surface-2">
-              {duplicate.posterUrl ? (
-                <img src={duplicate.posterUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <div className="grid h-full place-items-center text-fg-dim">
-                  <ImageIcon className="size-5" aria-hidden />
-                </div>
-              )}
-            </div>
-            <div className="min-w-0 text-[12.5px] text-fg-muted">
-              <p className="text-[14px] font-medium text-fg">
-                {duplicate.title}
-                {duplicate.year ? <span className="ml-1 font-normal text-fg-dim">({duplicate.year})</span> : null}
-              </p>
-              <p className="mt-1">
-                Another item with the same title already exists in this library
-                {duplicate.fileCount ? ` (${duplicate.fileCount} file${duplicate.fileCount === 1 ? '' : 's'})` : ''}.
-              </p>
-              <p className="mt-2">
-                <strong className="text-fg">Merge</strong> moves its files into this item; <strong className="text-fg">Keep separate</strong> leaves both entries.
-              </p>
-            </div>
-          </div>
-        </Dialog>
-      ) : null}
     </>
   );
 }

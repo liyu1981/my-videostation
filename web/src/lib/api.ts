@@ -573,8 +573,6 @@ export const api = {
     request<ItemDetail>(`/items/${id}/apply-local`, { method: 'POST', body: JSON.stringify({ sourceId }) }),
   mergeItems: (id: number, fromId: number) =>
     request<ItemDetail>(`/items/${id}/merge`, { method: 'POST', body: JSON.stringify({ fromId }) }),
-  keepSeparate: (id: number, otherId: number) =>
-    request<{ ok: boolean }>(`/items/${id}/keep-separate`, { method: 'POST', body: JSON.stringify({ otherId }) }),
   match: (id: number, providerId: string, language?: string, season?: number, episode?: number, provider?: string) =>
     request<ItemDetail>(`/items/${id}/match`, {
       method: 'POST',

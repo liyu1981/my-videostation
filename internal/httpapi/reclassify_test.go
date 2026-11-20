@@ -243,3 +243,29 @@ func TestReclassifyRejectsBadInput(t *testing.T) {
 		}
 	}
 }
+
+// TestReclassifyHomeVideoToMovie: manual metadata editing can also promote a
+// home-video placeholder to a movie without any provider match.
+func TestReclassifyHomeVideoToMovie(t *testing.T) {
+	srv, st, dir := newTestServer(t)
+	ctx := context.Background()
+	homeDir := filepath.Join(dir, "home")
+	writeFile(t, filepath.Join(homeDir, "manual movie.mkv"))
+	lib, err := st.CreateLibrary(ctx, "Home", "home_video", "", []string{homeDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanLibrary(t, srv, lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	item := itemIDByTitle(t, srv.URL, lib.ID, "manual movie")
+	res := postJSON(t, srv.URL+"/api/v1/items/"+itoa(item)+"/reclassify", map[string]any{"kind": "movie"})
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("reclassify: %d", res.StatusCode)
+	}
+	got := getItemDetail(t, srv.URL, item)
+	if got.Kind != "movie" || got.ParentID != 0 {
+		t.Fatalf("after reclassify: %+v", got)
+	}
+}
